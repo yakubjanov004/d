@@ -3,7 +3,7 @@ from aiogram.types import Message, FSInputFile
 from aiogram.enums.parse_mode import ParseMode
 import os
 
-from database.queries import get_user_language  # tilni olish
+from database.basic.language import get_user_language
 
 router = Router()
 
@@ -46,7 +46,6 @@ def text_by_lang(lang: str) -> str:
 
 @router.message(F.text.in_(["📄 Bot qo'llanmasi", "📄Инструкция по использованию бота"]))
 async def bot_guide_handler(message: Message):
-    # Foydalanuvchi tilini olamiz: 'uz'/'ru' (default 'uz')
     lang = await get_user_language(message.from_user.id) or "uz"
     caption_or_text = text_by_lang(lang)
 

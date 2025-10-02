@@ -34,11 +34,11 @@ class ApplicationsStates(StatesGroup):
     technician_details = State()  # Texnik zayavka tafsilotlari
     
     # Xodim zayavkalari
-    saff_orders = State()  # Xodim zayavkalari bo'limi
-    saff_list = State()  # Xodim zayavkalari ro'yxati
-    saff_search = State()  # Xodim zayavkalarida qidiruv
-    saff_filter = State()  # Xodim zayavkalarni filterlash
-    saff_details = State()  # Xodim zayavkasi tafsilotlari
+    staff_orders = State()  # Xodim zayavkalari bo'limi
+    staff_list = State()  # Xodim zayavkalari ro'yxati
+    staff_search = State()  # Xodim zayavkalarida qidiruv
+    staff_filter = State()  # Xodim zayavkalarni filterlash
+    staff_details = State()  # Xodim zayavkasi tafsilotlari
     
     # Umumiy holatlar
     waiting_for_search_query = State()  # Qidiruv so'rovi kutilmoqda

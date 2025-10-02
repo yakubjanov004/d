@@ -1,0 +1,30 @@
+media_struktura #media qanday va qaysi papkada qanday saqlanishi xaqida
+
+media/
+├── 2024/01/                 # Yil-oy (faqat ishlatilgan oylar)
+│   ├── orders/              # Barcha buyurtmalar
+│   │   ├── attachments/     # Rasmlar, videolar, hujjatlar
+│   │   └── akt/             # AKT hujjatlari
+│   ├── reports/             # Hisobotlar
+│   └── exports/             # Export fayllar
+├── temp/                    # Vaqtinchalik (auto-cleanup)
+└── system/                  # Tizim fayllari
+    ├── videos/              # Bot qo'llanmasi videosi
+    └── logs/                # Log fayllar (agar kerak bo'lsa)
+
+# Asosiy modellar va ularning vazifalari
+1. Users - Foydalanuvchilar ro'yxati
+2. Tarif - Internet tariflari
+3. ConnectionOrders - Ulanish so'rovlari
+4. TechnicianOrders - Texnik xizmat buyurtmalari
+5. StaffOrders - Call Center buyurtmalari
+6. SmartServiceOrders - Aqlli xizmatlar
+7. Materials - Ombordagi materiallar
+8. MaterialRequests - Material so'rovlari
+9. MaterialIssued - Chiqarilgan materiallar
+10. Reports - Hisobotlar
+11. AktDocuments - AKT hujjatlari
+12. AktRatings - Mijoz baholashlari
+13. Connections - Buyurtmalar bog'lanishi
+14. MediaFiles - Barcha media fayllar
+

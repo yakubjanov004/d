@@ -140,7 +140,7 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connecion_id,
+                    connection_id,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -189,13 +189,13 @@ async def get_juniors_with_load_via_history() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.connecion_id)
-                       c.connecion_id,
+                SELECT DISTINCT ON (c.connection_id)
+                       c.connection_id,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                ORDER BY c.connecion_id, c.created_at DESC
+                ORDER BY c.connection_id, c.created_at DESC
             ),
             workloads AS (
                 SELECT
@@ -203,7 +203,7 @@ async def get_juniors_with_load_via_history() -> List[Dict[str, Any]]:
                     COUNT(*) AS cnt
                 FROM last_assign la
                 JOIN connection_orders co
-                  ON co.id = la.connecion_id
+                  ON co.id = la.connection_id
                 WHERE co.is_active = TRUE
                   AND co.status = 'in_junior_manager'
                   AND la.recipient_status = 'in_junior_manager'

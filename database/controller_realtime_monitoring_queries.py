@@ -72,7 +72,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     sender_id/recipient_id -> users.full_name
     Bosqich davomiyligi: navbatdagi yozuvning created_at - joriy created_at.
     Oxirgisi tugamagan bo‘lsa end_time = NULL (UI: 'hali tugamagan').
-    Eslatma: ayrim bazalarda ustun nomi 'connection_id' o‘rniga 'connecion_id' bo‘lishi mumkin.
+    Eslatma: ayrim bazalarda ustun nomi 'connection_id' o‘rniga 'connection_id' bo‘lishi mumkin.
     """
     # Avval normal nom bilan urinamiz:
     sql1 = """
@@ -99,7 +99,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     FROM connections c
     LEFT JOIN users su ON su.id = c.sender_id
     LEFT JOIN users ru ON ru.id = c.recipient_id
-    WHERE c.connecion_id = $1
+    WHERE c.connection_id = $1
     ORDER BY c.created_at ASC;
     """
     conn = await asyncpg.connect(settings.DB_URL)

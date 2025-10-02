@@ -61,11 +61,11 @@ from database.technician_queries import (
     save_technician_diagnosis,
     finish_technician_work_for_tech,
     
-    # Xodim arizalari (saff_orders) oqimi
-    fetch_technician_inbox_saff,
-    accept_technician_work_for_saff,
-    start_technician_work_for_saff,
-    finish_technician_work_for_saff,
+    # Xodim arizalari (staff_orders) oqimi
+    fetch_technician_inbox_staff,
+    accept_technician_work_for_staff,
+    start_technician_work_for_staff,
+    finish_technician_work_for_staff,
 )
 
 # =====================
@@ -88,7 +88,7 @@ T = {
     "pager": {"uz": "🗂️ <i>Ariza {i} / {n}</i>", "ru": "🗂️ <i>Заявка {i} / {n}</i>"},
     "empty_connection": {"uz": "📭 Ulanish arizalari bo‘sh", "ru": "📭 Заявок на подключение нет"},
     "empty_tech": {"uz": "📭 Texnik xizmat arizalari bo‘sh", "ru": "📭 Заявок на техобслуживание нет"},
-    "empty_saff": {"uz": "📭 Xodim arizalari bo‘sh", "ru": "📭 Заявок от сотрудников нет"},
+    "empty_staff": {"uz": "📭 Xodim arizalari bo‘sh", "ru": "📭 Заявок от сотрудников нет"},
     "choose_section": {"uz": "📂 Qaysi bo‘limni ko‘ramiz?", "ru": "📂 Какой раздел откроем?"},
     "no_perm": {"uz": "❌ Ruxsat yo‘q", "ru": "❌ Нет доступа"},
     "prev": {"uz": "⬅️ Oldingi", "ru": "⬅️ Предыдущая"},
@@ -422,13 +422,13 @@ async def tech_cat_operator(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
-    items = _dedup_by_id(await fetch_technician_inbox_saff(technician_id=user["id"], limit=50, offset=0))
-    await state.update_data(tech_mode="saff", tech_inbox=items, tech_idx=0, lang=lang)
+    items = _dedup_by_id(await fetch_technician_inbox_staff(technician_id=user["id"], limit=50, offset=0))
+    await state.update_data(tech_mode="staff", tech_inbox=items, tech_idx=0, lang=lang)
     if not items:
-        return await cb.message.edit_text(t("empty_saff", lang))
+        return await cb.message.edit_text(t("empty_staff", lang))
     item = items[0]; total = len(items)
     text = short_view_text(item, 0, total, lang)
-    kb = action_keyboard(item.get("id"), 0, total, item.get("status", ""), mode="saff", lang=lang)
+    kb = action_keyboard(item.get("id"), 0, total, item.get("status", ""), mode="staff", lang=lang)
     await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 # ====== Navigatsiya (prev/next) ======
@@ -481,8 +481,8 @@ async def tech_accept(cb: CallbackQuery, state: FSMContext):
     try:
         if mode == "technician":
             ok = await accept_technician_work_for_tech(applications_id=req_id, technician_id=user["id"])
-        elif mode == "saff":
-            ok = await accept_technician_work_for_saff(applications_id=req_id, technician_id=user["id"])
+        elif mode == "staff":
+            ok = await accept_technician_work_for_staff(applications_id=req_id, technician_id=user["id"])
         else:
             ok = await accept_technician_work(applications_id=req_id, technician_id=user["id"])
         if not ok:
@@ -550,8 +550,8 @@ async def tech_start(cb: CallbackQuery, state: FSMContext):
     try:
         if mode == "technician":
             ok = await start_technician_work_for_tech(applications_id=req_id, technician_id=user["id"])
-        elif mode == "saff":
-            ok = await start_technician_work_for_saff(applications_id=req_id, technician_id=user["id"])
+        elif mode == "staff":
+            ok = await start_technician_work_for_staff(applications_id=req_id, technician_id=user["id"])
         else:
             ok = await start_technician_work(applications_id=req_id, technician_id=user["id"])
         if not ok:
@@ -815,9 +815,9 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
         if mode == "technician":
             ok = await finish_technician_work_for_tech(applications_id=req_id, technician_id=user["id"])
             request_type = "technician"
-        elif mode == "saff":
-            ok = await finish_technician_work_for_saff(applications_id=req_id, technician_id=user["id"])
-            request_type = "saff"
+        elif mode == "staff":
+            ok = await finish_technician_work_for_staff(applications_id=req_id, technician_id=user["id"])
+            request_type = "staff"
         else:
             ok = await finish_technician_work(applications_id=req_id, technician_id=user["id"])
             request_type = "connection"
@@ -966,7 +966,7 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
         return await msg.answer(t("only_int", lang))
 
     mode = st.get("tech_mode", "connection")
-    request_type = "technician" if mode == "technician" else ("saff" if mode == "saff" else "connection")
+    request_type = "technician" if mode == "technician" else ("staff" if mode == "staff" else "connection")
 
     try:
         ok = await create_material_request_and_mark_in_warehouse(

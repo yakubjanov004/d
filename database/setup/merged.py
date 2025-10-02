@@ -6,7 +6,7 @@ ALFABOT — Consolidated Database Setup (Merged Schema)
 • Merged from 3 analysis reports (2025-09-22)
 • Safe on Windows/Linux (UTF-8, no LC_* forcing)
 • Idempotent: re-runnable (IF NOT EXISTS / DO $$ ... $$)
-• Legacy-compat layer: connections.connecion_id <-> connection_order_id sync
+• Legacy-compat layer: connections.connection_id <-> connection_order_id sync
 • Rich bilingual (UZ/RU) seed data
 How to run:
   1) (optional) set env: PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
@@ -89,8 +89,8 @@ END $$;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-                 WHERE t.typname = 'saff_order_status' AND n.nspname = 'public') THEN
-    CREATE TYPE public.saff_order_status AS ENUM (
+                 WHERE t.typname = 'staff_order_status' AND n.nspname = 'public') THEN
+    CREATE TYPE public.staff_order_status AS ENUM (
       'in_call_center','in_manager','in_controller','in_warehouse','in_technician','completed','cancelled'
     );
   END IF;
@@ -263,7 +263,7 @@ DROP TRIGGER IF EXISTS trg_technician_orders_updated_at ON public.technician_ord
 CREATE TRIGGER trg_technician_orders_updated_at BEFORE UPDATE ON public.technician_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
-CREATE TABLE IF NOT EXISTS public.saff_orders (
+CREATE TABLE IF NOT EXISTS public.staff_orders (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   phone TEXT,
@@ -272,20 +272,20 @@ CREATE TABLE IF NOT EXISTS public.saff_orders (
   tarif_id BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   address TEXT,
   description TEXT,
-  status public.saff_order_status NOT NULL DEFAULT 'in_call_center',
+  status public.staff_order_status NOT NULL DEFAULT 'in_call_center',
   type_of_zayavka public.type_of_zayavka NOT NULL DEFAULT 'connection',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_saff_orders_user ON public.saff_orders(user_id);
-CREATE INDEX IF NOT EXISTS idx_saff_orders_status ON public.saff_orders(status);
-CREATE INDEX IF NOT EXISTS idx_saff_status_active ON public.saff_orders(status, is_active);
-CREATE INDEX IF NOT EXISTS idx_saff_ccs_active_created
-  ON public.saff_orders(created_at, id)
-  WHERE (status = 'in_call_center'::public.saff_order_status AND is_active = TRUE);
-DROP TRIGGER IF EXISTS trg_saff_orders_updated_at ON public.saff_orders;
-CREATE TRIGGER trg_saff_orders_updated_at BEFORE UPDATE ON public.saff_orders
+CREATE INDEX IF NOT EXISTS idx_staff_orders_user ON public.staff_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_staff_orders_status ON public.staff_orders(status);
+CREATE INDEX IF NOT EXISTS idx_staff_status_active ON public.staff_orders(status, is_active);
+CREATE INDEX IF NOT EXISTS idx_staff_ccs_active_created
+  ON public.staff_orders(created_at, id)
+  WHERE (status = 'in_call_center'::public.staff_order_status AND is_active = TRUE);
+DROP TRIGGER IF EXISTS trg_staff_orders_updated_at ON public.staff_orders;
+CREATE TRIGGER trg_staff_orders_updated_at BEFORE UPDATE ON public.staff_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 CREATE TABLE IF NOT EXISTS public.smart_service_orders (
@@ -372,7 +372,7 @@ CREATE TABLE IF NOT EXISTS public.material_requests (
   material_id INTEGER NOT NULL REFERENCES public.materials(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   quantity INTEGER DEFAULT 1,
   price NUMERIC DEFAULT 0,
   total_price NUMERIC DEFAULT 0
@@ -441,7 +441,7 @@ CREATE TABLE IF NOT EXISTS public.connections (
   recipient_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   connection_order_id BIGINT REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_id BIGINT REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_id BIGINT REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_id BIGINT REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   sender_status TEXT,
@@ -450,17 +450,17 @@ CREATE TABLE IF NOT EXISTS public.connections (
 -- Legacy column sync
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name='connections' AND column_name='connecion_id') THEN
-    ALTER TABLE public.connections ADD COLUMN connecion_id INTEGER;
+                 WHERE table_name='connections' AND column_name='connection_id') THEN
+    ALTER TABLE public.connections ADD COLUMN connection_id INTEGER;
   END IF;
 END $$;
 CREATE OR REPLACE FUNCTION public.trg_sync_connections_ids()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.connection_order_id IS NOT NULL AND NEW.connecion_id IS NULL THEN
-    NEW.connecion_id := NEW.connection_order_id::INTEGER;
-  ELSIF NEW.connecion_id IS NOT NULL AND NEW.connection_order_id IS NULL THEN
-    NEW.connection_order_id := NEW.connecion_id::BIGINT;
+  IF NEW.connection_order_id IS NOT NULL AND NEW.connection_id IS NULL THEN
+    NEW.connection_id := NEW.connection_order_id::INTEGER;
+  ELSIF NEW.connection_id IS NOT NULL AND NEW.connection_order_id IS NULL THEN
+    NEW.connection_order_id := NEW.connection_id::BIGINT;
   END IF;
   RETURN NEW;
 END;

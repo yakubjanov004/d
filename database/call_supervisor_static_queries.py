@@ -5,7 +5,7 @@ from config import settings
 async def get_active_connection_tasks_count() -> int:
     """
     Aktiv vazifalar soni:
-      saff_orders jadvalidan is_active = TRUE
+      staff_orders jadvalidan is_active = TRUE
       va status 'completed' EMAS
     """
     conn = await asyncpg.connect(settings.DB_URL)
@@ -13,7 +13,7 @@ async def get_active_connection_tasks_count() -> int:
         return await conn.fetchval(
             """
             SELECT COUNT(*)
-              FROM saff_orders
+              FROM staff_orders
              WHERE is_active = TRUE
                AND status <> 'completed'
             """
@@ -41,14 +41,14 @@ async def get_callcenter_operator_count() -> int:
 async def get_canceled_connection_tasks_count() -> int:
     """
     Bekor qilingan vazifalar soni:
-      saff_orders jadvalidan is_active = False
+      staff_orders jadvalidan is_active = False
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         return await conn.fetchval(
             """
             SELECT COUNT(*)
-              FROM saff_orders
+              FROM staff_orders
              WHERE is_active = FALSE
             """
         )
@@ -68,7 +68,7 @@ async def get_operator_orders_stat() -> list[dict]:
                 u.full_name,
                 COUNT(*) FILTER (WHERE o.type_of_zayavka = 'technician') AS technician_count,
                 COUNT(*) FILTER (WHERE o.type_of_zayavka = 'connection') AS connection_count
-            FROM saff_orders o
+            FROM staff_orders o
             JOIN users u ON o.user_id = u.id
             WHERE o.is_active = TRUE
             GROUP BY u.id, u.full_name

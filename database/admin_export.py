@@ -60,13 +60,13 @@ async def get_admin_technician_orders_for_export() -> List[Dict[str, Any]]:
     return await _fetch_all(query)
 
 
-async def get_admin_saff_orders_for_export() -> List[Dict[str, Any]]:
+async def get_admin_staff_orders_for_export() -> List[Dict[str, Any]]:
     query = """
         SELECT so.id, u.full_name, u.username, u.telegram_id, so.phone,
                so.abonent_id, so.region, so.address, so.type_of_zayavka,
                so.description, so.status, so.created_at, so.updated_at,
                t.name as tarif_name
-        FROM saff_orders so
+        FROM staff_orders so
         LEFT JOIN users u ON u.id = so.user_id
         LEFT JOIN tarif t ON t.id = so.tarif_id
         ORDER BY so.created_at DESC
@@ -84,7 +84,7 @@ async def get_admin_statistics_for_export() -> Dict[str, Any]:
 
         total_conn_orders = await conn.fetchval("SELECT COUNT(*) FROM connection_orders")
         total_tech_orders = await conn.fetchval("SELECT COUNT(*) FROM technician_orders")
-        total_saff_orders = await conn.fetchval("SELECT COUNT(*) FROM saff_orders")
+        total_staff_orders = await conn.fetchval("SELECT COUNT(*) FROM staff_orders")
 
         by_role = await conn.fetch("SELECT role, COUNT(*) cnt FROM users GROUP BY role ORDER BY cnt DESC")
         conn_by_status = await conn.fetch("SELECT status, COUNT(*) cnt FROM connection_orders GROUP BY status ORDER BY cnt DESC")
@@ -100,7 +100,7 @@ async def get_admin_statistics_for_export() -> Dict[str, Any]:
             "orders": {
                 "connection_total": total_conn_orders,
                 "technician_total": total_tech_orders,
-                "saff_total": total_saff_orders,
+                "staff_total": total_staff_orders,
                 "connection_by_status": [dict(r) for r in conn_by_status],
                 "technician_by_status": [dict(r) for r in tech_by_status],
             },

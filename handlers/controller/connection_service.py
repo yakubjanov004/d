@@ -31,7 +31,7 @@ from database.controller_inbox import get_user_by_telegram_id
 from database.controller_connection_queries import (
     find_user_by_phone,
     get_or_create_tarif_by_code,
-    saff_orders_create_by_controller,
+    staff_orders_create_by_controller,
 )
 
 # === Role filter ===
@@ -85,8 +85,8 @@ T = {
     "resend_restart": {"uz": "🔄 Qaytadan boshladik", "ru": "🔄 Начали заново"},
 
     "ok_created_title": {
-        "uz": "✅ <b>Ariza yaratildi (controller → saff_orders)</b>",
-        "ru": "✅ <b>Заявка создана (контроллер → saff_orders)</b>",
+        "uz": "✅ <b>Ariza yaratildi (controller → staff_orders)</b>",
+        "ru": "✅ <b>Заявка создана (контроллер → staff_orders)</b>",
     },
     "lbl_req_id": {"uz": "🆔 Ariza raqami:", "ru": "🆔 Номер заявки:"},
     "lbl_region": {"uz": "📍 Region:", "ru": "📍 Регион:"},
@@ -377,7 +377,7 @@ async def ctrl_confirm(callback: CallbackQuery, state: FSMContext):
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
 
         # description YUBORMAYMIZ (connection uchun shart emas!)
-        request_id = await saff_orders_create_by_controller(
+        request_id = await staff_orders_create_by_controller(
             user_id=controller_user_id,
             abonent_id=str(client_user_id),
             phone=acting_client.get("phone"),

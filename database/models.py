@@ -98,7 +98,7 @@ class TechnicianApplication(BaseModel):
     is_active: bool = True
 
 @dataclass
-class SaffApplication(BaseModel):
+class staffApplication(BaseModel):
     id: Optional[int] = None
     user_id: Optional[int] = None
     phone: Optional[str] = None
@@ -134,9 +134,9 @@ class Connection(BaseModel):
     sender_status: Optional[str] = None
     recipient_id: Optional[int] = None
     recipient_status: Optional[str] = None
-    connecion_id: Optional[int] = None
+    connection_id: Optional[int] = None
     technician_id: Optional[int] = None
-    saff_id: Optional[int] = None
+    staff_id: Optional[int] = None
 
 
 @dataclass

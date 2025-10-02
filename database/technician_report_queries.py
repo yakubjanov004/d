@@ -24,7 +24,7 @@ async def _pick_column(conn, table: str, candidates: list[str]) -> Optional[str]
 
 async def _detect_columns_for_kind(kind: str) -> Tuple[str, str]:
     """
-    kind ∈ {'connection','technician','saff'}
+    kind ∈ {'connection','technician','staff'}
     Qaytaradi: (order_id_col, date_col)
       - order_id_col: connections dagi shu turga mos ID ustuni
       - date_col: updated_at bo‘lsa o‘sha, bo‘lmasa created_at
@@ -32,21 +32,21 @@ async def _detect_columns_for_kind(kind: str) -> Tuple[str, str]:
     conn = await _conn()
     try:
         if kind == "connection":
-            # sizda connecion_id (typo) mavjud — birinchi bo‘lib shuni tanlaymiz
-            order_col = await _pick_column(conn, "connections", ["connecion_id", "connection_id"])
+            # sizda connection_id (typo) mavjud — birinchi bo‘lib shuni tanlaymiz
+            order_col = await _pick_column(conn, "connections", ["connection_id", "connection_id"])
             if not order_col:
-                raise RuntimeError("[connections] connecion_id/connection_id topilmadi")
+                raise RuntimeError("[connections] connection_id/connection_id topilmadi")
         elif kind == "technician":
             # technician_orders.id ga bog‘lanadigan ustun nomi sxemaga ko‘ra farq qilishi mumkin
             order_col = await _pick_column(conn, "connections", ["technician_id", "technician_order_id", "tech_order_id"])
             if not order_col:
                 raise RuntimeError("[connections] technician_order_id (technician_id/...) topilmadi")
-        elif kind == "saff":
-            order_col = await _pick_column(conn, "connections", ["saff_id"])
+        elif kind == "staff":
+            order_col = await _pick_column(conn, "connections", ["staff_id"])
             if not order_col:
-                raise RuntimeError("[connections] saff_id ustuni topilmadi")
+                raise RuntimeError("[connections] staff_id ustuni topilmadi")
         else:
-            raise ValueError("kind must be connection|technician|saff")
+            raise ValueError("kind must be connection|technician|staff")
 
         date_col = await _pick_column(conn, "connections", ["updated_at", "created_at"])
         if not date_col:
@@ -59,7 +59,7 @@ async def _detect_columns_for_kind(kind: str) -> Tuple[str, str]:
 async def _count_from_connections_by_status(
     *,
     user_id: int,           # users.id (bot foydalanuvchisi)
-    kind: str,              # 'connection' | 'technician' | 'saff'
+    kind: str,              # 'connection' | 'technician' | 'staff'
     date_from,              # tz-aware UTC yoki None
     date_to,                # tz-aware UTC yoki None
 ) -> Dict[str, int]:
@@ -166,5 +166,5 @@ async def count_connection_status(user_id: int, date_from, date_to) -> Dict[str,
 async def count_technician_status(user_id: int, date_from, date_to) -> Dict[str, int]:
     return await _count_from_connections_by_status(user_id=user_id, kind="technician", date_from=date_from, date_to=date_to)
 
-async def count_saff_status(user_id: int, date_from, date_to) -> Dict[str, int]:
-    return await _count_from_connections_by_status(user_id=user_id, kind="saff",       date_from=date_from, date_to=date_to)
+async def count_staff_status(user_id: int, date_from, date_to) -> Dict[str, int]:
+    return await _count_from_connections_by_status(user_id=user_id, kind="staff",       date_from=date_from, date_to=date_to)

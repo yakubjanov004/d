@@ -10,7 +10,7 @@ from config import settings
 async def fetch_staff_activity() -> List[Dict[str, Any]]:
     """
     UZ: users jadvalidan role IN ('manager','junior_manager') bo'lgan xodimlarni oladi
-        va saff_ordersdagi arizalarini hisoblaydi: connection/technician/total/active.
+        va staff_ordersdagi arizalarini hisoblaydi: connection/technician/total/active.
     RU: Берет сотрудников с ролями ('manager','junior_manager') и считает заявки.
 
     Qaytadi: [
@@ -36,7 +36,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
         COALESCE(SUM(CASE WHEN s.is_active = TRUE AND (s.status)::text <> 'completed' THEN 1 ELSE 0 END), 0)
             AS active_count
     FROM users u
-    LEFT JOIN saff_orders s
+    LEFT JOIN staff_orders s
            ON s.user_id = u.id
     WHERE u.role IN ('manager','junior_manager')
     GROUP BY u.id, u.full_name, u.role

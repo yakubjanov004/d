@@ -32,7 +32,7 @@ async def get_operator_stats_by_range(operator_id: int, range_key: str) -> Dict[
     # ⚠️ interval parametr bo‘lib bormaydi — whitelistdan olinib literal bo‘lib qo‘yilyapti
     co_sql = f"""
         SELECT COUNT(*)::int
-        FROM saff_orders
+        FROM staff_orders
         WHERE user_id = $1
           AND type_of_zayavka = 'connection'
           AND is_active = TRUE
@@ -40,7 +40,7 @@ async def get_operator_stats_by_range(operator_id: int, range_key: str) -> Dict[
     """
     to_sql = f"""
         SELECT COUNT(*)::int
-        FROM saff_orders
+        FROM staff_orders
         WHERE user_id = $1
           AND type_of_zayavka = 'technician'
           AND created_at >= NOW() - INTERVAL '{interval}'

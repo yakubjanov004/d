@@ -22,12 +22,12 @@ from keyboards.call_center_buttons import (
 )
 
 # === States ===
-from states.call_center_states import SaffConnectionOrderStates
+from states.call_center_states import staffConnectionOrderStates
 
 # === DB functions ===
 from database.call_center_operator_queries import (
     find_user_by_phone,
-    saff_orders_create,
+    staff_orders_create,
     get_or_create_tarif_by_code,
 )
 from database.client_queries import ensure_user
@@ -84,11 +84,11 @@ async def op_start_text(msg: Message, state: FSMContext):
         if lang == "uz" else
         "📞 Введите номер телефона клиента (например: +998901234567):"
     )
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
     await msg.answer(text, reply_markup=ReplyKeyboardRemove())
 
 # ======================= STEP 1: phone lookup =======================
-@router.message(StateFilter(SaffConnectionOrderStates.waiting_client_phone))
+@router.message(StateFilter(staffConnectionOrderStates.waiting_client_phone))
 async def op_get_phone(msg: Message, state: FSMContext):
     lang = await get_user_language(msg.from_user.id) or "uz"
 
@@ -148,7 +148,7 @@ async def op_back_to_phone(cq: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await state.clear()
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
     await cq.message.answer(
         "📞 Mijoz telefon raqamini kiriting (masalan, +998901234567):"
         if lang == "uz" else
@@ -158,7 +158,7 @@ async def op_back_to_phone(cq: CallbackQuery, state: FSMContext):
 
 # ======================= STEP 2: region =======================
 @router.callback_query(
-    StateFilter(SaffConnectionOrderStates.waiting_client_phone),
+    StateFilter(staffConnectionOrderStates.waiting_client_phone),
     F.data == "op_conn_continue"
 )
 async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
@@ -170,12 +170,12 @@ async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     # 🔑 lang ni uzatamiz
     await cq.message.answer(text, reply_markup=get_client_regions_keyboard(lang))
 
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await cq.answer()
 
 
 # ======================= STEP 3: connection type =======================
-@router.callback_query(F.data.startswith("region_"), StateFilter(SaffConnectionOrderStates.selecting_region))
+@router.callback_query(F.data.startswith("region_"), StateFilter(staffConnectionOrderStates.selecting_region))
 async def op_select_region(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
     await callback.answer()
@@ -186,10 +186,10 @@ async def op_select_region(callback: CallbackQuery, state: FSMContext):
 
     text = "🔌 Ulanish turini tanlang:" if lang == "uz" else "🔌 Выберите тип подключения:"
     await callback.message.answer(text, reply_markup=zayavka_type_keyboard(lang))
-    await state.set_state(SaffConnectionOrderStates.selecting_connection_type)
+    await state.set_state(staffConnectionOrderStates.selecting_connection_type)
 
 # ======================= STEP 4: connection type -> tariff =======================
-@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(SaffConnectionOrderStates.selecting_connection_type))
+@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(staffConnectionOrderStates.selecting_connection_type))
 async def op_select_connection_type(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
     await callback.answer()
@@ -200,10 +200,10 @@ async def op_select_connection_type(callback: CallbackQuery, state: FSMContext):
 
     text = "📋 Tariflardan birini tanlang:" if lang == "uz" else "📋 Выберите один из тарифов:"
     await callback.message.answer(text, reply_markup=get_operator_tariff_selection_keyboard(), parse_mode="HTML")
-    await state.set_state(SaffConnectionOrderStates.selecting_tariff)
+    await state.set_state(staffConnectionOrderStates.selecting_tariff)
 
 # ======================= STEP 5: tariff -> address =======================
-@router.callback_query(StateFilter(SaffConnectionOrderStates.selecting_tariff), F.data.startswith("op_tariff_"))
+@router.callback_query(StateFilter(staffConnectionOrderStates.selecting_tariff), F.data.startswith("op_tariff_"))
 async def op_select_tariff(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
     await callback.answer()
@@ -213,10 +213,10 @@ async def op_select_tariff(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_tariff=normalized_code)
 
     await callback.message.answer("🏠 Manzilni kiriting:" if lang == "uz" else "🏠 Введите адрес:")
-    await state.set_state(SaffConnectionOrderStates.entering_address)
+    await state.set_state(staffConnectionOrderStates.entering_address)
 
 # ======================= STEP 6: address -> summary =======================
-@router.message(StateFilter(SaffConnectionOrderStates.entering_address))
+@router.message(StateFilter(staffConnectionOrderStates.entering_address))
 async def op_get_address(msg: Message, state: FSMContext):
     lang = await get_user_language(msg.from_user.id) or "uz"
     address = (msg.text or "").strip()
@@ -257,10 +257,10 @@ async def op_show_summary(target, state: FSMContext):
     else:
         await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-    await state.set_state(SaffConnectionOrderStates.confirming_connection)
+    await state.set_state(staffConnectionOrderStates.confirming_connection)
 
 # ======================= STEP 7: confirm / resend =======================
-@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def op_confirm(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
     try:
@@ -283,7 +283,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         tariff_code = data.get("selected_tariff")
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
 
-        request_id = await saff_orders_create(
+        request_id = await staff_orders_create(
             user_id=user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
@@ -314,7 +314,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         logger.exception("Confirm error: %s", e)
         await callback.answer("Xatolik yuz berdi" if lang == "uz" else "Произошла ошибка", show_alert=True)
 
-@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def op_resend(callback: CallbackQuery, state: FSMContext):
     """Qayta yuborish: REGION tanlash bosqichidan davom etadi."""
     lang = await get_user_language(callback.from_user.id) or "uz"
@@ -330,7 +330,7 @@ async def op_resend(callback: CallbackQuery, state: FSMContext):
     if acting_client:
         await state.update_data(acting_client=acting_client)
 
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await callback.message.answer(
         "🌍 Regionni tanlang:" if lang == "uz" else "🌍 Выберите регион:",
         reply_markup=get_client_regions_keyboard()

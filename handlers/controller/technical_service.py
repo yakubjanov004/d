@@ -25,7 +25,7 @@ from states.controller_states import ControllerTechnicianOrderStates
 # === DB (controller varianti) ===
 from database.controller_connection_queries import (
     find_user_by_phone,                          # user lookup
-    saff_orders_technician_create_by_controller, # texnik xizmat arizasi yaratish
+    staff_orders_technician_create_by_controller, # texnik xizmat arizasi yaratish
 )
 from database.client_queries import ensure_user   # controller userini ensure
 
@@ -308,7 +308,7 @@ async def ctrl_tservice_confirm(callback: CallbackQuery, state: FSMContext):
 
         description = data.get("description", "") or ""
 
-        request_id = await saff_orders_technician_create_by_controller(
+        request_id = await staff_orders_technician_create_by_controller(
             user_id=controller_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),

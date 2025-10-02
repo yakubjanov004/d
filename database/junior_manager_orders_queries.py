@@ -13,9 +13,9 @@ async def _detect_conn_fk_col(conn) -> str:
     FROM information_schema.columns
     WHERE table_name='connections' AND column_name = ANY($1::text[])
     """
-    rows = await conn.fetch(q, ['connection_id', 'connecion_id'])
+    rows = await conn.fetch(q, ['connection_id', 'connection_id'])
     cols = [r['column_name'] for r in rows]
-    return cols[0] if cols else 'connecion_id'  # sizdagi typo bo‘lishi mumkin
+    return cols[0] if cols else 'connection_id'  # sizdagi typo bo‘lishi mumkin
 
 async def _resolve_user_id_by_telegram(conn, telegram_id: int) -> Optional[int]:
     qcols = """

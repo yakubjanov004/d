@@ -56,7 +56,7 @@ async def list_technicians_by_region(region_id: int, limit: int = 100) -> List[D
 
   # adjust import if needed
 
-async def saff_orders_create(
+async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -68,7 +68,7 @@ async def saff_orders_create(
     try:
         row = await conn.fetchrow(
             """
-            INSERT INTO saff_orders (
+            INSERT INTO staff_orders (
                 user_id, phone, region, abonent_id,
                 address, description, status, type_of_zayavka, is_active
             )

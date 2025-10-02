@@ -15,7 +15,7 @@ WHERE technician_id IS NOT NULL
     WHERE t.id = c.technician_id
   );
 
--- !!! E'TIBOR: saff_id dan HECH NIMA KO‘CHIRILMAYDI !!!
+-- !!! E'TIBOR: staff_id dan HECH NIMA KO‘CHIRILMAYDI !!!
 
 -- 3) Yangi FK: technician_id -> technician_orders(id)
 ALTER TABLE connections

@@ -85,7 +85,7 @@ async def fetch_controller_inbox(limit: int = 50, offset: int = 0) -> List[Dict[
 async def assign_to_technician(request_id: int | str, tech_id: int, actor_id: int) -> None:
     """
     connection_orders: in_controller -> between_controller_technician
-    connections: controller -> technician (connecion_id)
+    connections: controller -> technician (connection_id)
     """
     req_id = int(str(request_id).split("_")[0]) if isinstance(request_id, str) else int(request_id)
     conn = await asyncpg.connect(settings.DB_URL)
@@ -124,7 +124,7 @@ async def assign_to_technician(request_id: int | str, tech_id: int, actor_id: in
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    connecion_id,
+                    connection_id,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -231,7 +231,7 @@ async def assign_to_technician_for_tech(request_id: int | str, tech_id: int, act
 
 
 # ===========================
-#  Controller inbox (saff_orders)
+#  Controller inbox (staff_orders)
 # ===========================
 async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
     conn = await asyncpg.connect(settings.DB_URL)
@@ -255,7 +255,7 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
                 ab.phone      AS client_phone,
 
                 t.name        AS tariff
-            FROM saff_orders AS so
+            FROM staff_orders AS so
             LEFT JOIN users st ON st.id = so.user_id::bigint
             LEFT JOIN users ab ON ab.id = so.abonent_id::bigint
             LEFT JOIN tarif  t ON t.id  = so.tarif_id::bigint
@@ -273,8 +273,8 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
 
 async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, actor_id: int) -> None:
     """
-    saff_orders: in_controller -> between_controller_technician
-    connections: controller -> technician (saff_id)
+    staff_orders: in_controller -> between_controller_technician
+    connections: controller -> technician (staff_id)
     """
     req_id = int(str(request_id).split("_")[0]) if isinstance(request_id, str) else int(request_id)
     conn = await asyncpg.connect(settings.DB_URL)
@@ -293,7 +293,7 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
                 raise ValueError("Technician not found or blocked")
 
             row_old = await conn.fetchrow(
-                "SELECT status FROM saff_orders WHERE id=$1 FOR UPDATE",
+                "SELECT status FROM staff_orders WHERE id=$1 FOR UPDATE",
                 req_id,
             )
             if not row_old or row_old["status"] != "in_controller":
@@ -302,7 +302,7 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
 
             await conn.execute(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                    SET status = 'between_controller_technician',
                        updated_at = NOW()
                  WHERE id = $1 AND status = 'in_controller'
@@ -313,7 +313,7 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    saff_id,
+                    staff_id,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -337,22 +337,22 @@ async def get_technicians_with_load_via_history(mode: Optional[str] = None) -> L
     sql_connection = """
     WITH last_conn AS (
         SELECT
-            c.connecion_id,
+            c.connection_id,
             c.recipient_id,
             c.recipient_status,
             c.created_at,
             c.id,
             ROW_NUMBER() OVER (
-                PARTITION BY c.connecion_id
+                PARTITION BY c.connection_id
                 ORDER BY c.created_at DESC, c.id DESC
             ) AS rn
         FROM connections c
-        WHERE c.connecion_id IS NOT NULL
+        WHERE c.connection_id IS NOT NULL
     ),
     workloads AS (
         SELECT lc.recipient_id AS tech_id, COUNT(*) AS cnt
         FROM last_conn lc
-        JOIN connection_orders co ON co.id = lc.connecion_id
+        JOIN connection_orders co ON co.id = lc.connection_id
         WHERE lc.rn = 1
           AND lc.recipient_status = 'between_controller_technician'
           AND co.is_active = TRUE
@@ -405,22 +405,22 @@ async def get_technicians_with_load_via_history(mode: Optional[str] = None) -> L
     sql_staff = """
     WITH last_staff AS (
         SELECT
-            c.saff_id,
+            c.staff_id,
             c.recipient_id,
             c.recipient_status,
             c.created_at,
             c.id,
             ROW_NUMBER() OVER (
-                PARTITION BY c.saff_id
+                PARTITION BY c.staff_id
                 ORDER BY c.created_at DESC, c.id DESC
             ) AS rn
         FROM connections c
-        WHERE c.saff_id IS NOT NULL
+        WHERE c.staff_id IS NOT NULL
     ),
     workloads AS (
         SELECT ls.recipient_id AS tech_id, COUNT(*) AS cnt
         FROM last_staff ls
-        JOIN saff_orders so ON so.id = ls.saff_id
+        JOIN staff_orders so ON so.id = ls.staff_id
         WHERE ls.rn = 1
           AND ls.recipient_status = 'between_controller_technician'
           AND COALESCE(so.is_active, TRUE) = TRUE
@@ -439,9 +439,9 @@ async def get_technicians_with_load_via_history(mode: Optional[str] = None) -> L
     sql_all = """
     WITH
     last_conn AS (
-        SELECT c.connecion_id, c.recipient_id, c.recipient_status, c.created_at, c.id,
-               ROW_NUMBER() OVER (PARTITION BY c.connecion_id ORDER BY c.created_at DESC, c.id DESC) rn
-        FROM connections c WHERE c.connecion_id IS NOT NULL
+        SELECT c.connection_id, c.recipient_id, c.recipient_status, c.created_at, c.id,
+               ROW_NUMBER() OVER (PARTITION BY c.connection_id ORDER BY c.created_at DESC, c.id DESC) rn
+        FROM connections c WHERE c.connection_id IS NOT NULL
     ),
     last_tech AS (
         SELECT c.technician_id, c.recipient_id, c.recipient_status, c.created_at, c.id,
@@ -449,14 +449,14 @@ async def get_technicians_with_load_via_history(mode: Optional[str] = None) -> L
         FROM connections c WHERE c.technician_id IS NOT NULL
     ),
     last_staff AS (
-        SELECT c.saff_id, c.recipient_id, c.recipient_status, c.created_at, c.id,
-               ROW_NUMBER() OVER (PARTITION BY c.saff_id ORDER BY c.created_at DESC, c.id DESC) rn
-        FROM connections c WHERE c.saff_id IS NOT NULL
+        SELECT c.staff_id, c.recipient_id, c.recipient_status, c.created_at, c.id,
+               ROW_NUMBER() OVER (PARTITION BY c.staff_id ORDER BY c.created_at DESC, c.id DESC) rn
+        FROM connections c WHERE c.staff_id IS NOT NULL
     ),
     work_conn AS (
         SELECT lc.recipient_id AS tech_id, COUNT(*) AS cnt
         FROM last_conn lc
-        JOIN connection_orders co ON co.id = lc.connecion_id
+        JOIN connection_orders co ON co.id = lc.connection_id
         WHERE lc.rn = 1
           AND lc.recipient_status = 'between_controller_technician'
           AND co.is_active = TRUE
@@ -476,7 +476,7 @@ async def get_technicians_with_load_via_history(mode: Optional[str] = None) -> L
     work_staff AS (
         SELECT ls.recipient_id AS tech_id, COUNT(*) AS cnt
         FROM last_staff ls
-        JOIN saff_orders so ON so.id = ls.saff_id
+        JOIN staff_orders so ON so.id = ls.staff_id
         WHERE ls.rn = 1
           AND ls.recipient_status = 'between_controller_technician'
           AND COALESCE(so.is_active, TRUE) = TRUE

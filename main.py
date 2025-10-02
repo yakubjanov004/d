@@ -3,8 +3,15 @@ import sys
 import logging
 from loader import dp, bot
 from handlers import router as handlers_router
+from utils import setup_media_structure
 
 logger = logging.getLogger(__name__)
+
+# Setup media directory structure
+try:
+    setup_media_structure()
+except Exception as e:
+    sys.exit(1)
 
 async def main():
     dp.include_router(handlers_router)

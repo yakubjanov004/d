@@ -106,10 +106,10 @@ async def get_or_create_tarif_by_code(tariff_code: Optional[str]) -> Optional[in
         await conn.close()
 
 # =========================================================
-#  Controller → saff_orders yaratish (connection/technician)
+#  Controller → staff_orders yaratish (connection/technician)
 # =========================================================
 
-async def saff_orders_create_by_controller(
+async def staff_orders_create_by_controller(
     *,
     user_id: int,
     phone: Optional[str],
@@ -133,7 +133,7 @@ async def saff_orders_create_by_controller(
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                INSERT INTO saff_orders (
+                INSERT INTO staff_orders (
                     user_id, phone, abonent_id, region, address, tarif_id,
                     description, type_of_zayavka, status, is_active, created_at, updated_at
                 )
@@ -156,7 +156,7 @@ async def saff_orders_create_by_controller(
         await conn.close()
 
 
-async def saff_orders_technician_create_by_controller(
+async def staff_orders_technician_create_by_controller(
     *,
     user_id: int,
     phone: Optional[str],
@@ -170,7 +170,7 @@ async def saff_orders_technician_create_by_controller(
     UZ: Controller texnik xizmat arizasini (type_of_zayavka='technician') yaratadi.
     RU: Создание заявки на техобслуживание контроллером.
     """
-    return await saff_orders_create_by_controller(
+    return await staff_orders_create_by_controller(
         user_id=user_id,
         phone=phone,
         abonent_id=abonent_id,

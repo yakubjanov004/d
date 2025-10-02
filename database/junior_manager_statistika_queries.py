@@ -10,17 +10,17 @@ from config import settings
 async def _detect_conn_fk_col(conn: asyncpg.Connection) -> str:
     """
     connections -> connection_orders FK ustuni nomini autodetect qiladi:
-    'connection_id' yoki typo: 'connecion_id'.
-    Topilmasa 'connecion_id' (typo) qaytariladi.
+    'connection_id' yoki typo: 'connection_id'.
+    Topilmasa 'connection_id' (typo) qaytariladi.
     """
     q = """
     SELECT column_name
     FROM information_schema.columns
     WHERE table_name='connections' AND column_name = ANY($1::text[])
     """
-    rows = await conn.fetch(q, ['connection_id', 'connecion_id'])
+    rows = await conn.fetch(q, ['connection_id', 'connection_id'])
     cols = [r['column_name'] for r in rows]
-    return cols[0] if cols else 'connecion_id'
+    return cols[0] if cols else 'connection_id'
 
 async def _resolve_app_user_id(conn: asyncpg.Connection, telegram_id: int) -> Optional[int]:
     """
@@ -95,22 +95,22 @@ async def _window_counts_pipeline(
         "completed_from_sent": int(row["completed_cnt"] or 0),
     }
 
-# ===================== YANGI: saff_orders (JM o‘zi yaratgan arizalar) =====================
-async def _window_counts_saff_orders(
+# ===================== YANGI: staff_orders (JM o‘zi yaratgan arizalar) =====================
+async def _window_counts_staff_orders(
     conn: asyncpg.Connection,
     user_id: int,
     start_utc: datetime,
     end_utc: datetime,
 ) -> Dict[str, int]:
     """
-    JM tomonidan yaratilgan connection arizalar (saff_orders):
+    JM tomonidan yaratilgan connection arizalar (staff_orders):
       - created_by_me:   created_at oynasida yaratilganlar
       - created_completed: status='completed' va updated_at oynasida
     Eslatma: type_of_zayavka = 'connection' bo‘yicha filtr.
     """
     q_created = """
         SELECT COUNT(*) AS c
-        FROM saff_orders
+        FROM staff_orders
         WHERE user_id = $1
           AND type_of_zayavka = 'connection'
           AND is_active = TRUE
@@ -121,7 +121,7 @@ async def _window_counts_saff_orders(
 
     q_completed = """
         SELECT COUNT(*) AS c
-        FROM saff_orders
+        FROM staff_orders
         WHERE user_id = $1
           AND type_of_zayavka = 'connection'
           AND status = 'completed'
@@ -136,9 +136,9 @@ async def _window_counts_saff_orders(
         "created_completed": completed_cnt,
     }
 
-def _merge_windows(base: Dict[str, int], saff: Dict[str, int]) -> Dict[str, int]:
+def _merge_windows(base: Dict[str, int], staff: Dict[str, int]) -> Dict[str, int]:
     """
-    connections pipeline metrikalarini + saff_orders alohida metrikalarini bitta dictga birlashtiradi.
+    connections pipeline metrikalarini + staff_orders alohida metrikalarini bitta dictga birlashtiradi.
     """
     out = {
         "received": base.get("received", 0),
@@ -146,8 +146,8 @@ def _merge_windows(base: Dict[str, int], saff: Dict[str, int]) -> Dict[str, int]
         "completed_from_sent": base.get("completed_from_sent", 0),
     }
     # alohida ko‘rsatish uchun:
-    out["created_by_me"] = saff.get("created_by_me", 0)
-    out["created_completed"] = saff.get("created_completed", 0)
+    out["created_by_me"] = staff.get("created_by_me", 0)
+    out["created_completed"] = staff.get("created_completed", 0)
     return out
 
 # ===================== PUBLIC API =====================
@@ -158,7 +158,7 @@ async def get_jm_stats_for_telegram(
     """
     Birlashtirilgan statistika:
       - Eski pipeline (connections + connection_orders)
-      - JM yaratgan arizalar (saff_orders, type_of_zayavka='connection') — ALOHIDA ko‘rsatiladi
+      - JM yaratgan arizalar (staff_orders, type_of_zayavka='connection') — ALOHIDA ko‘rsatiladi
     Qaytadi:
     {
       "today": {"received": X, "sent_to_controller": Y, "completed_from_sent": Z,
@@ -184,23 +184,23 @@ async def get_jm_stats_for_telegram(
 
         # --- TODAY ---
         base_today = await _window_counts_pipeline(conn, user_id, fk_col, t_start, t_end)
-        saff_today = await _window_counts_saff_orders(conn, user_id, t_start, t_end)
-        today = _merge_windows(base_today, saff_today)
+        staff_today = await _window_counts_staff_orders(conn, user_id, t_start, t_end)
+        today = _merge_windows(base_today, staff_today)
 
         # --- 7 DAYS ---
         base_7 = await _window_counts_pipeline(conn, user_id, fk_col, *d7)
-        saff_7 = await _window_counts_saff_orders(conn, user_id, *d7)
-        last7 = _merge_windows(base_7, saff_7)
+        staff_7 = await _window_counts_staff_orders(conn, user_id, *d7)
+        last7 = _merge_windows(base_7, staff_7)
 
         # --- 10 DAYS ---
         base_10 = await _window_counts_pipeline(conn, user_id, fk_col, *d10)
-        saff_10 = await _window_counts_saff_orders(conn, user_id, *d10)
-        last10 = _merge_windows(base_10, saff_10)
+        staff_10 = await _window_counts_staff_orders(conn, user_id, *d10)
+        last10 = _merge_windows(base_10, staff_10)
 
         # --- 30 DAYS ---
         base_30 = await _window_counts_pipeline(conn, user_id, fk_col, *d30)
-        saff_30 = await _window_counts_saff_orders(conn, user_id, *d30)
-        last30 = _merge_windows(base_30, saff_30)
+        staff_30 = await _window_counts_staff_orders(conn, user_id, *d30)
+        last30 = _merge_windows(base_30, staff_30)
 
         return {
             "today": today,

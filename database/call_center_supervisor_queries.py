@@ -10,7 +10,7 @@ async def ccs_count_active() -> int:
     try:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS c
-            FROM saff_orders
+            FROM staff_orders
             WHERE status = 'in_call_center_supervisor'
               AND is_active = TRUE
         """)
@@ -25,7 +25,7 @@ async def ccs_fetch_by_offset(offset: int) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow("""
             SELECT id, user_id, phone, abonent_id, region, address, tarif_id,
                    description, created_at
-            FROM saff_orders
+            FROM staff_orders
             WHERE status = 'in_call_center_supervisor'
               AND is_active = TRUE
             ORDER BY created_at ASC
@@ -40,7 +40,7 @@ async def ccs_send_to_control(order_id: int, supervisor_id: Optional[int] = None
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         await conn.execute("""
-            UPDATE saff_orders
+            UPDATE staff_orders
                SET status = 'in_controller',
                    updated_at = NOW()
              WHERE id = $1
@@ -54,7 +54,7 @@ async def ccs_cancel(order_id: int) -> None:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         await conn.execute("""
-            UPDATE saff_orders
+            UPDATE staff_orders
                SET is_active = FALSE,
                    updated_at = NOW()
              WHERE id = $1
@@ -136,7 +136,7 @@ async def get_or_create_tarif_by_code(tariff_code: Optional[str]) -> Optional[in
     finally:
         await conn.close()
 
-async def saff_orders_create(
+async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -148,7 +148,7 @@ async def saff_orders_create(
     try:
         row = await conn.fetchrow(
             """
-            INSERT INTO saff_orders (
+            INSERT INTO staff_orders (
                 user_id, phone, abonent_id, region, address, tarif_id,
                 description, type_of_zayavka, status, is_active
             )
@@ -191,7 +191,7 @@ async def _conn() -> asyncpg.Connection:
 
   # adjust import if needed
 
-async def saff_orders_technician_create(
+async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -203,7 +203,7 @@ async def saff_orders_technician_create(
     try:
         row = await conn.fetchrow(
             """
-            INSERT INTO saff_orders (
+            INSERT INTO staff_orders (
                 user_id, phone, region, abonent_id,
                 address, description, status, type_of_zayavka, is_active
             )

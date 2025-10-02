@@ -43,14 +43,14 @@ async def get_controller_tech_requests_for_export() -> List[Dict[str, Any]]:
         FROM technician_orders to2
         LEFT JOIN users u ON to2.user_id = u.id
         LEFT JOIN (
-            SELECT DISTINCT ON (connecion_id) 
-                connecion_id, 
+            SELECT DISTINCT ON (connection_id) 
+                connection_id, 
                 technician_id,
                 recipient_id
             FROM connections 
-            WHERE connecion_id IS NOT NULL
-            ORDER BY connecion_id, created_at DESC
-        ) c ON to2.id = c.connecion_id
+            WHERE connection_id IS NOT NULL
+            ORDER BY connection_id, created_at DESC
+        ) c ON to2.id = c.connection_id
         LEFT JOIN users u2 ON c.technician_id = u2.id
         LEFT JOIN users u3 ON c.recipient_id = u3.id
         LEFT JOIN akt_documents ad ON to2.id = ad.request_id AND ad.request_type = 'technician'
@@ -93,16 +93,16 @@ async def get_controller_material_requests_for_export() -> List[Dict[str, Any]]:
             mr.total_price,
             mr.connection_order_id,
             mr.technician_order_id,
-            mr.saff_order_id,
+            mr.staff_order_id,
             co.address as connection_address,
             to2.address as technician_address,
-            so.address as saff_address
+            so.address as staff_address
         FROM material_requests mr
         LEFT JOIN users u ON mr.user_id = u.id
         LEFT JOIN materials m ON mr.material_id = m.id
         LEFT JOIN connection_orders co ON mr.connection_order_id = co.id
         LEFT JOIN technician_orders to2 ON mr.technician_order_id = to2.id
-        LEFT JOIN saff_orders so ON mr.saff_order_id = so.id
+        LEFT JOIN staff_orders so ON mr.staff_order_id = so.id
         WHERE u.role IN ('controller', 'technician') OR mr.technician_order_id IS NOT NULL
         ORDER BY mr.id DESC
         """

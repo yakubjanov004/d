@@ -10,10 +10,10 @@ from database.queries import find_user_by_telegram_id
 from database.warehouse_inbox import (
     fetch_material_requests_by_connection_orders,
     fetch_material_requests_by_technician_orders,
-    fetch_material_requests_by_saff_orders,
+    fetch_material_requests_by_staff_orders,
     count_material_requests_by_connection_orders,
     count_material_requests_by_technician_orders,
-    count_material_requests_by_saff_orders,
+    count_material_requests_by_staff_orders,
     get_all_material_requests_count
 )
 from keyboards.warehouse_buttons import (
@@ -56,9 +56,9 @@ def format_material_request(material_request, index, total_count):
     elif material_request.get('technician_order_id'):
         order_type = 'technician'
         order_id = material_request.get('technician_order_id', 'N/A')
-    elif material_request.get('saff_order_id'):
+    elif material_request.get('staff_order_id'):
         order_type = 'staff'
-        order_id = material_request.get('saff_order_id', 'N/A')
+        order_id = material_request.get('staff_order_id', 'N/A')
     
     order_type_text = {
         'connection': '🔗 Ulanish arizasi',
@@ -99,7 +99,7 @@ async def material_requests_handler(message: Message, state: FSMContext):
         f"O'rnatilgan materiallar bo'yicha ma'lumot:\n\n"
         f"🔗 <b>Ulanish arizalari materiallari:</b> {counts['connection_orders']}\n"
         f"🔧 <b>Texnik xizmat materiallari:</b> {counts['technician_orders']}\n"
-        f"👥 <b>Xodim arizalari materiallari:</b> {counts['saff_orders']}\n\n"
+        f"👥 <b>Xodim arizalari materiallari:</b> {counts['staff_orders']}\n\n"
         f"📊 <b>Jami:</b> {counts['total']}\n\n"
         f"Quyidagi tugmalardan birini tanlang:"
     )
@@ -159,11 +159,11 @@ async def show_material_requests_technician(callback: CallbackQuery, state: FSMC
 @router.callback_query(F.data == "warehouse_material_requests_staff")
 async def show_material_requests_staff(callback: CallbackQuery, state: FSMContext):
     """Show material requests for staff orders"""
-    await state.set_state(MaterialRequestsStates.saff_orders)
+    await state.set_state(MaterialRequestsStates.staff_orders)
     await state.update_data(current_index=0)
     
-    material_requests = await fetch_material_requests_by_saff_orders(limit=1, offset=0)
-    total_count = await count_material_requests_by_saff_orders()
+    material_requests = await fetch_material_requests_by_staff_orders(limit=1, offset=0)
+    total_count = await count_material_requests_by_staff_orders()
     
     if not material_requests:
         await callback.message.edit_text(
@@ -197,8 +197,8 @@ async def navigate_material_requests_prev(callback: CallbackQuery, state: FSMCon
         material_requests = await fetch_material_requests_by_technician_orders(limit=1, offset=new_index)
         total_count = await count_material_requests_by_technician_orders()
     elif request_type == "material_requests_staff":
-        material_requests = await fetch_material_requests_by_saff_orders(limit=1, offset=new_index)
-        total_count = await count_material_requests_by_saff_orders()
+        material_requests = await fetch_material_requests_by_staff_orders(limit=1, offset=new_index)
+        total_count = await count_material_requests_by_staff_orders()
     else:
         await callback.answer("❌ Noto'g'ri so'rov turi!")
         return
@@ -227,8 +227,8 @@ async def navigate_material_requests_next(callback: CallbackQuery, state: FSMCon
         material_requests = await fetch_material_requests_by_technician_orders(limit=1, offset=new_index)
         total_count = await count_material_requests_by_technician_orders()
     elif request_type == "material_requests_staff":
-        material_requests = await fetch_material_requests_by_saff_orders(limit=1, offset=new_index)
-        total_count = await count_material_requests_by_saff_orders()
+        material_requests = await fetch_material_requests_by_staff_orders(limit=1, offset=new_index)
+        total_count = await count_material_requests_by_staff_orders()
     else:
         await callback.answer("❌ Noto'g'ri so'rov turi!")
         return
@@ -258,7 +258,7 @@ async def back_to_material_requests_categories(callback: CallbackQuery, state: F
             f"O'rnatilgan materiallar bo'yicha ma'lumot:\n\n"
             f"🔗 <b>Ulanish arizalari materiallari:</b> {counts['connection_orders']}\n"
             f"🔧 <b>Texnik xizmat materiallari:</b> {counts['technician_orders']}\n"
-            f"👥 <b>Xodim arizalari materiallari:</b> {counts['saff_orders']}\n\n"
+            f"👥 <b>Xodim arizalari materiallari:</b> {counts['staff_orders']}\n\n"
             f"📊 <b>Jami:</b> {counts['total']}\n\n"
             f"Quyidagi tugmalardan birini tanlang:"
         )

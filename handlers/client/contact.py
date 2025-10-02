@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from keyboards.client_buttons import get_contact_options_keyboard, get_client_main_menu
-from database.queries import get_user_language
+from database.basic.language import get_user_language
 
 router = Router()
 

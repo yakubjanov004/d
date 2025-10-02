@@ -9,7 +9,7 @@ DROP TABLE IF EXISTS public.material_requests CASCADE;
 DROP TABLE IF EXISTS public.material_and_technician CASCADE;
 DROP TABLE IF EXISTS public.connections CASCADE;
 DROP TABLE IF EXISTS public.smart_service_orders CASCADE;
-DROP TABLE IF EXISTS public.saff_orders CASCADE;
+DROP TABLE IF EXISTS public.staff_orders CASCADE;
 DROP TABLE IF EXISTS public.technician_orders CASCADE;
 DROP TABLE IF EXISTS public.connection_orders CASCADE;
 DROP TABLE IF EXISTS public.materials CASCADE;
@@ -21,7 +21,7 @@ DROP SEQUENCE IF EXISTS public.user_sequential_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.users_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.connection_orders_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.technician_orders_id_seq CASCADE;
-DROP SEQUENCE IF EXISTS public.saff_orders_id_seq CASCADE;
+DROP SEQUENCE IF EXISTS public.staff_orders_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.smart_service_orders_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.tarif_id_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.connections_id_seq CASCADE;
@@ -170,7 +170,7 @@ CREATE SEQUENCE public.technician_orders_id_seq
     NO MAXVALUE
     CACHE 1;
 
-CREATE SEQUENCE public.saff_orders_id_seq
+CREATE SEQUENCE public.staff_orders_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE

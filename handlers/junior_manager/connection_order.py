@@ -23,13 +23,13 @@ from keyboards.junior_manager_buttons import (
 )
 
 # === States ===
-from states.junior_manager_states import SaffConnectionOrderStates
+from states.junior_manager_states import staffConnectionOrderStates
 
 # === DB functions ===
 # !!! Import yo'lini loyihangizga moslang (oldin "conection" deb yozilgan bo'lishi mumkin).
 from database.junior_manager_conection_queries import (
     find_user_by_phone,
-    saff_orders_create,
+    staff_orders_create,
     get_or_create_tarif_by_code,
 )
 from database.client_queries import ensure_user
@@ -259,7 +259,7 @@ ENTRY_TEXTS_CONN = [
 @router.message(F.text.in_(ENTRY_TEXTS_CONN))
 async def jm_start_text(msg: Message, state: FSMContext):
     await state.clear()
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
 
     u = await db_get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -270,7 +270,7 @@ async def jm_start_text(msg: Message, state: FSMContext):
     )
 
 # ======================= STEP 1: phone lookup =======================
-@router.message(StateFilter(SaffConnectionOrderStates.waiting_client_phone))
+@router.message(StateFilter(staffConnectionOrderStates.waiting_client_phone))
 async def jm_get_phone(msg: Message, state: FSMContext):
     u = await db_get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -319,24 +319,24 @@ async def jm_back_to_phone(cq: CallbackQuery, state: FSMContext):
         pass
     # acting_client ni ham tozalaymiz — toza boshlash uchun
     await state.clear()
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
     await cq.message.answer(
         t(lang, "phone_prompt"),
         reply_markup=ReplyKeyboardRemove(),
     )
 
 # ======================= STEP 2: region =======================
-@router.callback_query(StateFilter(SaffConnectionOrderStates.waiting_client_phone), F.data == "jm_conn_continue")
+@router.callback_query(StateFilter(staffConnectionOrderStates.waiting_client_phone), F.data == "jm_conn_continue")
 async def jm_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(cq.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
 
     await cq.message.edit_reply_markup()
     await cq.message.answer(t(lang, "choose_region"), reply_markup=get_client_regions_keyboard(lang=lang))
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await cq.answer()
 
-@router.callback_query(F.data.startswith("region_"), StateFilter(SaffConnectionOrderStates.selecting_region))
+@router.callback_query(F.data.startswith("region_"), StateFilter(staffConnectionOrderStates.selecting_region))
 async def jm_select_region(callback: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -348,10 +348,10 @@ async def jm_select_region(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_region=region_code)
 
     await callback.message.answer(t(lang, "choose_conn_type"), reply_markup=zayavka_type_keyboard(lang))
-    await state.set_state(SaffConnectionOrderStates.selecting_connection_type)
+    await state.set_state(staffConnectionOrderStates.selecting_connection_type)
 
 # ======================= STEP 3: connection type =======================
-@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(SaffConnectionOrderStates.selecting_connection_type))
+@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(staffConnectionOrderStates.selecting_connection_type))
 async def jm_select_connection_type(callback: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -367,10 +367,10 @@ async def jm_select_connection_type(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_operator_tariff_selection_keyboard(),  # op_tariff_* callbacks
         parse_mode="HTML",
     )
-    await state.set_state(SaffConnectionOrderStates.selecting_tariff)
+    await state.set_state(staffConnectionOrderStates.selecting_tariff)
 
 # ======================= STEP 4: tariff =======================
-@router.callback_query(StateFilter(SaffConnectionOrderStates.selecting_tariff), F.data.startswith("op_tariff_"))
+@router.callback_query(StateFilter(staffConnectionOrderStates.selecting_tariff), F.data.startswith("op_tariff_"))
 async def jm_select_tariff(callback: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -382,10 +382,10 @@ async def jm_select_tariff(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_tariff=normalized_code)
 
     await callback.message.answer(t(lang, "enter_address"))
-    await state.set_state(SaffConnectionOrderStates.entering_address)
+    await state.set_state(staffConnectionOrderStates.entering_address)
 
 # ======================= STEP 5: address =======================
-@router.message(StateFilter(SaffConnectionOrderStates.entering_address))
+@router.message(StateFilter(staffConnectionOrderStates.entering_address))
 async def jm_get_address(msg: Message, state: FSMContext):
     u = await db_get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -421,10 +421,10 @@ async def jm_show_summary(target, state: FSMContext):
     else:
         await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-    await state.set_state(SaffConnectionOrderStates.confirming_connection)
+    await state.set_state(staffConnectionOrderStates.confirming_connection)
 
 # ======================= STEP 7: confirm / resend =======================
-@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def jm_confirm(callback: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -451,14 +451,14 @@ async def jm_confirm(callback: CallbackQuery, state: FSMContext):
         tariff_code = data.get("selected_tariff")  # tariff_* bo'lib keladi
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
 
-        request_id = await saff_orders_create(
+        request_id = await staff_orders_create(
             user_id=jm_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
             region=region_id,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
-            # Eslatma: agar sizda saff_orders_create ichida status 'in_controller' bo'lsa,
+            # Eslatma: agar sizda staff_orders_create ichida status 'in_controller' bo'lsa,
             # ccs_* querylaringizni ham shunga moslang. Aks holda bu yerda next statusni
             # parametr sifatida qo'shish tavsiya etiladi.
         )
@@ -480,7 +480,7 @@ async def jm_confirm(callback: CallbackQuery, state: FSMContext):
         logger.exception("JM confirm error: %s", e)
         await callback.answer(t(lang, "error_generic"), show_alert=True)
 
-@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def jm_resend(callback: CallbackQuery, state: FSMContext):
     u = await db_get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -497,5 +497,5 @@ async def jm_resend(callback: CallbackQuery, state: FSMContext):
     if acting_client:
         await state.update_data(acting_client=acting_client)
 
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await callback.message.answer(t(lang, "choose_region"), reply_markup=get_client_regions_keyboard(lang=lang))

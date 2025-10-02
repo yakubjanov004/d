@@ -36,7 +36,7 @@ TR = {
         "uz": "• Yuborganlaridan <code>completed</code>",
         "ru": "• Из отправленных <code>completed</code>",
     },
-    # 🆕 saff_orders metrikalari:
+    # 🆕 staff_orders metrikalari:
     "created_by_me": {"uz": "• O‘zim yaratgan", "ru": "• Создано мной"},
     "created_completed": {"uz": "• O‘zim yaratganlardan <code>completed</code>",
                           "ru": "• Из созданных мной <code>completed</code>"},

@@ -22,7 +22,7 @@ async def fetch_technician_inbox(
 ) -> List[Dict[str, Any]]:
     """
     Connection orders: oxirgi biriktirish (connections) bo‘yicha texnikka tegishli faol arizalar.
-    E’TIBOR: connections.connecion_id (sic) — connection_orders.id ni bildiradi.
+    E’TIBOR: connections.connection_id (sic) — connection_orders.id ni bildiradi.
     """
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
@@ -36,12 +36,12 @@ async def fetch_technician_inbox(
                 SELECT
                     c.*,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.connecion_id, c.recipient_id
+                        PARTITION BY c.connection_id, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.connecion_id IS NOT NULL
+                  AND c.connection_id IS NOT NULL
             )
             SELECT
                 co.id,
@@ -53,7 +53,7 @@ async def fetch_technician_inbox(
                 u.phone     AS client_phone,
                 t.name      AS tariff
             FROM last_conn c
-            JOIN connection_orders co ON co.id = c.connecion_id
+            JOIN connection_orders co ON co.id = c.connection_id
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
             WHERE
@@ -99,16 +99,16 @@ async def count_technician_inbox(
                 SELECT
                     c.*,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.connecion_id, c.recipient_id
+                        PARTITION BY c.connection_id, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.connecion_id IS NOT NULL
+                  AND c.connection_id IS NOT NULL
             )
             SELECT COUNT(*)
             FROM last_conn c
-            JOIN connection_orders co ON co.id = c.connecion_id
+            JOIN connection_orders co ON co.id = c.connection_id
             WHERE
                 c.rn = 1
                 AND co.is_active = TRUE
@@ -180,7 +180,7 @@ async def accept_technician_work(applications_id: int,
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connecion_id, sender_id, recipient_id,
+                    connection_id, sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2,
@@ -229,7 +229,7 @@ async def start_technician_work(applications_id: int,
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    connecion_id, sender_id, recipient_id,
+                    connection_id, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
@@ -279,7 +279,7 @@ async def finish_technician_work(applications_id: int,
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connecion_id, sender_id, recipient_id,
+                    connection_id, sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2,
@@ -564,7 +564,7 @@ async def send_selection_to_warehouse(
     applications_id: int,
     technician_user_id: Optional[int] = None, *,
     technician_id: Optional[int] = None,
-    request_type: str = "connection",  # 'connection' | 'technician' | 'saff'
+    request_type: str = "connection",  # 'connection' | 'technician' | 'staff'
 ) -> bool:
     """
     Tanlangan materiallarni omborga jo‘natish.
@@ -584,9 +584,9 @@ async def send_selection_to_warehouse(
                     "UPDATE technician_orders SET status='in_warehouse', updated_at=NOW() WHERE id=$1",
                     applications_id
                 )
-            elif request_type == "saff":
+            elif request_type == "staff":
                 await conn.execute(
-                    "UPDATE saff_orders SET status='in_warehouse', updated_at=NOW() WHERE id=$1",
+                    "UPDATE staff_orders SET status='in_warehouse', updated_at=NOW() WHERE id=$1",
                     applications_id
                 )
             else:
@@ -605,13 +605,13 @@ async def send_selection_to_warehouse(
             if warehouse_id is not None:
                 conn_id  = applications_id if request_type == "connection"  else None
                 tech_oid = applications_id if request_type == "technician" else None
-                saff_oid = applications_id if request_type == "saff"       else None
+                staff_oid = applications_id if request_type == "staff"       else None
 
                 await conn.execute(
                     """
                     INSERT INTO connections(
                         sender_id, recipient_id,
-                        connecion_id, technician_id, saff_id,
+                        connection_id, technician_id, staff_id,
                         sender_status, recipient_status,
                         created_at, updated_at
                     )
@@ -619,7 +619,7 @@ async def send_selection_to_warehouse(
                             'in_technician_work', 'in_warehouse',
                             NOW(), NOW())
                     """,
-                    uid, warehouse_id, conn_id, tech_oid, saff_oid
+                    uid, warehouse_id, conn_id, tech_oid, staff_oid
                 )
 
             return True
@@ -651,7 +651,7 @@ async def fetch_technician_inbox_tech(
 ) -> List[Dict[str, Any]]:
     """
     Technician orders: oxirgi biriktirish bo‘yicha texnikka tegishli faol arizalar.
-    DIQQAT: Ba'zi eski yozuvlarda connections.technician_id NULL, lekin connecion_id
+    DIQQAT: Ba'zi eski yozuvlarda connections.technician_id NULL, lekin connection_id
     (imlo bilan) ichida technician_orders.id turgan — shu holatni ham qo‘llab-quvvatlaymiz.
     """
     uid = technician_user_id if technician_user_id is not None else technician_id
@@ -667,15 +667,15 @@ async def fetch_technician_inbox_tech(
                     c.id,
                     c.recipient_id,
                     /* Eski xatolarni ham ushlash uchun fallback: */
-                    COALESCE(c.technician_id, c.connecion_id) AS tech_order_id,
+                    COALESCE(c.technician_id, c.connection_id) AS tech_order_id,
                     c.created_at,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(c.technician_id, c.connecion_id), c.recipient_id
+                        PARTITION BY COALESCE(c.technician_id, c.connection_id), c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND (c.technician_id IS NOT NULL OR c.connecion_id IS NOT NULL)
+                  AND (c.technician_id IS NOT NULL OR c.connection_id IS NOT NULL)
             )
             SELECT
                 to2.id,
@@ -899,8 +899,8 @@ async def finish_technician_work_for_tech(applications_id: int,
         await conn.close()
 
 
-# ======================= INBOX: SAFF_ORDERS =======================
-async def fetch_technician_inbox_saff(
+# ======================= INBOX: staff_ORDERS =======================
+async def fetch_technician_inbox_staff(
     technician_user_id: Optional[int] = None,
     *,
     technician_id: Optional[int] = None,  # alias
@@ -908,13 +908,13 @@ async def fetch_technician_inbox_saff(
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Saff orders: oxirgi biriktirish bo‘yicha texnikka tegishli faol arizalar.
-    Eslatma: connections.saff_id — saff_orders.id ni bildiradi.
+    staff orders: oxirgi biriktirish bo‘yicha texnikka tegishli faol arizalar.
+    Eslatma: connections.staff_id — staff_orders.id ni bildiradi.
     Filtr: recipient_id = texnik foydalanuvchi.
     """
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
-        raise TypeError("fetch_technician_inbox_saff(): technician_user_id yoki technician_id bering")
+        raise TypeError("fetch_technician_inbox_staff(): technician_user_id yoki technician_id bering")
 
     conn = await _conn()
     try:
@@ -924,12 +924,12 @@ async def fetch_technician_inbox_saff(
                 SELECT
                     c.*,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.saff_id, c.recipient_id
+                        PARTITION BY c.staff_id, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.saff_id IS NOT NULL
+                  AND c.staff_id IS NOT NULL
             )
             SELECT 
                 so.id,
@@ -944,7 +944,7 @@ async def fetch_technician_inbox_saff(
                 u.telegram_id,
                 NULL AS tariff
             FROM last_conn c
-            JOIN saff_orders so ON so.id = c.saff_id
+            JOIN staff_orders so ON so.id = c.staff_id
             LEFT JOIN users u ON u.id = so.user_id
             WHERE
                 c.rn = 1
@@ -968,19 +968,19 @@ async def fetch_technician_inbox_saff(
         await conn.close()
 
 
-async def accept_technician_work_for_saff(applications_id: int,
+async def accept_technician_work_for_staff(applications_id: int,
                                           technician_user_id: Optional[int] = None, *,
                                           technician_id: Optional[int] = None) -> bool:
-    """Saff order: between_controller_technician -> in_technician (connections.saff_id = applications_id)"""
+    """staff order: between_controller_technician -> in_technician (connections.staff_id = applications_id)"""
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
-        raise TypeError("accept_technician_work_for_saff(): technician_user_id yoki technician_id bering")
+        raise TypeError("accept_technician_work_for_staff(): technician_user_id yoki technician_id bering")
 
     conn = await _conn()
     try:
         async with conn.transaction():
             row_old = await conn.fetchrow(
-                "SELECT status FROM saff_orders WHERE id=$1 FOR UPDATE",
+                "SELECT status FROM staff_orders WHERE id=$1 FOR UPDATE",
                 applications_id
             )
             if not row_old or row_old["status"] != 'between_controller_technician':
@@ -988,7 +988,7 @@ async def accept_technician_work_for_saff(applications_id: int,
 
             row_new = await conn.fetchrow(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                    SET status = 'in_technician',
                        updated_at = NOW()
                  WHERE id=$1 AND status='between_controller_technician'
@@ -1002,7 +1002,7 @@ async def accept_technician_work_for_saff(applications_id: int,
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    saff_id, sender_id, recipient_id,
+                    staff_id, sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2, 'between_controller_technician', 'in_technician', NOW(), NOW())
@@ -1015,19 +1015,19 @@ async def accept_technician_work_for_saff(applications_id: int,
         await conn.close()
 
 
-async def start_technician_work_for_saff(applications_id: int,
+async def start_technician_work_for_staff(applications_id: int,
                                          technician_user_id: Optional[int] = None, *,
                                          technician_id: Optional[int] = None) -> bool:
-    """Saff order: in_technician -> in_technician_work"""
+    """staff order: in_technician -> in_technician_work"""
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
-        raise TypeError("start_technician_work_for_saff(): technician_user_id yoki technician_id bering")
+        raise TypeError("start_technician_work_for_staff(): technician_user_id yoki technician_id bering")
 
     conn = await _conn()
     try:
         async with conn.transaction():
             row_old = await conn.fetchrow(
-                "SELECT status FROM saff_orders WHERE id=$1 FOR UPDATE",
+                "SELECT status FROM staff_orders WHERE id=$1 FOR UPDATE",
                 applications_id
             )
             if not row_old or row_old["status"] != 'in_technician':
@@ -1035,7 +1035,7 @@ async def start_technician_work_for_saff(applications_id: int,
 
             row_new = await conn.fetchrow(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                    SET status='in_technician_work',
                        updated_at=NOW()
                  WHERE id=$1 AND status='in_technician'
@@ -1049,7 +1049,7 @@ async def start_technician_work_for_saff(applications_id: int,
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    saff_id, sender_id, recipient_id,
+                    staff_id, sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2, 'in_technician', 'in_technician_work', NOW(), NOW())
@@ -1062,19 +1062,19 @@ async def start_technician_work_for_saff(applications_id: int,
         await conn.close()
 
 
-async def finish_technician_work_for_saff(applications_id: int,
+async def finish_technician_work_for_staff(applications_id: int,
                                           technician_user_id: Optional[int] = None, *,
                                           technician_id: Optional[int] = None) -> bool:
-    """Saff order: in_technician_work -> completed"""
+    """staff order: in_technician_work -> completed"""
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
-        raise TypeError("finish_technician_work_for_saff(): technician_user_id yoki technician_id bering")
+        raise TypeError("finish_technician_work_for_staff(): technician_user_id yoki technician_id bering")
 
     conn = await _conn()
     try:
         async with conn.transaction():
             row_old = await conn.fetchrow(
-                "SELECT status FROM saff_orders WHERE id=$1 FOR UPDATE",
+                "SELECT status FROM staff_orders WHERE id=$1 FOR UPDATE",
                 applications_id
             )
             if not row_old or row_old["status"] != 'in_technician_work':
@@ -1082,7 +1082,7 @@ async def finish_technician_work_for_saff(applications_id: int,
 
             row_new = await conn.fetchrow(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                    SET status = 'completed',
                        updated_at = NOW()
                  WHERE id = $1 AND status = 'in_technician_work'
@@ -1097,7 +1097,7 @@ async def finish_technician_work_for_saff(applications_id: int,
                 await conn.execute(
                     """
                     INSERT INTO connections(
-                        saff_id, sender_id, recipient_id,
+                        staff_id, sender_id, recipient_id,
                         sender_status, recipient_status, created_at, updated_at
                     )
                     VALUES ($1, $2, $2, 'in_technician_work', 'completed', NOW(), NOW())

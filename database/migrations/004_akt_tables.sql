@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS akt_documents (
     id SERIAL PRIMARY KEY,
     request_id INTEGER NOT NULL,
-    request_type VARCHAR(20) NOT NULL CHECK (request_type IN ('connection', 'technician', 'saff')),
+    request_type VARCHAR(20) NOT NULL CHECK (request_type IN ('connection', 'technician', 'staff')),
     akt_number VARCHAR(50) NOT NULL,
     file_path VARCHAR(255) NOT NULL,
     file_hash VARCHAR(64) NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS akt_documents (
 CREATE TABLE IF NOT EXISTS akt_ratings (
     id SERIAL PRIMARY KEY,
     request_id INTEGER NOT NULL,
-    request_type VARCHAR(20) NOT NULL CHECK (request_type IN ('connection', 'technician', 'saff')),
+    request_type VARCHAR(20) NOT NULL CHECK (request_type IN ('connection', 'technician', 'staff')),
     rating INTEGER NOT NULL CHECK (rating >= 0 AND rating <= 5), -- 0 ga ruxsat berish
     comment TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -50,10 +50,10 @@ BEGIN
         ALTER TABLE material_requests ADD COLUMN technician_order_id INTEGER;
     END IF;
     
-    -- saff_order_id ustuni
+    -- staff_order_id ustuni
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'material_requests' AND column_name = 'saff_order_id') THEN
-        ALTER TABLE material_requests ADD COLUMN saff_order_id INTEGER;
+                   WHERE table_name = 'material_requests' AND column_name = 'staff_order_id') THEN
+        ALTER TABLE material_requests ADD COLUMN staff_order_id INTEGER;
     END IF;
     
     -- quantity ustuni
@@ -94,12 +94,12 @@ BEGIN
         FOREIGN KEY (technician_order_id) REFERENCES technician_orders(id);
     END IF;
     
-    -- saff_orders foreign key
+    -- staff_orders foreign key
     IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
-                   WHERE constraint_name = 'fk_material_requests_saff_order') THEN
+                   WHERE constraint_name = 'fk_material_requests_staff_order') THEN
         ALTER TABLE material_requests 
-        ADD CONSTRAINT fk_material_requests_saff_order 
-        FOREIGN KEY (saff_order_id) REFERENCES saff_orders(id);
+        ADD CONSTRAINT fk_material_requests_staff_order 
+        FOREIGN KEY (staff_order_id) REFERENCES staff_orders(id);
     END IF;
 END $$;
 
@@ -108,13 +108,13 @@ COMMENT ON TABLE akt_documents IS 'AKT hujjatlari ma''lumotlari';
 COMMENT ON TABLE akt_ratings IS 'AKT reytinglari va izohlari';
 
 COMMENT ON COLUMN akt_documents.request_id IS 'Zayavka ID';
-COMMENT ON COLUMN akt_documents.request_type IS 'Zayavka turi (connection, technician, saff)';
+COMMENT ON COLUMN akt_documents.request_type IS 'Zayavka turi (connection, technician, staff)';
 COMMENT ON COLUMN akt_documents.akt_number IS 'AKT raqami (AKT-{request_id}-{YYYYMMDD})';
 COMMENT ON COLUMN akt_documents.file_path IS 'Fayl yo''li';
 COMMENT ON COLUMN akt_documents.file_hash IS 'Fayl SHA256 hash';
 COMMENT ON COLUMN akt_documents.sent_to_client_at IS 'Mijozga yuborilgan vaqt';
 
 COMMENT ON COLUMN akt_ratings.request_id IS 'Zayavka ID';
-COMMENT ON COLUMN akt_ratings.request_type IS 'Zayavka turi (connection, technician, saff)';
+COMMENT ON COLUMN akt_ratings.request_type IS 'Zayavka turi (connection, technician, staff)';
 COMMENT ON COLUMN akt_ratings.rating IS 'Reyting (1-5)';
 COMMENT ON COLUMN akt_ratings.comment IS 'Mijoz izohi';

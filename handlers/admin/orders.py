@@ -7,7 +7,7 @@ from database.admin_orders_queries import (
     get_user_by_telegram_id,
     get_connection_orders,
     get_technician_orders,
-    get_saff_orders
+    get_staff_orders
 )
 from filters.role_filter import RoleFilter
 from keyboards.admin_buttons import get_applications_main_menu, get_admin_main_menu
@@ -190,7 +190,7 @@ def technician_order_text(item: dict, lang: str) -> str:
         f"📅 <b>Sana:</b> {fmt_dt(created_dt)}"
     )
 
-def saff_order_text(item: dict, lang: str) -> str:
+def staff_order_text(item: dict, lang: str) -> str:
     order_id = item['id']
     created = item["created_at"]
     created_dt = datetime.fromisoformat(created) if isinstance(created, str) else created
@@ -318,13 +318,13 @@ async def open_technician_orders(message: Message, state: FSMContext):
 
 # Xodim zayavkalari
 @router.message(F.text.in_(["👥 Xodim zayavkalari", "👥 Заявки сотрудников"]))
-async def open_saff_orders(message: Message, state: FSMContext):
+async def open_staff_orders(message: Message, state: FSMContext):
     user = await get_user_by_telegram_id(message.from_user.id)
     if not user or user.get("role") != "admin":
         return
     lang = await get_user_language(message.from_user.id) or "uz"
     
-    items = await get_saff_orders(limit=50, offset=0)
+    items = await get_staff_orders(limit=50, offset=0)
     if not items:
         await message.answer(
             ("👥 <b>Xodim Zayavkalari</b>\n\nHozircha zayavkalar yo'q." if lang == "uz" else "👥 <b>Заявки сотрудников</b>\n\nПока нет заявок."),
@@ -333,9 +333,9 @@ async def open_saff_orders(message: Message, state: FSMContext):
         )
         return
     
-    await state.update_data(saff_orders=items, idx=0)
-    text = saff_order_text(items[0], lang)
-    kb = nav_keyboard(0, len(items), "saff", lang)
+    await state.update_data(staff_orders=items, idx=0)
+    text = staff_order_text(items[0], lang)
+    kb = nav_keyboard(0, len(items), "staff", lang)
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 # Navigation callbacks
@@ -395,32 +395,32 @@ async def next_technician_order(cb: CallbackQuery, state: FSMContext):
     kb = nav_keyboard(idx, len(items), "technician", lang)
     await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
-@router.callback_query(F.data.startswith("saff_prev_"))
-async def prev_saff_order(cb: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("staff_prev_"))
+async def prev_staff_order(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     lang = await get_user_language(cb.from_user.id) or "uz"
     data = await state.get_data()
-    items = data.get("saff_orders", [])
-    idx = int(cb.data.replace("saff_prev_", "")) - 1
+    items = data.get("staff_orders", [])
+    idx = int(cb.data.replace("staff_prev_", "")) - 1
     if idx < 0 or idx >= len(items):
         return
     await state.update_data(idx=idx)
-    text = saff_order_text(items[idx], lang)
-    kb = nav_keyboard(idx, len(items), "saff", lang)
+    text = staff_order_text(items[idx], lang)
+    kb = nav_keyboard(idx, len(items), "staff", lang)
     await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
-@router.callback_query(F.data.startswith("saff_next_"))
-async def next_saff_order(cb: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("staff_next_"))
+async def next_staff_order(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     lang = await get_user_language(cb.from_user.id) or "uz"
     data = await state.get_data()
-    items = data.get("saff_orders", [])
-    idx = int(cb.data.replace("saff_next_", "")) + 1
+    items = data.get("staff_orders", [])
+    idx = int(cb.data.replace("staff_next_", "")) + 1
     if idx < 0 or idx >= len(items):
         return
     await state.update_data(idx=idx)
-    text = saff_order_text(items[idx], lang)
-    kb = nav_keyboard(idx, len(items), "saff", lang)
+    text = staff_order_text(items[idx], lang)
+    kb = nav_keyboard(idx, len(items), "staff", lang)
     await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 # Orqaga qaytish

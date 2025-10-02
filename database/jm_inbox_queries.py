@@ -31,9 +31,9 @@ async def db_get_connections_by_recipient(recipient_id: int, limit: int = 20) ->
                 id,
                 sender_id,
                 recipient_id,
-                connecion_id AS connection_id,  -- = order_id (connection_orders.id)
+                connection_id AS connection_id,  -- = order_id (connection_orders.id)
                 technician_id,
-                saff_id       AS staff_id,
+                staff_id       AS staff_id,
                 created_at,
                 updated_at
             FROM connections
@@ -91,7 +91,7 @@ async def db_get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 # ==================== JM oqimi ====================
 
 # JM Inbox: faqat 'in_junior_manager' dagi arizalar
-# connections(recipient_id = JM id) JOIN connection_orders(id = connecion_id) LEFT JOIN users(order.user_id)
+# connections(recipient_id = JM id) JOIN connection_orders(id = connection_id) LEFT JOIN users(order.user_id)
 # ... db_get_jm_inbox_items() ichidagi SELECTni shu ko‘rinishga keltiring:
 async def db_get_jm_inbox_items(recipient_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     conn = await asyncpg.connect(settings.DB_URL)
@@ -102,9 +102,9 @@ async def db_get_jm_inbox_items(recipient_id: int, limit: int = 50) -> List[Dict
                 c.id                   AS connection_record_id,
                 c.sender_id,
                 c.recipient_id,
-                c.connecion_id         AS connection_id,      -- order_id
+                c.connection_id         AS connection_id,      -- order_id
                 c.technician_id,
-                c.saff_id              AS staff_id,
+                c.staff_id              AS staff_id,
                 c.created_at           AS connection_created_at,
 
                 co.id                  AS order_id,           -- = connection_id
@@ -118,7 +118,7 @@ async def db_get_jm_inbox_items(recipient_id: int, limit: int = 50) -> List[Dict
                 u.full_name            AS client_full_name,
                 u.phone                AS client_phone
             FROM connections c
-            JOIN connection_orders co ON co.id = c.connecion_id
+            JOIN connection_orders co ON co.id = c.connection_id
             LEFT JOIN users u         ON u.id  = co.user_id
             WHERE c.recipient_id = $1
               AND co.status = 'in_junior_manager'::connection_order_status
@@ -141,7 +141,7 @@ async def db_check_order_ownership(order_id: int, jm_id: int) -> bool:
             SELECT 1
             FROM connections c
             WHERE c.recipient_id = $2
-              AND c.connecion_id = $1
+              AND c.connection_id = $1
             LIMIT 1
             """,
             order_id, jm_id
@@ -218,7 +218,7 @@ async def db_jm_send_to_controller(order_id: int, jm_id: int, controller_id: Opt
             # 👉 Faqat INSERT
             await conn.execute("""
                 INSERT INTO connections(
-                    connecion_id, sender_id, recipient_id,
+                    connection_id, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
@@ -244,7 +244,7 @@ async def db_set_jm_notes(order_id: int, jm_id: int, note_text: str) -> bool:
                 """
                 SELECT 1
                   FROM connections
-                 WHERE connecion_id = $1
+                 WHERE connection_id = $1
                    AND recipient_id = $2
                  LIMIT 1
                 """,

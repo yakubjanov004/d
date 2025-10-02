@@ -19,12 +19,12 @@ from keyboards.call_center_buttons import (
 )
 
 # === States ===
-from states.call_center_states import SaffTechnicianOrderStates
+from states.call_center_states import staffTechnicianOrderStates
 
 # === DB ===
 from database.call_center_operator_queries import find_user_by_phone
 from database.client_queries import ensure_user
-from database.call_technician_queries import saff_orders_create
+from database.call_technician_queries import staff_orders_create
 from database.queries import get_user_language   # 🔑 yangi qo‘shildi
 
 # === Role filter ===
@@ -85,11 +85,11 @@ async def op_start_text(msg: Message, state: FSMContext):
         if lang == "uz"
         else "📞 Введите номер клиента (например, +998901234567):"
     )
-    await state.set_state(SaffTechnicianOrderStates.waiting_client_phone)
+    await state.set_state(staffTechnicianOrderStates.waiting_client_phone)
     await msg.answer(text, reply_markup=ReplyKeyboardRemove())
 
 # ======================= STEP 1: phone lookup =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.waiting_client_phone))
+@router.message(StateFilter(staffTechnicianOrderStates.waiting_client_phone))
 async def op_get_phone(msg: Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang") or await get_user_language(msg.from_user.id) or "uz"
@@ -151,7 +151,7 @@ async def tservice_back_to_phone(cq: CallbackQuery, state: FSMContext):
         pass
     await state.clear()
     await state.update_data(lang=lang)
-    await state.set_state(SaffTechnicianOrderStates.waiting_client_phone)
+    await state.set_state(staffTechnicianOrderStates.waiting_client_phone)
     await cq.message.answer(
         "📞 Mijoz telefon raqamini kiriting (masalan, +998901234567):"
         if lang == "uz" else
@@ -161,7 +161,7 @@ async def tservice_back_to_phone(cq: CallbackQuery, state: FSMContext):
 
 # ======================= STEP 2: region =======================
 @router.callback_query(
-    StateFilter(SaffTechnicianOrderStates.waiting_client_phone),
+    StateFilter(staffTechnicianOrderStates.waiting_client_phone),
     F.data == "op_tservice_continue"
 )
 async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
@@ -173,11 +173,11 @@ async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     # 🔑 lang ni uzatamiz
     await cq.message.answer(text, reply_markup=get_client_regions_keyboard(lang))
 
-    await state.set_state(SaffTechnicianOrderStates.selecting_region)
+    await state.set_state(staffTechnicianOrderStates.selecting_region)
     await cq.answer()
 
 
-@router.callback_query(F.data.startswith("region_"), StateFilter(SaffTechnicianOrderStates.selecting_region))
+@router.callback_query(F.data.startswith("region_"), StateFilter(staffTechnicianOrderStates.selecting_region))
 async def op_select_region(callback: CallbackQuery, state: FSMContext):
     lang = (await state.get_data()).get("lang") or await get_user_language(callback.from_user.id) or "uz"
 
@@ -189,10 +189,10 @@ async def op_select_region(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "📝 Muammoni qisqacha ta'riflab bering:" if lang == "uz" else "📝 Опишите проблему:"
     )
-    await state.set_state(SaffTechnicianOrderStates.problem_description)
+    await state.set_state(staffTechnicianOrderStates.problem_description)
 
 # ======================= STEP 3: description =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.problem_description))
+@router.message(StateFilter(staffTechnicianOrderStates.problem_description))
 async def op_get_description(msg: Message, state: FSMContext):
     lang = (await state.get_data()).get("lang") or await get_user_language(msg.from_user.id) or "uz"
 
@@ -206,10 +206,10 @@ async def op_get_description(msg: Message, state: FSMContext):
     await state.update_data(description=desc)
 
     await msg.answer("🏠 Manzilingizni kiriting:" if lang == "uz" else "🏠 Введите адрес:")
-    await state.set_state(SaffTechnicianOrderStates.entering_address)
+    await state.set_state(staffTechnicianOrderStates.entering_address)
 
 # ======================= STEP 4: address =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.entering_address))
+@router.message(StateFilter(staffTechnicianOrderStates.entering_address))
 async def op_get_address(msg: Message, state: FSMContext):
     lang = (await state.get_data()).get("lang") or await get_user_language(msg.from_user.id) or "uz"
 
@@ -253,13 +253,13 @@ async def op_show_summary(target, state: FSMContext):
     else:
         await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-    await state.set_state(SaffTechnicianOrderStates.confirming_connection)
+    await state.set_state(staffTechnicianOrderStates.confirming_connection)
 
 
 # ======================= STEP 6: confirm =======================
 @router.callback_query(
     F.data == "confirm_zayavka_call_center_tech_service",
-    StateFilter(SaffTechnicianOrderStates.confirming_connection)
+    StateFilter(staffTechnicianOrderStates.confirming_connection)
 )
 async def op_confirm(callback: CallbackQuery, state: FSMContext):
     lang = (await state.get_data()).get("lang") or await get_user_language(callback.from_user.id) or "uz"
@@ -286,7 +286,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
 
         description = data.get("description", "") or ""
 
-        request_id = await saff_orders_create(
+        request_id = await staff_orders_create(
             user_id=user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
@@ -329,7 +329,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
 # ======================= STEP 7: resend (regiondan qayta) =======================
 @router.callback_query(
     F.data == "resend_zayavka_call_center_tech_service",
-    StateFilter(SaffTechnicianOrderStates.confirming_connection)
+    StateFilter(staffTechnicianOrderStates.confirming_connection)
 )
 async def op_resend(callback: CallbackQuery, state: FSMContext):
     """Qayta yuborish: jarayonni REGION tanlashdan qayta boshlaydi."""
@@ -349,7 +349,7 @@ async def op_resend(callback: CallbackQuery, state: FSMContext):
     if acting_client:
         await state.update_data(acting_client=acting_client)
 
-    await state.set_state(SaffTechnicianOrderStates.selecting_region)
+    await state.set_state(staffTechnicianOrderStates.selecting_region)
     await callback.message.answer(
         "🌍 Regionni tanlang:" if lang == "uz" else "🌍 Выберите регион:",
         reply_markup=get_client_regions_keyboard()

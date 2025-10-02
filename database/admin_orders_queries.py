@@ -77,7 +77,7 @@ async def get_technician_orders(limit: int = 50, offset: int = 0) -> List[Dict]:
     finally:
         await conn.close()
 
-async def get_saff_orders(limit: int = 50, offset: int = 0) -> List[Dict]:
+async def get_staff_orders(limit: int = 50, offset: int = 0) -> List[Dict]:
     """
     Xodim zayavkalarini olish
     """
@@ -99,7 +99,7 @@ async def get_saff_orders(limit: int = 50, offset: int = 0) -> List[Dict]:
             u.username,
             u.telegram_id,
             t.name as tarif_name
-        FROM saff_orders so
+        FROM staff_orders so
         LEFT JOIN users u ON so.user_id = u.id
         LEFT JOIN tarif t ON so.tarif_id = t.id
         WHERE so.is_active = true

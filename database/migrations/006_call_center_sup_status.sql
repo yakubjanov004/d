@@ -6,7 +6,7 @@ ALTER TYPE public.connection_order_status
 BEGIN;
 
 -- Eski qiymatlarni (agar bo'lsa) yangisiga ko'chirish
-UPDATE public.saff_orders
+UPDATE public.staff_orders
 SET status = 'in_call_center_supervisor'::public.connection_order_status
 WHERE status IN (
   'in_manager'::public.connection_order_status,
@@ -14,7 +14,7 @@ WHERE status IN (
 );
 
 -- Default qiymatni yangilash
-ALTER TABLE public.saff_orders
+ALTER TABLE public.staff_orders
   ALTER COLUMN status SET DEFAULT 'in_call_center_supervisor'::public.connection_order_status;
 
 COMMIT;

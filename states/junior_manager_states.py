@@ -1,6 +1,6 @@
 from aiogram.fsm.state import State, StatesGroup
 
-class SaffConnectionOrderStates(StatesGroup):
+class staffConnectionOrderStates(StatesGroup):
     waiting_client_phone = State()
     selecting_region = State()
     selecting_connection_type = State()
@@ -8,7 +8,7 @@ class SaffConnectionOrderStates(StatesGroup):
     entering_address = State()
     confirming_connection = State()
 
-class SaffTechnicianOrderStates(StatesGroup):
+class staffTechnicianOrderStates(StatesGroup):
     selecting_technician = State()
     problem_description = State()
     waiting_client_phone = State()

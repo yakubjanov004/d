@@ -39,24 +39,24 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
     -- connection_orders bo‘yicha oxirgi yozuv
     last_conn AS (
         SELECT
-            c.connecion_id,
+            c.connection_id,
             c.recipient_id,
             c.recipient_status,
             c.created_at,
             c.id,
             ROW_NUMBER() OVER (
-                PARTITION BY c.connecion_id
+                PARTITION BY c.connection_id
                 ORDER BY c.created_at DESC, c.id DESC
             ) AS rn
         FROM connections c
-        WHERE c.connecion_id IS NOT NULL
+        WHERE c.connection_id IS NOT NULL
     ),
     conn_agg AS (
         SELECT
             lc.recipient_id AS tech_id,
             COUNT(*) AS conn_count
         FROM last_conn lc
-        JOIN connection_orders co ON co.id = lc.connecion_id
+        JOIN connection_orders co ON co.id = lc.connection_id
         WHERE lc.rn = 1
           AND lc.recipient_status = 'between_controller_technician'
           AND co.is_active = TRUE

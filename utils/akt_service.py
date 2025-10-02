@@ -23,7 +23,7 @@ class AKTService:
     async def post_completion_pipeline(self, bot, request_id: int, request_type: str):
         """
         Zayavka 'completed' bo'lgach AKT yaratish va yuborish.
-        request_type: "connection" | "technician" | "saff"
+        request_type: "connection" | "technician" | "staff"
         """
         try:
             print(f"Starting AKT pipeline for {request_type} request {request_id}")
@@ -82,7 +82,7 @@ class AKTService:
                 workflow_type_text = {
                     'connection': 'Ulanish arizasi',
                     'technician': 'Texnik xizmat arizasi', 
-                    'saff': 'Xodim arizasi'
+                    'staff': 'Xodim arizasi'
                 }.get(request_type, 'Zayavka')
 
                 caption = (
@@ -123,7 +123,7 @@ class AKTService:
             workflow_type_text = {
                 'connection': 'Ulanish arizasi',
                 'technician': 'Texnik xizmat arizasi', 
-                'saff': 'Xodim arizasi'
+                'staff': 'Xodim arizasi'
             }.get(request_type, 'Zayavka')
 
             caption = (

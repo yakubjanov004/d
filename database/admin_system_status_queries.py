@@ -33,7 +33,7 @@ async def get_system_overview() -> Dict[str, Any]:
         # Zayavkalar statistikasi
         stats['total_connection_orders'] = await conn.fetchval("SELECT COUNT(*) FROM connection_orders WHERE is_active = true")
         stats['total_technician_orders'] = await conn.fetchval("SELECT COUNT(*) FROM technician_orders WHERE is_active = true")
-        stats['total_saff_orders'] = await conn.fetchval("SELECT COUNT(*) FROM saff_orders WHERE is_active = true")
+        stats['total_staff_orders'] = await conn.fetchval("SELECT COUNT(*) FROM staff_orders WHERE is_active = true")
         
         # Bugungi zayavkalar
         today = datetime.now().date()
@@ -77,14 +77,14 @@ async def get_orders_by_status() -> Dict[str, Any]:
         result['technician_orders'] = {row['status']: row['count'] for row in technician_status}
         
         # Xodim zayavkalari statuslari
-        saff_status = await conn.fetch("""
+        staff_status = await conn.fetch("""
             SELECT status, COUNT(*) as count 
-            FROM saff_orders 
+            FROM staff_orders 
             WHERE is_active = true 
             GROUP BY status 
             ORDER BY count DESC
         """)
-        result['saff_orders'] = {row['status']: row['count'] for row in saff_status}
+        result['staff_orders'] = {row['status']: row['count'] for row in staff_status}
         
         return result
     finally:
@@ -121,12 +121,12 @@ async def get_recent_activity() -> List[Dict[str, Any]]:
             UNION ALL
             
             SELECT 
-                'saff_order' as type,
+                'staff_order' as type,
                 id,
                 status::text as status,
                 created_at,
                 updated_at
-            FROM saff_orders 
+            FROM staff_orders 
             WHERE updated_at >= $1 AND is_active = true
             
             ORDER BY updated_at DESC

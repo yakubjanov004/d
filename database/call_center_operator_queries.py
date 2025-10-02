@@ -76,7 +76,7 @@ async def get_or_create_tarif_by_code(tariff_code: Optional[str]) -> Optional[in
     finally:
         await conn.close()
 
-async def saff_orders_create(
+async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -88,7 +88,7 @@ async def saff_orders_create(
     try:
         row = await conn.fetchrow(
             """
-            INSERT INTO saff_orders (
+            INSERT INTO staff_orders (
                 user_id, phone, abonent_id, region, address, tarif_id,
                 description, type_of_zayavka, status, is_active
             )

@@ -86,8 +86,8 @@ END $$;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
-                 WHERE t.typname='saff_order_status' AND n.nspname='public') THEN
-    CREATE TYPE public.saff_order_status AS ENUM
+                 WHERE t.typname='staff_order_status' AND n.nspname='public') THEN
+    CREATE TYPE public.staff_order_status AS ENUM
       ('in_call_center','in_manager','in_controller','in_technician','in_warehouse','completed','cancelled');
   END IF;
 END $$;
@@ -264,8 +264,8 @@ DROP TRIGGER IF EXISTS trg_technician_orders_updated_at ON public.technician_ord
 CREATE TRIGGER trg_technician_orders_updated_at BEFORE UPDATE ON public.technician_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- SAFF_ORDERS
-CREATE TABLE IF NOT EXISTS public.saff_orders (
+-- staff_ORDERS
+CREATE TABLE IF NOT EXISTS public.staff_orders (
   id             BIGSERIAL PRIMARY KEY,
   user_id        BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   phone          TEXT,
@@ -274,20 +274,20 @@ CREATE TABLE IF NOT EXISTS public.saff_orders (
   tarif_id       BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   address        TEXT,
   description    TEXT,
-  status         public.saff_order_status NOT NULL DEFAULT 'in_call_center',
+  status         public.staff_order_status NOT NULL DEFAULT 'in_call_center',
   type_of_zayavka public.type_of_zayavka NOT NULL DEFAULT 'connection',
   is_active      BOOLEAN NOT NULL DEFAULT TRUE,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_saff_orders_user ON public.saff_orders(user_id);
-CREATE INDEX IF NOT EXISTS idx_saff_orders_status ON public.saff_orders(status);
-CREATE INDEX IF NOT EXISTS idx_saff_status_active ON public.saff_orders(status, is_active);
-CREATE INDEX IF NOT EXISTS idx_saff_ccs_active_created
-  ON public.saff_orders(created_at, id)
-  WHERE (status = 'in_call_center'::public.saff_order_status AND is_active = TRUE);
-DROP TRIGGER IF EXISTS trg_saff_orders_updated_at ON public.saff_orders;
-CREATE TRIGGER trg_saff_orders_updated_at BEFORE UPDATE ON public.saff_orders
+CREATE INDEX IF NOT EXISTS idx_staff_orders_user ON public.staff_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_staff_orders_status ON public.staff_orders(status);
+CREATE INDEX IF NOT EXISTS idx_staff_status_active ON public.staff_orders(status, is_active);
+CREATE INDEX IF NOT EXISTS idx_staff_ccs_active_created
+  ON public.staff_orders(created_at, id)
+  WHERE (status = 'in_call_center'::public.staff_order_status AND is_active = TRUE);
+DROP TRIGGER IF EXISTS trg_staff_orders_updated_at ON public.staff_orders;
+CREATE TRIGGER trg_staff_orders_updated_at BEFORE UPDATE ON public.staff_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- SMART_SERVICE_ORDERS
@@ -378,7 +378,7 @@ CREATE TABLE IF NOT EXISTS public.material_requests (
   material_id         INTEGER NOT NULL REFERENCES public.materials(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id       INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id       INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   quantity            INTEGER DEFAULT 1,
   price               NUMERIC DEFAULT 0,
   total_price         NUMERIC DEFAULT 0
@@ -393,7 +393,7 @@ CREATE TABLE IF NOT EXISTS public.reports (
   user_id             INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id       INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id       INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   description         TEXT,
   media               TEXT[],
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -401,7 +401,7 @@ CREATE TABLE IF NOT EXISTS public.reports (
 CREATE INDEX IF NOT EXISTS idx_reports_user ON public.reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_reports_connection_order ON public.reports(connection_order_id);
 CREATE INDEX IF NOT EXISTS idx_reports_technician_order ON public.reports(technician_order_id);
-CREATE INDEX IF NOT EXISTS idx_reports_saff_order ON public.reports(saff_order_id);
+CREATE INDEX IF NOT EXISTS idx_reports_staff_order ON public.reports(staff_order_id);
 CREATE INDEX IF NOT EXISTS idx_reports_created ON public.reports(created_at);
 
 -- AKT_DOCUMENTS
@@ -410,14 +410,14 @@ CREATE TABLE IF NOT EXISTS public.akt_documents (
   user_id             INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id       INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id       INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   document_path       TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_akt_documents_user ON public.akt_documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_akt_documents_connection_order ON public.akt_documents(connection_order_id);
 CREATE INDEX IF NOT EXISTS idx_akt_documents_technician_order ON public.akt_documents(technician_order_id);
-CREATE INDEX IF NOT EXISTS idx_akt_documents_saff_order ON public.akt_documents(saff_order_id);
+CREATE INDEX IF NOT EXISTS idx_akt_documents_staff_order ON public.akt_documents(staff_order_id);
 CREATE INDEX IF NOT EXISTS idx_akt_documents_created ON public.akt_documents(created_at);
 
 -- AKT_RATINGS
@@ -426,7 +426,7 @@ CREATE TABLE IF NOT EXISTS public.akt_ratings (
   user_id             INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id       INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id       INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   rating              INTEGER CHECK (rating >= 1 AND rating <= 5),
   comment             TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -434,7 +434,7 @@ CREATE TABLE IF NOT EXISTS public.akt_ratings (
 CREATE INDEX IF NOT EXISTS idx_akt_ratings_user ON public.akt_ratings(user_id);
 CREATE INDEX IF NOT EXISTS idx_akt_ratings_connection_order ON public.akt_ratings(connection_order_id);
 CREATE INDEX IF NOT EXISTS idx_akt_ratings_technician_order ON public.akt_ratings(technician_order_id);
-CREATE INDEX IF NOT EXISTS idx_akt_ratings_saff_order ON public.akt_ratings(saff_order_id);
+CREATE INDEX IF NOT EXISTS idx_akt_ratings_staff_order ON public.akt_ratings(staff_order_id);
 CREATE INDEX IF NOT EXISTS idx_akt_ratings_created ON public.akt_ratings(created_at);
 
 -- CONNECTIONS (Legacy compatibility)
@@ -443,14 +443,14 @@ CREATE TABLE IF NOT EXISTS public.connections (
   user_id             INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   connection_order_id INTEGER REFERENCES public.connection_orders(id) ON DELETE SET NULL,
   technician_order_id INTEGER REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  saff_order_id       INTEGER REFERENCES public.saff_orders(id) ON DELETE SET NULL,
+  staff_order_id       INTEGER REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   status              TEXT DEFAULT 'pending',
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_connections_user ON public.connections(user_id);
 CREATE INDEX IF NOT EXISTS idx_connections_connection_order ON public.connections(connection_order_id);
 CREATE INDEX IF NOT EXISTS idx_connections_technician_order ON public.connections(technician_order_id);
-CREATE INDEX IF NOT EXISTS idx_connections_saff_order ON public.connections(saff_order_id);
+CREATE INDEX IF NOT EXISTS idx_connections_staff_order ON public.connections(staff_order_id);
 CREATE INDEX IF NOT EXISTS idx_connections_created ON public.connections(created_at);
 
 -- ===== SEED DATA (ONLY ADMIN USER) =====

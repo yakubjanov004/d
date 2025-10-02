@@ -19,12 +19,12 @@ from keyboards.manager_buttons import (
 )
 
 # === States ===
-from states.manager_states import SaffTechnicianOrderStates
+from states.manager_states import staffTechnicianOrderStates
 
 # === DB ===
 from database.manager_connection_queries import (
     find_user_by_phone,                   # user lookup
-    saff_orders_technician_create,        # texnik xizmat arizasi yaratish
+    staff_orders_technician_create,        # texnik xizmat arizasi yaratish
 )
 from database.client_queries import ensure_user
 
@@ -185,7 +185,7 @@ def normalize_phone(phone_raw: str) -> str | None:
         return "+998" + digits
     return phone_raw if phone_raw.startswith("+") else ("+" + digits if digits else None)
 
-# Region code -> numeric id mapping (saff_orders.region INTEGER)
+# Region code -> numeric id mapping (staff_orders.region INTEGER)
 REGION_CODE_TO_ID = {
     "toshkent_city": 1, "toshkent_region": 2, "andijon": 3, "fergana": 4, "namangan": 5,
     "sirdaryo": 6, "jizzax": 7, "samarkand": 8, "bukhara": 9, "navoi": 10,
@@ -228,11 +228,11 @@ async def op_start_text(msg: Message, state: FSMContext):
     await state.clear()
     lang = await _get_lang_from_db(msg.from_user.id)
     await state.update_data(lang=lang)
-    await state.set_state(SaffTechnicianOrderStates.waiting_client_phone)
+    await state.set_state(staffTechnicianOrderStates.waiting_client_phone)
     await msg.answer(t(lang, "ask_phone"), reply_markup=ReplyKeyboardRemove())
 
 # ======================= STEP 1: phone lookup =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.waiting_client_phone))
+@router.message(StateFilter(staffTechnicianOrderStates.waiting_client_phone))
 async def op_get_phone(msg: Message, state: FSMContext):
     lang = await _lang(state, msg.from_user.id)
 
@@ -270,19 +270,19 @@ async def tservice_back_to_phone(cq: CallbackQuery, state: FSMContext):
         pass
     await state.clear()
     await state.update_data(lang=lang)  # tilni saqlab qo‘yamiz
-    await state.set_state(SaffTechnicianOrderStates.waiting_client_phone)
+    await state.set_state(staffTechnicianOrderStates.waiting_client_phone)
     await cq.message.answer(t(lang, "ask_phone"), reply_markup=ReplyKeyboardRemove())
 
 # ======================= STEP 2: region =======================
-@router.callback_query(StateFilter(SaffTechnicianOrderStates.waiting_client_phone), F.data == "op_tservice_continue")
+@router.callback_query(StateFilter(staffTechnicianOrderStates.waiting_client_phone), F.data == "op_tservice_continue")
 async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     lang = await _lang(state, cq.from_user.id)
     await cq.message.edit_reply_markup()
     await cq.message.answer(t(lang, "ask_region"), reply_markup=get_client_regions_keyboard(lang))
-    await state.set_state(SaffTechnicianOrderStates.selecting_region)
+    await state.set_state(staffTechnicianOrderStates.selecting_region)
     await cq.answer()
 
-@router.callback_query(F.data.startswith("region_"), StateFilter(SaffTechnicianOrderStates.selecting_region))
+@router.callback_query(F.data.startswith("region_"), StateFilter(staffTechnicianOrderStates.selecting_region))
 async def op_select_region(callback: CallbackQuery, state: FSMContext):
     lang = await _lang(state, callback.from_user.id)
     await callback.answer()
@@ -291,10 +291,10 @@ async def op_select_region(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_region=region_code)
 
     await callback.message.answer(t(lang, "ask_desc"))
-    await state.set_state(SaffTechnicianOrderStates.problem_description)
+    await state.set_state(staffTechnicianOrderStates.problem_description)
 
 # ======================= STEP 3: description =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.problem_description))
+@router.message(StateFilter(staffTechnicianOrderStates.problem_description))
 async def op_get_description(msg: Message, state: FSMContext):
     lang = await _lang(state, msg.from_user.id)
     desc = (msg.text or "").strip()
@@ -303,10 +303,10 @@ async def op_get_description(msg: Message, state: FSMContext):
     await state.update_data(description=desc)
 
     await msg.answer(t(lang, "ask_address"))
-    await state.set_state(SaffTechnicianOrderStates.entering_address)
+    await state.set_state(staffTechnicianOrderStates.entering_address)
 
 # ======================= STEP 4: address =======================
-@router.message(StateFilter(SaffTechnicianOrderStates.entering_address))
+@router.message(StateFilter(staffTechnicianOrderStates.entering_address))
 async def op_get_address(msg: Message, state: FSMContext):
     lang = await _lang(state, msg.from_user.id)
     address = (msg.text or "").strip()
@@ -338,12 +338,12 @@ async def op_show_summary(target, state: FSMContext):
     else:
         await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-    await state.set_state(SaffTechnicianOrderStates.confirming_connection)
+    await state.set_state(staffTechnicianOrderStates.confirming_connection)
 
 # ======================= STEP 6: confirm / resend =======================
 @router.callback_query(
     F.data == "confirm_zayavka_call_center_tech_service",
-    StateFilter(SaffTechnicianOrderStates.confirming_connection)
+    StateFilter(staffTechnicianOrderStates.confirming_connection)
 )
 async def op_confirm(callback: CallbackQuery, state: FSMContext):
     lang = await _lang(state, callback.from_user.id)
@@ -366,7 +366,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
 
         description = data.get("description", "") or ""
 
-        request_id = await saff_orders_technician_create(
+        request_id = await staff_orders_technician_create(
             user_id=user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
@@ -396,7 +396,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(
     F.data == "resend_zayavka_call_center_tech_service",
-    StateFilter(SaffTechnicianOrderStates.confirming_connection)
+    StateFilter(staffTechnicianOrderStates.confirming_connection)
 )
 async def op_resend(callback: CallbackQuery, state: FSMContext):
     """
@@ -417,5 +417,5 @@ async def op_resend(callback: CallbackQuery, state: FSMContext):
     if acting_client:
         await state.update_data(acting_client=acting_client)
 
-    await state.set_state(SaffTechnicianOrderStates.selecting_region)
+    await state.set_state(staffTechnicianOrderStates.selecting_region)
     await callback.message.answer(t(lang, "ask_region"), reply_markup=get_client_regions_keyboard(lang))

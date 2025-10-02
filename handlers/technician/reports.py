@@ -29,7 +29,7 @@ from database.queries import find_user_by_telegram_id
 from database.technician_report_queries import (
     count_connection_status,
     count_technician_status,
-    count_saff_status,
+    count_staff_status,
 )
 
 router = Router()
@@ -124,11 +124,11 @@ async def _build_and_send_report(message_or_cb, lang: str, user_id: int, range_k
     # 2) DB so‘rovlar — faqat connections
     conn_raw = await count_connection_status(user_id, df_utc, dt_utc)   # connection_orders oqimi
     tech_raw = await count_technician_status(user_id, df_utc, dt_utc)   # technician_orders oqimi (connections orqali)
-    saff_raw = await count_saff_status(user_id, df_utc, dt_utc)         # saff_orders oqimi (connections orqali)
+    staff_raw = await count_staff_status(user_id, df_utc, dt_utc)         # staff_orders oqimi (connections orqali)
 
     conn = _normalize_stats(conn_raw or {})
     tch  = _normalize_stats(tech_raw or {})
-    saff = _normalize_stats(saff_raw or {})
+    staff = _normalize_stats(staff_raw or {})
 
     # 3) Matn
     header  = tr("📊 <b>Hisobotlarim</b>", "📊 <b>Мои отчеты</b>", lang)
@@ -138,7 +138,7 @@ async def _build_and_send_report(message_or_cb, lang: str, user_id: int, range_k
     body = "\n\n".join([
         _block(tr("🔌 Ulanish arizalari", "🔌 Заявки на подключение", lang), conn, lang),
         _block(tr("🔧 Texnik xizmat arizalari", "🔧 Заявки на техобслуживание", lang), tch, lang),
-        _block(tr("📞 Xodim (operator) arizalari", "📞 Заявки от сотрудников (операторов)", lang), saff, lang),
+        _block(tr("📞 Xodim (operator) arizalari", "📞 Заявки от сотрудников (операторов)", lang), staff, lang),
     ])
 
     footer = tr(

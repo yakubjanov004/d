@@ -24,12 +24,12 @@ from keyboards.manager_buttons import (
 )
 
 # === States ===
-from states.manager_states import SaffConnectionOrderStates
+from states.manager_states import staffConnectionOrderStates
 
 # === DB functions ===
 from database.manager_connection_queries import (
     find_user_by_phone,
-    saff_orders_create,
+    staff_orders_create,
     get_or_create_tarif_by_code,
 )
 from database.client_queries import ensure_user
@@ -265,7 +265,7 @@ async def op_start_text(msg: Message, state: FSMContext):
     - Matn UZ/RU bo'yicha ko'rsatiladi (users.language dan o'qiladi).
     """
     await state.clear()
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
 
     user = await get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
@@ -276,7 +276,7 @@ async def op_start_text(msg: Message, state: FSMContext):
     )
 
 # ======================= STEP 1: phone lookup =======================
-@router.message(StateFilter(SaffConnectionOrderStates.waiting_client_phone))
+@router.message(StateFilter(staffConnectionOrderStates.waiting_client_phone))
 async def op_get_phone(msg: Message, state: FSMContext):
     # Har safar eng so'nggi tilni DB'dan olamiz (operativ ravishda yangilansin)
     user = await get_user_by_telegram_id(msg.from_user.id)
@@ -326,24 +326,24 @@ async def op_back_to_phone(cq: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await state.clear()
-    await state.set_state(SaffConnectionOrderStates.waiting_client_phone)
+    await state.set_state(staffConnectionOrderStates.waiting_client_phone)
     await cq.message.answer(
         t(lang, "phone_prompt"),
         reply_markup=ReplyKeyboardRemove(),
     )
 
 # ======================= STEP 2: region =======================
-@router.callback_query(StateFilter(SaffConnectionOrderStates.waiting_client_phone), F.data == "op_conn_continue")
+@router.callback_query(StateFilter(staffConnectionOrderStates.waiting_client_phone), F.data == "op_conn_continue")
 async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(cq.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
 
     await cq.message.edit_reply_markup()
     await cq.message.answer(t(lang, "choose_region"), reply_markup=get_client_regions_keyboard(lang=lang))
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await cq.answer()
 
-@router.callback_query(F.data.startswith("region_"), StateFilter(SaffConnectionOrderStates.selecting_region))
+@router.callback_query(F.data.startswith("region_"), StateFilter(staffConnectionOrderStates.selecting_region))
 async def op_select_region(callback: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
@@ -355,10 +355,10 @@ async def op_select_region(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_region=region_code)
 
     await callback.message.answer(t(lang, "choose_conn_type"), reply_markup=zayavka_type_keyboard(lang))
-    await state.set_state(SaffConnectionOrderStates.selecting_connection_type)
+    await state.set_state(staffConnectionOrderStates.selecting_connection_type)
 
 # ======================= STEP 3: connection type =======================
-@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(SaffConnectionOrderStates.selecting_connection_type))
+@router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(staffConnectionOrderStates.selecting_connection_type))
 async def op_select_connection_type(callback: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
@@ -374,11 +374,11 @@ async def op_select_connection_type(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_operator_tariff_selection_keyboard(),  # operator-only keyboard (UZ labels)
         parse_mode="HTML",
     )
-    await state.set_state(SaffConnectionOrderStates.selecting_tariff)
+    await state.set_state(staffConnectionOrderStates.selecting_tariff)
 
 # ======================= STEP 4: tariff (OP-ONLY callbacks) =======================
 @router.callback_query(
-    StateFilter(SaffConnectionOrderStates.selecting_tariff),
+    StateFilter(staffConnectionOrderStates.selecting_tariff),
     F.data.startswith("op_tariff_")
 )
 async def op_select_tariff(callback: CallbackQuery, state: FSMContext):
@@ -393,10 +393,10 @@ async def op_select_tariff(callback: CallbackQuery, state: FSMContext):
     await state.update_data(selected_tariff=normalized_code)
 
     await callback.message.answer(t(lang, "enter_address"))
-    await state.set_state(SaffConnectionOrderStates.entering_address)
+    await state.set_state(staffConnectionOrderStates.entering_address)
 
 # ======================= STEP 5: address =======================
-@router.message(StateFilter(SaffConnectionOrderStates.entering_address))
+@router.message(StateFilter(staffConnectionOrderStates.entering_address))
 async def op_get_address(msg: Message, state: FSMContext):
     user = await get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
@@ -434,10 +434,10 @@ async def op_show_summary(target, state: FSMContext):
     else:
         await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
-    await state.set_state(SaffConnectionOrderStates.confirming_connection)
+    await state.set_state(staffConnectionOrderStates.confirming_connection)
 
 # ======================= STEP 7: confirm / resend =======================
-@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "confirm_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def op_confirm(callback: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
@@ -465,7 +465,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         tariff_code = data.get("selected_tariff")  # already normalized: tariff_xammasi_birga_*
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
 
-        request_id = await saff_orders_create(
+        request_id = await staff_orders_create(
             user_id=operator_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
@@ -492,7 +492,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         logger.exception("Operator confirm error: %s", e)
         await callback.answer(t(lang, "error_generic"), show_alert=True)
 
-@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(SaffConnectionOrderStates.confirming_connection))
+@router.callback_query(F.data == "resend_zayavka_call_center", StateFilter(staffConnectionOrderStates.confirming_connection))
 async def op_resend(callback: CallbackQuery, state: FSMContext):
     """
     Qayta yuborish: jarayonni REGION tanlashdan qayta boshlaydi.
@@ -513,5 +513,5 @@ async def op_resend(callback: CallbackQuery, state: FSMContext):
     if acting_client:
         await state.update_data(acting_client=acting_client)
 
-    await state.set_state(SaffConnectionOrderStates.selecting_region)
+    await state.set_state(staffConnectionOrderStates.selecting_region)
     await callback.message.answer(t(lang, "choose_region"), reply_markup=get_client_regions_keyboard(lang=lang))

@@ -18,10 +18,8 @@ from keyboards.client_buttons import (
 )
 from states.client_states import ConnectionOrderStates
 from config import settings
-from database.client_queries import (
-    ensure_user, get_or_create_tarif_by_code, create_connection_order
-)
-from database.queries import get_user_language  # 👈 tilni olish
+from database.client.orders import ensure_user, get_or_create_tarif_by_code, create_connection_order
+from database.basic.language import get_user_language
 from loader import bot
 
 logger = logging.getLogger(__name__)

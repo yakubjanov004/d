@@ -105,7 +105,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     - sender_id/recipient_id -> users.full_name
     - Qadam davomiyligi: keyingi yozuv.created_at - joriy.created_at
     - Tugallanmagan bosqichda end_at = NULL, duration_str = "—" (handler UZ/RU matnini o‘zi qo‘yadi).
-    Ustun nomi ba'zi bazalarda 'connection_id' o‘rniga 'connecion_id' bo‘lishi mumkin,
+    Ustun nomi ba'zi bazalarda 'connection_id' o‘rniga 'connection_id' bo‘lishi mumkin,
     shuning uchun ikki xil SELECT bilan urinamiz.
     """
     sql_connection_id = """
@@ -121,7 +121,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
      WHERE c.connection_id = $1
      ORDER BY c.created_at ASC, c.id ASC;
     """
-    sql_connecion_id = """
+    sql_connection_id = """
     SELECT c.id,
            c.sender_id, su.full_name AS sender_name,
            c.recipient_id, ru.full_name AS recipient_name,
@@ -131,7 +131,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
       FROM connections c
       LEFT JOIN users su ON su.id = c.sender_id
       LEFT JOIN users ru ON ru.id = c.recipient_id
-     WHERE c.connecion_id = $1
+     WHERE c.connection_id = $1
      ORDER BY c.created_at ASC, c.id ASC;
     """
 
@@ -141,7 +141,7 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
         try:
             rows = await conn.fetch(sql_connection_id, order_id)
         except UndefinedColumnError:
-            rows = await conn.fetch(sql_connecion_id, order_id)
+            rows = await conn.fetch(sql_connection_id, order_id)
 
         steps: List[Dict[str, Any]] = []
         for i, r in enumerate(rows):

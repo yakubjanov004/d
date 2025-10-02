@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
-from enum import Enum
+from enum import Enum, auto
+from typing import ClassVar
+from dataclasses import field
 
 # ==================== ENUM LAR ====================
 # PostgreSQL ENUM lariga mos keladigan Python Enumlari
@@ -10,7 +12,6 @@ from enum import Enum
 class ConnectionOrderStatus(Enum):
     """
     Ulanish arizalari (connection_orders) uchun statuslar
-    Eslatma: NEW statusi bazada CHECK constraintda yo'q, shuning uchun olib tashlandi
     """
     IN_MANAGER = "in_manager"                    # Managerga tayinlangan
     IN_JUNIOR_MANAGER = "in_junior_manager"      # Kichik managerga tayinlangan
@@ -34,6 +35,28 @@ class SmartServiceCategory(Enum):
     MULTIMEDIYA_ALOQA_TIZIMLARI = "multimediya_aloqa_tizimlari"                 # TV, audio, video konferensiya
     MAXSUS_QOSHIMCHA_XIZMATLAR = "maxsus_qoshimcha_xizmatlar"                   # IoT, AI, maxsus yechimlar
 
+
+class BusinessType(Enum):
+    """
+    Business types for orders (B2B - Business to Business, B2C - Business to Consumer)
+    """
+    B2B = "B2B"
+    B2C = "B2C"
+
+
+class OrderBase:
+    """Base class for all order types with common fields"""
+    _counters: ClassVar[dict] = {}  # Separate counter for each prefix
+    _prefix: ClassVar[str] = ""  # Should be overridden by subclasses
+    
+    @classmethod
+    def generate_application_number(cls, business_type: BusinessType) -> str:
+        """Generate application number in format: PREFIX-BUSINESS_TYPE-NUMBER"""
+        if cls._prefix not in cls._counters:
+            cls._counters[cls._prefix] = 0
+        cls._counters[cls._prefix] += 1
+        return f"{cls._prefix}-{business_type.value}-{cls._counters[cls._prefix]}"
+
 class TechnicianOrderStatus(Enum):
     """
     Texnik buyurtmalari (technician_orders) uchun statuslar
@@ -50,12 +73,13 @@ class TechnicianOrderStatus(Enum):
     IN_CALL_CENTER_SUPERVISOR = "in_call_center_supervisor"         # Call center nazoratchisiga tayinlangan
     IN_CALL_CENTER_OPERATOR = "in_call_center_operator"             # Call center operatoriga tayinlangan
 
-class SaffOrderStatus(Enum):
+class StaffOrderStatus(Enum):
     """
-    SAFF buyurtmalari uchun statuslar
+    staff buyurtmalari uchun statuslar
     Turli foydalanuvchilar tomonidan yaratilgan va ko'rib chiqiladigan buyurtmalar
     """
     # Yaratish bosqichlari
+    NEW = 'new'  # new
     IN_CALL_CENTER_OPERATOR = "in_call_center_operator"      # Call center operatoriga tayinlangan
     IN_CALL_CENTER_SUPERVISOR = "in_call_center_supervisor"  # Call center nazoratchisiga tayinlangan
     
@@ -75,9 +99,9 @@ class SaffOrderStatus(Enum):
     COMPLETED = "completed"                      # Yakunlangan
     BETWEEN_CONTROLLER_TECHNICIAN = "between_controller_technician"  # Kontroller va texnik o'rtasida
 
-class SaffOrderTypeOfZayavka(Enum):
+class StaffOrderTypeOfZayavka(Enum):
     """
-    SAFF buyurtmalarining ariza turlari
+    Staff buyurtmalarining ariza turlari
     Call center orqali kelgan so'rovlarning turini aniqlaydi
     """
     CONNECTION = "connection"    # Internet ulanish arizasi
@@ -89,13 +113,13 @@ class UserRole(Enum):
     Foydalanuvchi rollari - tizimdagi foydalanuvchilarning vazifalarini aniqlaydi
     Har bir rol tizimda ma'lum huquqlar va mas'uliyatlarga ega
     """
-    ADMIN = "admin"                          # Administrator - barcha huquqlar
-    CLIENT = "client"                        # Mijoz - xizmat sotib oluvchi
-    MANAGER = "manager"                      # Manager - buyurtmalarni boshqaruvchi
-    JUNIOR_MANAGER = "junior_manager"        # Kichik manager - yordamchi manager
-    CONTROLLER = "controller"                # Kontroller - buyurtmalarni tekshiruvchi
-    TECHNICIAN = "technician"                # Texnik - amaliy ishlarni bajaruvchi
-    WAREHOUSE = "warehouse"                  # Omborchi - materiallar bilan ishlaydi
+    ADMIN = "admin"                          # Administrator 
+    CLIENT = "client"                        # Mijoz  
+    MANAGER = "manager"                      # Manager 
+    JUNIOR_MANAGER = "junior_manager"        # Kichik manager 
+    CONTROLLER = "controller"                # Kontroller 
+    TECHNICIAN = "technician"                # Texnik 
+    WAREHOUSE = "warehouse"                  # Omborchi 
     CALLCENTER_SUPERVISOR = "callcenter_supervisor"  # Call center nazoratchisi
     CALLCENTER_OPERATOR = "callcenter_operator"      # Call center operatori
 
@@ -182,11 +206,49 @@ class Users(BaseModel):
     username: Optional[str] = None              # Telegram username
     phone: Optional[str] = None                 # Telefon raqami
     language: str = "uz"                        # Til sozlamasi (default: uz)
-    region: Optional[int] = None                # Hudud IDsi
+    region: Optional[str] = None                # Hudud kodi (masalan: 'tashkent_city', 'samarkand')
     address: Optional[str] = None               # Manzil
     role: Optional[UserRole] = None             # Foydalanuvchi roli (ENUM)
     abonent_id: Optional[str] = None            # Abonent identifikatori
     is_blocked: bool = False                    # Foydalanuvchi bloklanganmi?
+    
+    # Region validation
+    _valid_regions = {
+        'tashkent_city', 'tashkent_region', 'andijon', 'fergana', 
+        'namangan', 'sirdaryo', 'jizzax', 'samarkand', 'bukhara', 
+        'navoi', 'kashkadarya', 'surkhandarya', 'khorezm', 'karakalpakstan'
+    }
+    
+    def __post_init__(self):
+        if self.region and self.region not in self._valid_regions:
+            raise ValueError(f"Invalid region. Must be one of: {', '.join(sorted(self._valid_regions))}")
+            
+    @property
+    def region_display_name(self, lang: str = 'uz') -> Optional[str]:
+        """Get the display name of the region in the specified language"""
+        if not self.region:
+            return None
+            
+        # Map of region codes to their display names in different languages
+        display_names = {
+            'tashkent_city': {'uz': 'Toshkent shahri', 'ru': 'г. Ташкент'},
+            'tashkent_region': {'uz': 'Toshkent viloyati', 'ru': 'Ташкентская область'},
+            'andijon': {'uz': 'Andijon', 'ru': 'Андижан'},
+            'fergana': {'uz': 'Farg\'ona', 'ru': 'Фергана'},
+            'namangan': {'uz': 'Namangan', 'ru': 'Наманган'},
+            'sirdaryo': {'uz': 'Sirdaryo', 'ru': 'Сырдарья'},
+            'jizzax': {'uz': 'Jizzax', 'ru': 'Джизак'},
+            'samarkand': {'uz': 'Samarqand', 'ru': 'Самарканд'},
+            'bukhara': {'uz': 'Buxoro', 'ru': 'Бухара'},
+            'navoi': {'uz': 'Navoiy', 'ru': 'Навои'},
+            'kashkadarya': {'uz': 'Qashqadaryo', 'ru': 'Кашкадарья'},
+            'surkhandarya': {'uz': 'Surxondaryo', 'ru': 'Сурхандарья'},
+            'khorezm': {'uz': 'Xorazm', 'ru': 'Хорезм'},
+            'karakalpakstan': {'uz': 'Qoraqalpog\'iston', 'ru': 'Каракалпакстан'},
+        }
+        
+        # Default to Uzbek if language not found
+        return display_names.get(self.region, {}).get(lang, display_names.get(self.region, {}).get('uz'))
 
 @dataclass
 class Tarif(BaseModel):
@@ -198,7 +260,12 @@ class Tarif(BaseModel):
     picture: Optional[str] = None               # Tarif rasmi (fayl yo'li)
 
 @dataclass
-class ConnectionOrders(BaseModel):
+class ConnectionOrders(BaseModel, OrderBase):
+    """Internet ulanish arizalari jadvali modeli
+    Yangi ulanish so'rovlari haqida ma'lumot saqlaydi
+    """
+    _prefix: ClassVar[str] = "CONN"  # Prefix for connection orders
+    application_number: Optional[str] = None  # Format: CONN-B2B-1001
     """
     Internet ulanish arizalari jadvali modeli
     Yangi ulanish so'rovlari haqida ma'lumot saqlaydi
@@ -207,6 +274,7 @@ class ConnectionOrders(BaseModel):
     region: Optional[str] = None                # Hudud nomi
     address: Optional[str] = None               # To'liq manzil
     tarif_id: Optional[int] = None              # Tanlangan tarif IDsi (FK tarif.id)
+    business_type: BusinessType = BusinessType.B2C  # Business type (B2B/B2C)
     longitude: Optional[float] = None           # Uzunlik (GPS koordinata)
     latitude: Optional[float] = None            # Kenglik (GPS koordinata)
     jm_notes: Optional[str] = None              # Junior manager izohlari
@@ -214,7 +282,12 @@ class ConnectionOrders(BaseModel):
     status: ConnectionOrderStatus = ConnectionOrderStatus.IN_MANAGER  # Ariza statusi
 
 @dataclass
-class TechnicianOrders(BaseModel):
+class TechnicianOrders(BaseModel, OrderBase):
+    """Texnik xizmat buyurtmalari jadvali modeli
+    Texnik xizmat so'rovlari haqida ma'lumot saqlaydi
+    """
+    _prefix: ClassVar[str] = "TECH"  # Prefix for technician orders
+    application_number: Optional[str] = None  # Format: TECH-B2C-1001
     """
     Texnik xizmat buyurtmalari jadvali modeli
     Texnik xizmat so'rovlari haqida ma'lumot saqlaydi
@@ -224,6 +297,7 @@ class TechnicianOrders(BaseModel):
     abonent_id: Optional[str] = None            # Abonent identifikatori
     address: Optional[str] = None               # Manzil
     media: Optional[str] = None                 # Media fayllar (rasm/video yo'li)
+    business_type: BusinessType = BusinessType.B2C  # Business type (B2B/B2C)
     longitude: Optional[float] = None           # Uzunlik (GPS koordinata)
     latitude: Optional[float] = None            # Kenglik (GPS koordinata)
     description: Optional[str] = None           # mijoz tavsifi
@@ -233,22 +307,43 @@ class TechnicianOrders(BaseModel):
     is_active: bool = True                      # Buyurtma faolmi?
 
 @dataclass
-class SaffOrders(BaseModel):
+class StaffOrders(BaseModel, OrderBase):
+    """Staff (Call Center) buyurtmalari jadvali modeli
+    Turli foydalanuvchilar tomonidan yaratilgan so'rovlarni saqlaydi
     """
-    SAFF (Call Center) buyurtmalari jadvali modeli
+    _prefix: ClassVar[str] = "STAFF"  # Prefix for staff orders
+    application_number: Optional[str] = None  # Format: STAFF-B2B-1001
+    """
+    Staff (Call Center) buyurtmalari jadvali modeli
     Turli foydalanuvchilar tomonidan yaratilgan so'rovlarni saqlaydi
     """
     user_id: Optional[int] = None               # Foydalanuvchi IDsi (FK users.id) - Yaratuvchi
     phone: Optional[str] = None                 # Telefon raqami
     region: Optional[int] = None                # Hudud IDsi
     abonent_id: Optional[str] = None            # Abonent identifikatori
-    tarif_id: Optional[int] = None              # Tarif IDsi (FK tarif.id)
+    tarif_id: Optional[int] = None              # Tarif IDsi (FK tarif.id) - Faqat ulanish uchun
     address: Optional[str] = None               # Manzil
-    description: Optional[str] = None           # Tavsif
-    status: SaffOrderStatus = SaffOrderStatus.NEW  # Boshlang'ich status - NEW
-    type_of_zayavka: SaffOrderTypeOfZayavka = SaffOrderTypeOfZayavka.CONNECTION  # Ariza turi
+    description: Optional[str] = None           # Umumiy tavsif
+    problem_description: Optional[str] = None   # Muammo haqida batafsil (texnik xizmat uchun)
+    diagnostics: Optional[str] = None           # Diagnostika natijalari (texnik xizmat uchun)
+    business_type: BusinessType = BusinessType.B2C  # Business type (B2B/B2C)
+    status: StaffOrderStatus = StaffOrderStatus.NEW  # Boshlang'ich status - NEW
+    type_of_zayavka: StaffOrderTypeOfZayavka = StaffOrderTypeOfZayavka.CONNECTION  # Ariza turi
     is_active: bool = True                      # Ariza faolmi?
     created_by_role: Optional[UserRole] = None  # Kim tomonidan yaratilgani (qo'shimcha)
+    
+    def __post_init__(self):
+        """Ariza turiga qarab maydonlarni sozlash"""
+        if self.type_of_zayavka == StaffOrderTypeOfZayavka.TECHNICIAN:
+            # Texnik xizmat uchun kerakli maydonlar
+            if self.status == StaffOrderStatus.NEW:
+                self.status = StaffOrderStatus.IN_CALL_CENTER_OPERATOR
+            if not self.problem_description:
+                self.problem_description = ""
+        else:
+            # Ulanish arizasi uchun kerakli maydonlar
+            if self.status == StaffOrderStatus.NEW:
+                self.status = StaffOrderStatus.IN_CALL_CENTER_OPERATOR
 
 @dataclass
 class SmartServiceOrders(BaseModel):
@@ -280,9 +375,9 @@ class Connections(BaseModel):
     """
     sender_id: Optional[int] = None             # Yuboruvchi foydalanuvchi IDsi (FK users.id)
     recipient_id: Optional[int] = None          # Qabul qiluvchi foydalanuvchi IDsi (FK users.id)
-    connecion_id: Optional[int] = None          # Ulanish buyurtmasi IDsi (FK connection_orders.id)
+    connection_id: Optional[int] = None          # Ulanish buyurtmasi IDsi (FK connection_orders.id)
     technician_id: Optional[int] = None         # Texnik buyurtmasi IDsi (FK technician_orders.id)
-    saff_id: Optional[int] = None               # SAFF buyurtmasi IDsi (FK saff_orders.id)
+    staff_id: Optional[int] = None               # staff buyurtmasi IDsi (FK staff_orders.id)
     sender_status: Optional[str] = None         # Yuboruvchi statusi
     recipient_status: Optional[str] = None      # Qabul qiluvchi statusi
 
@@ -310,7 +405,7 @@ class MaterialRequests(BaseModel):
     material_id: Optional[int] = None           # Material IDsi (FK materials.id)
     connection_order_id: Optional[int] = None   # Ulanish buyurtmasi IDsi (FK)
     technician_order_id: Optional[int] = None   # Texnik buyurtmasi IDsi (FK)
-    saff_order_id: Optional[int] = None         # SAFF buyurtmasi IDsi (FK)
+    staff_order_id: Optional[int] = None        # Staff buyurtmasi IDsi (FK)
     quantity: int = 1                           # So'ralgan miqdor
     price: float = 0.0                          # Birlik narxi
     total_price: float = 0.0                    # Umumiy narx
@@ -324,6 +419,57 @@ class MaterialAndTechnician(BaseModel):
     user_id: Optional[int] = None               # Texnik foydalanuvchi IDsi (FK users.id)
     material_id: Optional[int] = None           # Material IDsi (FK materials.id)
     quantity: Optional[int] = None              # Foydalangan miqdor
+
+
+@dataclass
+class MaterialIssued(BaseModel):
+    """Ishlatilgan materiallar jadvali modeli
+    Har bir arizaga qo'shilgan materiallar haqida to'liq ma'lumot saqlaydi
+    """
+    # Asosiy ma'lumotlar
+    material_id: int                           # Material IDsi (FK materials.id)
+    quantity: int                              # Miqdori
+    price: float                              # Birlik narxi
+    total_price: float                        # Umumiy summa (quantity * price)
+    
+    # Kim tomonidan berilgani
+    issued_by: int                            # Kim tomonidan berilgan (FK users.id)
+    issued_at: datetime = field(default_factory=datetime.now)  # Qachon berilgan
+    notes: Optional[str] = None               # Qo'shimcha izohlar
+    
+    # Qaysi arizaga tegishli ekanligi (bittasi bo'lishi shart)
+    connection_order_id: Optional[str] = None   # Ulanish arizasi IDsi (CONN-B2B-1001)
+    technician_order_id: Optional[str] = None   # Texnik ariza IDsi (TECH-B2C-1001)
+    staff_order_id: Optional[str] = None        # staff arizasi IDsi (STAFF-B2B-1001)
+    
+    # Material haqida ma'lumot (avtomatik to'ldiriladi)
+    material_name: Optional[str] = None        # Material nomi
+    material_unit: Optional[str] = None        # O'lchov birligi (dona, metr, litr, kg)
+    
+    # Tasdiqlash uchun
+    is_approved: bool = False                  # Tasdiqlanganmi?
+    approved_by: Optional[int] = None          # Kim tasdiqladi (FK users.id)
+    approved_at: Optional[datetime] = None     # Qachon tasdiqlangan
+    
+    # Qaytarish uchun
+    is_returned: bool = False                  # Qaytarilganmi?
+    returned_quantity: int = 0                 # Qancha miqdori qaytarilgan
+    returned_at: Optional[datetime] = None     # Qachon qaytarilgan
+    returned_by: Optional[int] = None          # Kim qaytardi (FK users.id)
+    return_notes: Optional[str] = None         # Qaytarish sababi/izohi
+
+    def __post_init__(self):
+        """Validatsiya va avtomatik hisoblashlar"""
+        # Umumiy summani hisoblash
+        self.total_price = self.quantity * self.price
+        
+        # Faqat bitta order ID bo'lishi kerak
+        order_count = sum([
+            1 if x is not None else 0 
+            for x in [self.connection_order_id, self.technician_order_id, self.staff_order_id]
+        ])
+        if order_count != 1:
+            raise ValueError("Exactly one of connection_order_id, technician_order_id, or staff_order_id must be set")
 
 @dataclass
 class Reports(BaseModel):
@@ -342,7 +488,7 @@ class AktDocuments(BaseModel):
     Bajarilgan ishlarning rasmiy hujjatlarini saqlaydi
     """
     request_id: Optional[int] = None            # So'rov IDsi
-    request_type: Optional[str] = None          # So'rov turi ('connection', 'technician', 'saff')
+    request_type: Optional[str] = None          # So'rov turi ('connection', 'technician', 'staff')
     akt_number: str = ""                        # AKT raqami (AKT-{request_id}-{YYYYMMDD})
     file_path: str = ""                         # Fayl yo'li
     file_hash: str = ""                         # Fayl SHA256 hash
@@ -353,7 +499,7 @@ class AktDocuments(BaseModel):
         So'rov turi qiymatini validatsiya qilish
         Qiymat ruxsat etilganlar ro'yxatida bo'lishi kerak
         """
-        if self.request_type and self.request_type not in ['connection', 'technician', 'saff']:
+        if self.request_type and self.request_type not in ['connection', 'technician', 'staff']:
             raise ValueError("Invalid request type")
 
 @dataclass
@@ -363,7 +509,7 @@ class AktRatings(BaseModel):
     Mijozlarning bajarilgan ishlarga bergan reytinglarini saqlaydi
     """
     request_id: Optional[int] = None            # So'rov IDsi
-    request_type: Optional[str] = None          # So'rov turi ('connection', 'technician', 'saff')
+    request_type: Optional[str] = None          # So'rov turi ('connection', 'technician', 'staff')
     rating: int = 0                             # Reyting (0-5)
     comment: Optional[str] = None               # Mijoz izohlari
 
@@ -371,7 +517,7 @@ class AktRatings(BaseModel):
         """
         So'rov turi va reyting qiymatlarini validatsiya qilish
         """
-        if self.request_type and self.request_type not in ['connection', 'technician', 'saff']:
+        if self.request_type and self.request_type not in ['connection', 'technician', 'staff']:
             raise ValueError("Invalid request type")
         if not (0 <= self.rating <= 5):
             raise ValueError("Rating must be between 0 and 5")
@@ -386,7 +532,7 @@ def validate_request_type(value: str) -> bool:
     Returns:
         bool: Qiymat ruxsat etilganlar ro'yxatida bo'lsa True, aks holda False
     """
-    return value in ['connection', 'technician', 'saff']
+    return value in ['connection', 'technician', 'staff']
 
 @dataclass
 class MediaFiles(BaseModel):
@@ -410,18 +556,18 @@ class MediaFiles(BaseModel):
 DATABASE_CONFIG = {
     "tables": [
         "users", "tarif", "connection_orders", "technician_orders", 
-        "saff_orders", "smart_service_orders", "connections", 
+        "staff_orders", "smart_service_orders", "connections", 
         "materials", "material_requests", "material_and_technician",
         "reports", "akt_documents", "akt_ratings", "media_files"  # Qo'shilgan
     ],
     "enums": {
-    "connection_order_status": [status.value for status in ConnectionOrderStatus],
-    "smart_service_category": [category.value for category in SmartServiceCategory],
-    "technician_order_status": [status.value for status in TechnicianOrderStatus],
-    "saff_order_status": [status.value for status in SaffOrderStatus],
-    "saff_order_type_of_zayavka": [zayavka.value for zayavka in SaffOrderTypeOfZayavka],
-    "type_of_zayavka": [zayavka.value for zayavka in SaffOrderTypeOfZayavka],
-    "user_role": [role.value for role in UserRole]
+        "connection_order_status": [status.value for status in ConnectionOrderStatus],
+        "smart_service_category": [category.value for category in SmartServiceCategory],
+        "technician_order_status": [status.value for status in TechnicianOrderStatus],
+        "staff_order_status": [status.value for status in StaffOrderStatus],
+        "staff_order_type_of_zayavka": [zayavka.value for zayavka in StaffOrderTypeOfZayavka],
+        "type_of_zayavka": [zayavka.value for zayavka in StaffOrderTypeOfZayavka],
+        "user_role": [role.value for role in UserRole]
 }
 }
 
@@ -465,4 +611,4 @@ def validate_request_type(value: str) -> bool:
     Returns:
         bool: Qiymat ruxsat etilganlar ro'yxatida bo'lsa True, aks holda False
     """
-    return value in ['connection', 'technician', 'saff']
+    return value in ['connection', 'technician', 'staff']

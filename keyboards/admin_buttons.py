@@ -190,12 +190,12 @@ def get_users_pagination_keyboard(current_page: int, total_pages: int, has_prev:
 def get_applications_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     connection_text = "🔌 Ulanish zayavkalari" if lang == "uz" else "🔌 Заявки на подключение"
     technician_text = "🔧 Texnik zayavkalar" if lang == "uz" else "🔧 Технические заявки"
-    saff_text = "👥 Xodim zayavkalari" if lang == "uz" else "👥 Заявки сотрудников"
+    staff_text = "👥 Xodim zayavkalari" if lang == "uz" else "👥 Заявки сотрудников"
     back_text = "◀️ Orqaga" if lang == "uz" else "◀️ Назад"
 
     keyboard = [
         [KeyboardButton(text=technician_text), KeyboardButton(text=connection_text)],
-        [KeyboardButton(text=saff_text), KeyboardButton(text=back_text)]
+        [KeyboardButton(text=staff_text), KeyboardButton(text=back_text)]
     ]
 
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -284,7 +284,7 @@ def get_admin_export_types_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔧 Texnik arizalar", callback_data="admin_export_technician"),
             ],
             [
-                InlineKeyboardButton(text="👤 Xodim arizalari", callback_data="admin_export_saff"),
+                InlineKeyboardButton(text="👤 Xodim arizalari", callback_data="admin_export_staff"),
                 InlineKeyboardButton(text="📦 Ombor inventarizatsiyasi", callback_data="admin_export_warehouse_inventory"),
             ],
             [
@@ -304,7 +304,7 @@ def get_admin_export_types_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔧 Технические заявки", callback_data="admin_export_technician"),
             ],
             [
-                InlineKeyboardButton(text="👤 Заявки сотрудников", callback_data="admin_export_saff"),
+                InlineKeyboardButton(text="👤 Заявки сотрудников", callback_data="admin_export_staff"),
                 InlineKeyboardButton(text="📦 Инвентаризация склада", callback_data="admin_export_warehouse_inventory"),
             ],
             [

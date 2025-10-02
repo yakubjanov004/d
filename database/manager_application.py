@@ -247,7 +247,7 @@ async def get_cancelled_count() -> int:
 
 async def list_my_created_orders(manager_user_id: int, limit: int = 50) -> List[Dict]:
     """
-    Manager (user_id=manager_user_id) tomonidan saff_orders jadvalida yaratilgan connection arizalar.
+    Manager (user_id=manager_user_id) tomonidan staff_orders jadvalida yaratilgan connection arizalar.
     Tarif nomi jadvali mavjud bo'lsa autodetect qilib JOIN qilamiz, bo'lmasa tarif_id ko'rsatiladi.
     """
     conn = await asyncpg.connect(settings.DB_URL)
@@ -286,11 +286,11 @@ async def list_my_created_orders(manager_user_id: int, limit: int = 50) -> List[
             label_expr = "COALESCE(" + ", ".join(label_parts) + ")"
             select_tariff_sql = f"{label_expr} AS tariff"
 
-            # --- 3) saff_orders dagi FK nomi autodetect (tarif_id/tariff_id) ---
+            # --- 3) staff_orders dagi FK nomi autodetect (tarif_id/tariff_id) ---
             fkrow = await conn.fetchrow("""
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_name='saff_orders'
+                WHERE table_name='staff_orders'
                   AND column_name = ANY($1::text[])
                 LIMIT 1
             """, ['tarif_id', 'tariff_id'])
@@ -310,7 +310,7 @@ async def list_my_created_orders(manager_user_id: int, limit: int = 50) -> List[
                 u.full_name                                   AS client_name,
                 COALESCE(u.phone, s.phone, '-')               AS client_phone,
                 {select_tariff_sql}
-            FROM saff_orders s
+            FROM staff_orders s
             LEFT JOIN users u ON (u.id::text = s.abonent_id)
             {join_tariff_sql}
             WHERE s.user_id = $1
@@ -326,7 +326,7 @@ async def list_my_created_orders(manager_user_id: int, limit: int = 50) -> List[
 
 async def list_my_created_orders_by_type(manager_user_id: int, type_of_zayavka: str, limit: int = 50) -> List[Dict]:
     """
-    Manager (user_id=manager_user_id) tomonidan saff_orders jadvalida yaratilgan arizalar.
+    Manager (user_id=manager_user_id) tomonidan staff_orders jadvalida yaratilgan arizalar.
     type_of_zayavka: 'connection' | 'technician'
     Tarif nomi jadvali mavjud bo'lsa autodetect qilib JOIN qilamiz, bo'lmasa tarif_id ko'rsatiladi.
     """
@@ -365,11 +365,11 @@ async def list_my_created_orders_by_type(manager_user_id: int, type_of_zayavka: 
             label_expr = "COALESCE(" + ", ".join(parts) + ")"
             select_tariff_sql = f"{label_expr} AS tariff"
 
-            # 3) saff_orders FK autodetect (tarif_id/tariff_id)
+            # 3) staff_orders FK autodetect (tarif_id/tariff_id)
             fkrow = await conn.fetchrow("""
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_name='saff_orders'
+                WHERE table_name='staff_orders'
                   AND column_name = ANY($1::text[])
                 LIMIT 1
             """, ['tarif_id', 'tariff_id'])
@@ -390,7 +390,7 @@ async def list_my_created_orders_by_type(manager_user_id: int, type_of_zayavka: 
                 u.full_name                                   AS client_name,
                 COALESCE(u.phone, s.phone, '-')               AS client_phone,
                 {select_tariff_sql}
-            FROM saff_orders s
+            FROM staff_orders s
             LEFT JOIN users u ON (u.id::text = s.abonent_id)
             {join_tariff_sql}
             WHERE s.user_id = $1

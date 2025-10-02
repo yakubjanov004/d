@@ -36,9 +36,9 @@ BEGIN
   END IF;
   
   IF EXISTS (SELECT 1 FROM information_schema.columns 
-             WHERE table_name = 'material_requests' AND column_name = 'saff_order_id') THEN
-    CREATE INDEX IF NOT EXISTS ix_mr_saff_order_id 
-      ON material_requests(saff_order_id);
+             WHERE table_name = 'material_requests' AND column_name = 'staff_order_id') THEN
+    CREATE INDEX IF NOT EXISTS ix_mr_staff_order_id 
+      ON material_requests(staff_order_id);
   END IF;
 END $$;
 """
@@ -116,12 +116,12 @@ async def get_akt_data_by_request_id(request_id: int, request_type: str) -> Opti
                 LEFT JOIN users t ON t.id = mru.user_id
                 WHERE to2.id = $1 AND to2.is_active = true
             """
-        elif request_type == "saff":
-            # Saff orders uchun
+        elif request_type == "staff":
+            # staff orders uchun
             query = """
                 SELECT 
                     so.id as request_id,
-                    'saff' as workflow_type,
+                    'staff' as workflow_type,
                     so.created_at,
                     so.updated_at as closed_at,
                     so.address,
@@ -132,7 +132,7 @@ async def get_akt_data_by_request_id(request_id: int, request_type: str) -> Opti
                     u.telegram_id as client_telegram_id,
                     COALESCE(t.full_name, '-') as technician_name,
                     tar.name as tariff_name
-                FROM saff_orders so
+                FROM staff_orders so
                 LEFT JOIN users u ON so.user_id = u.id
                 LEFT JOIN LATERAL (
                     SELECT mr.user_id
@@ -180,7 +180,7 @@ async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict
                 JOIN materials m ON mr.material_id = m.id
                 WHERE mr.applications_id = $1 OR mr.technician_order_id = $1
             """
-        elif request_type == "saff":
+        elif request_type == "staff":
             query = """
                 SELECT 
                     m.name as material_name,
@@ -189,7 +189,7 @@ async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict
                     (COALESCE(mr.quantity, 1) * m.price) as total_price
                 FROM material_requests mr
                 JOIN materials m ON mr.material_id = m.id
-                WHERE mr.applications_id = $1 OR mr.saff_order_id = $1
+                WHERE mr.applications_id = $1 OR mr.staff_order_id = $1
             """
         else:
             return []
@@ -310,7 +310,7 @@ async def get_technician_id_by_request(request_id: int, request_type: str) -> Op
                 LEFT JOIN tarif tar ON to2.tarif_id = tar.id
                 WHERE to2.id = $1 AND to2.is_active = true
             """
-        elif request_type == "saff":
+        elif request_type == "staff":
             query = """
                 SELECT 
                     so.id as request_id,
@@ -322,7 +322,7 @@ async def get_technician_id_by_request(request_id: int, request_type: str) -> Op
                     COALESCE(t.full_name, '-') as technician_name,
                     t.id as technician_id,
                     tar.name as tariff_name
-                FROM saff_orders so
+                FROM staff_orders so
                 LEFT JOIN users u ON so.user_id = u.id
                 LEFT JOIN LATERAL (
                     SELECT mr.user_id

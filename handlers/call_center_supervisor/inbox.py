@@ -25,7 +25,7 @@ async def ccs_count_active() -> int:
     try:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS c
-            FROM saff_orders
+            FROM staff_orders
             WHERE status = 'in_call_center_supervisor'
               AND is_active = TRUE
         """)
@@ -41,7 +41,7 @@ async def ccs_fetch_by_offset(offset: int) -> Optional[Dict[str, Any]]:
                 so.id, so.phone, so.abonent_id, so.region, so.address,
                 so.tarif_id, t.name AS tariff_name, so.description,
                 so.created_at, u.full_name
-            FROM saff_orders AS so
+            FROM staff_orders AS so
             LEFT JOIN public.tarif AS t ON t.id = so.tarif_id
             LEFT JOIN public.users AS u ON u.id = NULLIF(so.abonent_id, '')::int
             WHERE so.status = 'in_call_center_supervisor'
@@ -70,21 +70,21 @@ async def ccs_send_to_control(order_id: int, supervisor_id: Optional[int] = None
 
         controller_id = controller["id"]
 
-        # 2️⃣ saff_orders dagi user_id ni olish (ya’ni sender_id sifatida ishlatamiz)
-        saff_order = await conn.fetchrow("""
+        # 2️⃣ staff_orders dagi user_id ni olish (ya’ni sender_id sifatida ishlatamiz)
+        staff_order = await conn.fetchrow("""
             SELECT user_id
-            FROM saff_orders
+            FROM staff_orders
             WHERE id = $1
         """, order_id)
 
-        if not saff_order or not saff_order["user_id"]:
-            raise Exception(f"saff_orders.id={order_id} uchun user_id topilmadi")
+        if not staff_order or not staff_order["user_id"]:
+            raise Exception(f"staff_orders.id={order_id} uchun user_id topilmadi")
 
-        sender_user_id = saff_order["user_id"]
+        sender_user_id = staff_order["user_id"]
 
-        # 3️⃣ saff_orders jadvalini yangilash
+        # 3️⃣ staff_orders jadvalini yangilash
         await conn.execute("""
-            UPDATE saff_orders
+            UPDATE staff_orders
                SET status = 'in_controller',
                    updated_at = NOW()
              WHERE id = $1
@@ -93,7 +93,7 @@ async def ccs_send_to_control(order_id: int, supervisor_id: Optional[int] = None
         # 4️⃣ connections jadvaliga yozuv qo‘shish
         await conn.execute("""
             INSERT INTO connections (
-                sender_id, recipient_id, connecion_id, technician_id, saff_id,
+                sender_id, recipient_id, connection_id, technician_id, staff_id,
                 created_at, updated_at, sender_status, recipient_status
             )
             VALUES ($1, $2, NULL, NULL, $3, NOW(), NOW(),
@@ -290,7 +290,7 @@ async def ccs_cancel(order_id: int) -> None:
     conn = await _conn()
     try:
         await conn.execute("""
-            UPDATE saff_orders
+            UPDATE staff_orders
                SET status = 'cancelled',
                    is_active = FALSE,
                    updated_at = NOW()

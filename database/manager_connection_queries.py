@@ -42,20 +42,20 @@ def _normalize_phone(raw: str) -> Optional[str]:
     return raw if raw.startswith("+") else ("+" + digits if digits else None)
 
 # =========================================================
-#  Supervisor Inbox (saff_orders)
+#  Supervisor Inbox (staff_orders)
 # =========================================================
 
 async def ccs_count_active(status: str = STATUS_SUPERVISOR_INBOX) -> int:
     """
-    UZ: Supervisor inbox uchun aktiv arizalar soni (saff_orders).
-    RU: Кол-во активных заявок в inbox (saff_orders) для статуса.
+    UZ: Supervisor inbox uchun aktiv arizalar soni (staff_orders).
+    RU: Кол-во активных заявок в inbox (staff_orders) для статуса.
     """
     conn = await _conn()
     try:
         return await conn.fetchval(
             """
             SELECT COUNT(*)
-              FROM saff_orders
+              FROM staff_orders
              WHERE status = $1
                AND is_active = TRUE
             """,
@@ -76,7 +76,7 @@ async def ccs_fetch_by_offset(offset: int, status: str = STATUS_SUPERVISOR_INBOX
             SELECT id, user_id, phone, abonent_id, region, address, tarif_id,
                    description, status, type_of_zayavka, is_active,
                    created_at, updated_at
-              FROM saff_orders
+              FROM staff_orders
              WHERE status = $1
                AND is_active = TRUE
              ORDER BY created_at ASC, id ASC
@@ -100,11 +100,11 @@ async def ccs_send_to_control(order_id: int, supervisor_id: Optional[int] = None
             # Avval o'zgartirishga urinib ko'ramiz (agar boshqa status bo'lsa)
             updated = await conn.execute(
                 """
-                UPDATE saff_orders
-                   SET status    = $2::saff_order_status,
+                UPDATE staff_orders
+                   SET status    = $2::staff_order_status,
                        updated_at = NOW()
                  WHERE id = $1
-                   AND status <> $2::saff_order_status
+                   AND status <> $2::staff_order_status
                 """,
                 order_id, STATUS_IN_CONTROLLER,
             )
@@ -113,7 +113,7 @@ async def ccs_send_to_control(order_id: int, supervisor_id: Optional[int] = None
 
             # O'zgarmagan bo'lsa: mavjudligini va statusni tekshiramiz
             exists = await conn.fetchval(
-                "SELECT 1 FROM saff_orders WHERE id = $1 AND status = $2::saff_order_status",
+                "SELECT 1 FROM staff_orders WHERE id = $1 AND status = $2::staff_order_status",
                 order_id, STATUS_IN_CONTROLLER
             )
             return bool(exists)
@@ -130,7 +130,7 @@ async def ccs_cancel(order_id: int) -> bool:
         async with conn.transaction():
             updated = await conn.execute(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                    SET is_active = FALSE,
                        updated_at = NOW()
                  WHERE id = $1
@@ -220,7 +220,7 @@ async def get_or_create_tarif_by_code(tariff_code: Optional[str]) -> Optional[in
 #  Yaratish (connection / technician)
 # =========================================================
 
-async def saff_orders_create(
+async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -239,12 +239,12 @@ async def saff_orders_create(
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                INSERT INTO saff_orders (
+                INSERT INTO staff_orders (
                     user_id, phone, abonent_id, region, address, tarif_id,
                     description, type_of_zayavka, status, is_active, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6,
-                        '', 'connection', $7::saff_order_status, TRUE, NOW(), NOW())
+                        '', 'connection', $7::staff_order_status, TRUE, NOW(), NOW())
                 RETURNING id
                 """,
                 user_id, phone, abonent_id, region, address, tarif_id, DEFAULT_STATUS_ON_CREATE
@@ -253,7 +253,7 @@ async def saff_orders_create(
     finally:
         await conn.close()
 
-async def saff_orders_technician_create(
+async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
@@ -272,12 +272,12 @@ async def saff_orders_technician_create(
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                INSERT INTO saff_orders (
+                INSERT INTO staff_orders (
                     user_id, phone, region, abonent_id, address, description,
                     status, type_of_zayavka, is_active, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6,
-                        $7::saff_order_status, 'technician', TRUE, NOW(), NOW())
+                        $7::staff_order_status, 'technician', TRUE, NOW(), NOW())
                 RETURNING id
                 """,
                 user_id,

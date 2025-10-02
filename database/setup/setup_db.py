@@ -92,8 +92,8 @@ CREATE TYPE technician_order_status AS ENUM (
     'in_warehouse', 'in_technician_work', 'completed'
 );
 
--- Saff order statuses
-CREATE TYPE saff_order_status AS ENUM (
+-- staff order statuses
+CREATE TYPE staff_order_status AS ENUM (
     'in_call_center', 'in_manager', 'in_controller', 'in_technician', 'in_warehouse',
     'completed', 'cancelled'
 );
@@ -285,7 +285,7 @@ COMMENT ON COLUMN akt_documents.mime_type IS 'MIME type of the document';
 CREATE TABLE akt_ratings (
     id BIGSERIAL PRIMARY KEY,
     order_id BIGINT NOT NULL,
-    order_type TEXT NOT NULL CHECK (order_type IN ('connection', 'technician', 'saff')),
+    order_type TEXT NOT NULL CHECK (order_type IN ('connection', 'technician', 'staff')),
     rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
     comment TEXT,
     rated_by BIGINT,
@@ -485,7 +485,7 @@ COMMENT ON COLUMN material_and_technician.notes IS 'Assignment notes';
 CREATE TABLE reports (
     id BIGSERIAL PRIMARY KEY,
     order_id BIGINT,
-    order_type TEXT NOT NULL CHECK (order_type IN ('connection', 'technician', 'saff')),
+    order_type TEXT NOT NULL CHECK (order_type IN ('connection', 'technician', 'staff')),
     report_type TEXT NOT NULL,
     content TEXT,
     media_files JSONB,
@@ -502,8 +502,8 @@ COMMENT ON COLUMN reports.content IS 'Report content';
 COMMENT ON COLUMN reports.media_files IS 'JSON array of media file paths';
 COMMENT ON COLUMN reports.created_by IS 'User who created report';
 
--- Saff orders
-CREATE TABLE saff_orders (
+-- staff orders
+CREATE TABLE staff_orders (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
     phone TEXT,
@@ -516,26 +516,26 @@ CREATE TABLE saff_orders (
     media TEXT,
     rating INTEGER CHECK (rating >= 1 AND rating <= 5),
     notes TEXT,
-    status saff_order_status NOT NULL DEFAULT 'in_call_center',
+    status staff_order_status NOT NULL DEFAULT 'in_call_center',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE saff_orders IS 'Saff (quality) orders table';
-COMMENT ON COLUMN saff_orders.user_id IS 'Reference to user';
-COMMENT ON COLUMN saff_orders.phone IS 'Contact phone number';
-COMMENT ON COLUMN saff_orders.abonent_id IS 'Abonent identifier';
-COMMENT ON COLUMN saff_orders.address IS 'Service address';
-COMMENT ON COLUMN saff_orders.tarif_id IS 'Related tariff';
-COMMENT ON COLUMN saff_orders.longitude IS 'Longitude coordinate';
-COMMENT ON COLUMN saff_orders.latitude IS 'Latitude coordinate';
-COMMENT ON COLUMN saff_orders.description IS 'Order description';
-COMMENT ON COLUMN saff_orders.media IS 'Media files';
-COMMENT ON COLUMN saff_orders.rating IS 'Service rating';
-COMMENT ON COLUMN saff_orders.notes IS 'Additional notes';
-COMMENT ON COLUMN saff_orders.status IS 'Order status';
-COMMENT ON COLUMN saff_orders.is_active IS 'Whether order is active';
+COMMENT ON TABLE staff_orders IS 'staff (quality) orders table';
+COMMENT ON COLUMN staff_orders.user_id IS 'Reference to user';
+COMMENT ON COLUMN staff_orders.phone IS 'Contact phone number';
+COMMENT ON COLUMN staff_orders.abonent_id IS 'Abonent identifier';
+COMMENT ON COLUMN staff_orders.address IS 'Service address';
+COMMENT ON COLUMN staff_orders.tarif_id IS 'Related tariff';
+COMMENT ON COLUMN staff_orders.longitude IS 'Longitude coordinate';
+COMMENT ON COLUMN staff_orders.latitude IS 'Latitude coordinate';
+COMMENT ON COLUMN staff_orders.description IS 'Order description';
+COMMENT ON COLUMN staff_orders.media IS 'Media files';
+COMMENT ON COLUMN staff_orders.rating IS 'Service rating';
+COMMENT ON COLUMN staff_orders.notes IS 'Additional notes';
+COMMENT ON COLUMN staff_orders.status IS 'Order status';
+COMMENT ON COLUMN staff_orders.is_active IS 'Whether order is active';
 
 -- Smart service orders
 CREATE TABLE smart_service_orders (
@@ -670,8 +670,8 @@ CREATE TRIGGER trigger_reports_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER trigger_saff_orders_updated_at
-    BEFORE UPDATE ON saff_orders
+CREATE TRIGGER trigger_staff_orders_updated_at
+    BEFORE UPDATE ON staff_orders
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
@@ -723,13 +723,13 @@ CREATE INDEX idx_technician_orders_abonent_id ON technician_orders(abonent_id);
 CREATE INDEX idx_technician_orders_created_at ON technician_orders(created_at);
 CREATE INDEX idx_technician_orders_is_active ON technician_orders(is_active);
 
--- Saff orders indexes
-CREATE INDEX idx_saff_orders_user_id ON saff_orders(user_id);
-CREATE INDEX idx_saff_orders_status ON saff_orders(status);
-CREATE INDEX idx_saff_orders_tarif_id ON saff_orders(tarif_id);
-CREATE INDEX idx_saff_orders_abonent_id ON saff_orders(abonent_id);
-CREATE INDEX idx_saff_orders_created_at ON saff_orders(created_at);
-CREATE INDEX idx_saff_orders_is_active ON saff_orders(is_active);
+-- staff orders indexes
+CREATE INDEX idx_staff_orders_user_id ON staff_orders(user_id);
+CREATE INDEX idx_staff_orders_status ON staff_orders(status);
+CREATE INDEX idx_staff_orders_tarif_id ON staff_orders(tarif_id);
+CREATE INDEX idx_staff_orders_abonent_id ON staff_orders(abonent_id);
+CREATE INDEX idx_staff_orders_created_at ON staff_orders(created_at);
+CREATE INDEX idx_staff_orders_is_active ON staff_orders(is_active);
 
 -- Smart service orders indexes
 CREATE INDEX idx_smart_service_orders_user_id ON smart_service_orders(user_id);
@@ -837,8 +837,8 @@ INSERT INTO materials (name, price, description, quantity, serial_number) VALUES
 ('Кабель UTP Cat6', 2800.00, 'UTP кабель, категория 6, 1 метр', 800, 'UTP-002'),
 ('Коннектор RJ45', 600.00, 'RJ45 разъем, для Cat6', 400, 'RJ45-002');
 
--- Insert sample saff orders (with both Uzbek and Russian users)
-INSERT INTO saff_orders (user_id, phone, abonent_id, address, tarif_id, description, status) VALUES
+-- Insert sample staff orders (with both Uzbek and Russian users)
+INSERT INTO staff_orders (user_id, phone, abonent_id, address, tarif_id, description, status) VALUES
 (2, '998901234567', '1001', 'Chilonzor tumani, 1-mavze', 2, 'Sifat nazorati kerak', 'in_call_center'),
 (11, '998901112233', '1010', 'Yunusobod tumani, 5-uy', 3, 'Xizmat sifatini tekshirish', 'in_manager'),
 (15, '998911223344', '2001', 'ул. Пушкина, д. 15', 1, 'Проверка качества услуг', 'in_controller'),
@@ -862,7 +862,7 @@ INSERT INTO material_requests (order_id, order_type, material_name, quantity, re
 INSERT INTO reports (order_id, order_type, report_type, content, created_by) VALUES
 (1, 'connection', 'installation', 'Ulanish muvaffaqiyatli o''rnatildi', 4),
 (1, 'technician', 'repair', 'Muammo hal qilindi', 17),
-(1, 'saff', 'quality_check', 'Sifat nazorati o''tkazildi', 5),
+(1, 'staff', 'quality_check', 'Sifat nazorati o''tkazildi', 5),
 (3, 'connection', 'installation', 'Подключение успешно завершено', 17);
 
 -- Insert sample AKT documents (with both languages)
@@ -877,7 +877,7 @@ INSERT INTO akt_documents (document_name, document_path, file_size, mime_type) V
 INSERT INTO akt_ratings (order_id, order_type, rating, comment, rated_by) VALUES
 (1, 'connection', 5, 'Juda yaxshi xizmat', 2),
 (2, 'technician', 4, 'Tez va sifatli', 11),
-(3, 'saff', 5, 'Mukammal sifat', 15),
+(3, 'staff', 5, 'Mukammal sifat', 15),
 (4, 'connection', 5, 'Отличное обслуживание', 15),
 (1, 'technician', 4, 'Быстро и качественно', 20);
 
@@ -922,7 +922,7 @@ COMMIT;
         print("   - tarif (tarif rejalar)")
         print("   - connections (ulanish buyurtmalari)")
         print("   - technician_orders (texnik buyurtmalar)")
-        print("   - saff_orders (sifat buyurtmalari)")
+        print("   - staff_orders (sifat buyurtmalari)")
         print("   - smart_service_orders (aqlli xizmat buyurtmalari)")
         print("   - material_requests (material so'rovlari)")
         print("   - material_and_technician (material va texnik tayinlash)")
@@ -994,7 +994,7 @@ def verify_setup():
         print(f"📇 Indexlar soni: {index_count}")
         
         # Ma'lumotlar sonini tekshirish
-        tables_to_check = ['users', 'tarif', 'connections', 'technician_orders', 'saff_orders']
+        tables_to_check = ['users', 'tarif', 'connections', 'technician_orders', 'staff_orders']
         for table in tables_to_check:
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             count = cursor.fetchone()[0]

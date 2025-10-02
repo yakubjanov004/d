@@ -48,7 +48,7 @@ async def stats_overview_handler(callback: CallbackQuery):
         text += ("📋 **Buyurtmalar:**\n" if lang == "uz" else "📋 **Заявки:**\n")
         text += (f"• Ulanish: {system_stats['total_connection_orders']}\n" if lang == "uz" else f"• Подключение: {system_stats['total_connection_orders']}\n")
         text += (f"• Texnik: {system_stats['total_technician_orders']}\n" if lang == "uz" else f"• Технические: {system_stats['total_technician_orders']}\n")
-        text += (f"• Saff: {system_stats['total_saff_orders']}\n\n" if lang == "uz" else f"• Сотрудники: {system_stats['total_saff_orders']}\n\n")
+        text += (f"• staff: {system_stats['total_staff_orders']}\n\n" if lang == "uz" else f"• Сотрудники: {system_stats['total_staff_orders']}\n\n")
         
         # Bugungi buyurtmalar
         text += ("📅 **Bugungi buyurtmalar:**\n" if lang == "uz" else "📅 **Заявки за сегодня:**\n")

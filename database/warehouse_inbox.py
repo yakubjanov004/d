@@ -232,7 +232,7 @@ async def confirm_materials_and_update_status_for_technician(order_id: int, acto
 async def confirm_materials_and_update_status_for_staff(order_id: int, actor_user_id: int) -> bool:
     """
     Xodim arizalari uchun materiallarni tasdiqlaydi
-    va saff_orders.status ni 'completed' ga ozgartiradi.
+    va staff_orders.status ni 'completed' ga ozgartiradi.
     
     Args:
         order_id: The ID of the staff order
@@ -246,7 +246,7 @@ async def confirm_materials_and_update_status_for_staff(order_id: int, actor_use
         async with conn.transaction():
             # First, check if the order exists and is in the correct status
             order = await conn.fetchrow(
-                "SELECT id FROM saff_orders WHERE id = $1 AND status = 'in_warehouse'",
+                "SELECT id FROM staff_orders WHERE id = $1 AND status = 'in_warehouse'",
                 order_id
             )
             
@@ -256,7 +256,7 @@ async def confirm_materials_and_update_status_for_staff(order_id: int, actor_use
             # Update the status to completed
             result = await conn.execute(
                 """
-                UPDATE saff_orders
+                UPDATE staff_orders
                 SET status = 'completed',
                     warehouse_user_id = $1,
                     updated_at = NOW()
@@ -336,14 +336,14 @@ async def count_warehouse_technician_orders() -> int:
         await conn.close()
 
 
-# ==================== STAFF ORDERS (SAFF_ORDERS) ====================
+# ==================== STAFF ORDERS (staff_ORDERS) ====================
 
-async def fetch_warehouse_saff_orders(
+async def fetch_warehouse_staff_orders(
     limit: int = 50,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Omborda turgan xodim arizalari (saff_orders) - status: 'in_warehouse'
+    Omborda turgan xodim arizalari (staff_orders) - status: 'in_warehouse'
     """
     conn = await _conn()
     try:
@@ -364,7 +364,7 @@ async def fetch_warehouse_saff_orders(
                 u.phone AS client_phone,
                 u.telegram_id AS client_telegram_id,
                 t.name AS tariff_name
-            FROM saff_orders so
+            FROM staff_orders so
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
             WHERE so.status = 'in_warehouse'
@@ -379,7 +379,7 @@ async def fetch_warehouse_saff_orders(
         await conn.close()
 
 
-async def count_warehouse_saff_orders() -> int:
+async def count_warehouse_staff_orders() -> int:
     """
     Omborda turgan xodim arizalari soni
     """
@@ -388,7 +388,7 @@ async def count_warehouse_saff_orders() -> int:
         count = await conn.fetchval(
             """
             SELECT COUNT(*)
-            FROM saff_orders
+            FROM staff_orders
             WHERE status = 'in_warehouse'
               AND is_active = TRUE
             """
@@ -406,12 +406,12 @@ async def get_all_warehouse_orders_count() -> Dict[str, int]:
     """
     connection_count = await count_warehouse_connection_orders()
     technician_count = await count_warehouse_technician_orders()
-    staff_count = await count_warehouse_saff_orders()
+    staff_count = await count_warehouse_staff_orders()
     
     return {
         "connection_orders": connection_count,
         "technician_orders": technician_count,
-        "saff_orders": staff_count,
+        "staff_orders": staff_count,
         "total": connection_count + technician_count + staff_count
     }
 
@@ -479,7 +479,7 @@ async def get_warehouse_order_by_id_and_type(order_id: int, order_type: str) -> 
                     so.created_at,
                     u.full_name AS client_name,
                     t.name AS tariff_name
-                FROM saff_orders so
+                FROM staff_orders so
                 LEFT JOIN users u ON u.id = so.user_id
                 LEFT JOIN tarif t ON t.id = so.tarif_id
                 WHERE so.id = $1 AND so.status = 'in_warehouse' AND so.is_active = TRUE
@@ -576,7 +576,7 @@ async def fetch_material_requests_by_technician_orders(
         await conn.close()
 
 
-async def fetch_material_requests_by_saff_orders(
+async def fetch_material_requests_by_staff_orders(
     limit: int = 50,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
@@ -593,7 +593,7 @@ async def fetch_material_requests_by_saff_orders(
                 mr.quantity,
                 mr.price,
                 mr.total_price,
-                mr.saff_order_id,
+                mr.staff_order_id,
                 so.address,
                 so.region,
                 so.abonent_id,
@@ -604,10 +604,10 @@ async def fetch_material_requests_by_saff_orders(
                 m.name AS material_name,
                 so.created_at AS order_created_at
             FROM material_requests mr
-            JOIN saff_orders so ON so.id = mr.saff_order_id
+            JOIN staff_orders so ON so.id = mr.staff_order_id
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN materials m ON m.id = mr.material_id
-            WHERE mr.saff_order_id IS NOT NULL
+            WHERE mr.staff_order_id IS NOT NULL
             ORDER BY so.created_at DESC
             LIMIT $1 OFFSET $2
             """,
@@ -656,7 +656,7 @@ async def count_material_requests_by_technician_orders() -> int:
         await conn.close()
 
 
-async def count_material_requests_by_saff_orders() -> int:
+async def count_material_requests_by_staff_orders() -> int:
     """
     Xodim arizalariga bog'langan material so'rovlari soni
     """
@@ -666,8 +666,8 @@ async def count_material_requests_by_saff_orders() -> int:
             """
             SELECT COUNT(*)
             FROM material_requests mr
-            JOIN saff_orders so ON so.id = mr.saff_order_id
-            WHERE mr.saff_order_id IS NOT NULL
+            JOIN staff_orders so ON so.id = mr.staff_order_id
+            WHERE mr.staff_order_id IS NOT NULL
             """
         )
         return int(count or 0)
@@ -681,11 +681,11 @@ async def get_all_material_requests_count() -> Dict[str, int]:
     """
     connection_count = await count_material_requests_by_connection_orders()
     technician_count = await count_material_requests_by_technician_orders()
-    staff_count = await count_material_requests_by_saff_orders()
+    staff_count = await count_material_requests_by_staff_orders()
     
     return {
         "connection_orders": connection_count,
         "technician_orders": technician_count,
-        "saff_orders": staff_count,
+        "staff_orders": staff_count,
         "total": connection_count + technician_count + staff_count
     }

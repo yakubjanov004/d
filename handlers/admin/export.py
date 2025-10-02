@@ -11,7 +11,7 @@ from database.admin_export import (
     get_admin_users_for_export,
     get_admin_connection_orders_for_export,
     get_admin_technician_orders_for_export,
-    get_admin_saff_orders_for_export,
+    get_admin_staff_orders_for_export,
     get_admin_statistics_for_export,
 )
 from database.warehouse_queries import (
@@ -74,9 +74,9 @@ async def admin_export_technician(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.callback_query(F.data == "admin_export_saff")
-async def admin_export_saff(cb: CallbackQuery, state: FSMContext):
-    await state.update_data(export_type="saff")
+@router.callback_query(F.data == "admin_export_staff")
+async def admin_export_staff(cb: CallbackQuery, state: FSMContext):
+    await state.update_data(export_type="staff")
     lang = await get_user_language(cb.from_user.id) or "uz"
     await cb.message.edit_text(
         ("👤 <b>Xodim arizalari</b>\n\nFormatni tanlang:" if lang == "uz" else "👤 <b>Заявки сотрудников</b>\n\nВыберите формат:"),
@@ -149,10 +149,10 @@ async def admin_export_format(cb: CallbackQuery, state: FSMContext):
             raw_data = await get_admin_technician_orders_for_export()
             title = "Texnik arizalar" if lang == "uz" else "Технические заявки"
             filename_base = "technician_orders"
-        elif export_type == "saff":
-            raw_data = await get_admin_saff_orders_for_export()
+        elif export_type == "staff":
+            raw_data = await get_admin_staff_orders_for_export()
             title = "Xodim arizalari" if lang == "uz" else "Заявки сотрудников"
-            filename_base = "saff_orders"
+            filename_base = "staff_orders"
         elif export_type == "warehouse_inventory":
             raw_data = await get_warehouse_inventory_for_export()
             title = "Ombor inventarizatsiyasi" if lang == "uz" else "Инвентаризация склада"
@@ -182,7 +182,7 @@ async def admin_export_format(cb: CallbackQuery, state: FSMContext):
                 raw_rows.append({label_key: (f"Rol: {r['role']}" if lang == "uz" else f"Роль: {r['role']}"), value_key: r['cnt']})
             raw_rows.append({label_key: ("Ulanish arizalari" if lang == "uz" else "Заявки на подключение"), value_key: stats["orders"]["connection_total"]})
             raw_rows.append({label_key: ("Texnik arizalar" if lang == "uz" else "Технические заявки"), value_key: stats["orders"]["technician_total"]})
-            raw_rows.append({label_key: ("Xodim arizalari" if lang == "uz" else "Заявки сотрудников"), value_key: stats["orders"]["saff_total"]})
+            raw_rows.append({label_key: ("Xodim arizalari" if lang == "uz" else "Заявки сотрудников"), value_key: stats["orders"]["staff_total"]})
             for r in stats["orders"]["connection_by_status"]:
                 raw_rows.append({label_key: (f"Ulanish: {r['status']}" if lang == "uz" else f"Подключение: {r['status']}"), value_key: r['cnt']})
             for r in stats["orders"]["technician_by_status"]:

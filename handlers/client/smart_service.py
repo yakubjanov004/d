@@ -14,11 +14,9 @@ from keyboards.client_buttons import (
     geolocation_keyboard
 )
 from states.client_states import SmartServiceStates
-from database.queries import get_user_language
-from database.client_queries import (
-    find_user_by_telegram_id,
-    create_smart_service_order
-)
+from database.basic.language import get_user_language
+from database.client.queries import find_user_by_telegram_id
+from database.client.orders import create_smart_service_order
 from config import settings
 from loader import bot
 

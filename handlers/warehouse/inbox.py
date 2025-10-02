@@ -16,11 +16,11 @@ from database.warehouse_inbox import (
     confirm_materials_and_update_status_for_technician,
     confirm_materials_and_update_status_for_staff,
     fetch_warehouse_technician_orders,
-    fetch_warehouse_saff_orders,
+    fetch_warehouse_staff_orders,
     get_all_warehouse_orders_count,
     count_warehouse_connection_orders,
     count_warehouse_technician_orders,
-    count_warehouse_saff_orders
+    count_warehouse_staff_orders
 )
 from keyboards.warehouse_buttons import (
     get_warehouse_main_menu,
@@ -156,7 +156,7 @@ async def inbox_handler(message: Message, state: FSMContext):
         f"Omborda turgan arizalar:\n\n"
         f"🔗 <b>Ulanish arizalari:</b> {counts['connection_orders']}\n"
         f"🔧 <b>Texnik xizmat:</b> {counts['technician_orders']}\n"
-        f"👥 <b>Xodim arizalari:</b> {counts['saff_orders']}\n\n"
+        f"👥 <b>Xodim arizalari:</b> {counts['staff_orders']}\n\n"
         f"📊 <b>Jami:</b> {counts['total']}\n\n"
         f"Quyidagi tugmalardan birini tanlang:"
     )
@@ -215,12 +215,12 @@ async def show_technician_orders(callback: CallbackQuery, state: FSMContext):
 
 # Staff orders handlers
 @router.callback_query(F.data == "warehouse_inbox_staff")
-async def show_saff_orders(callback: CallbackQuery, state: FSMContext):
+async def show_staff_orders(callback: CallbackQuery, state: FSMContext):
     """Show staff orders"""
     await state.update_data(current_order_type="staff", current_index=0)
     
-    orders = await fetch_warehouse_saff_orders(limit=1, offset=0)
-    total_count = await count_warehouse_saff_orders()
+    orders = await fetch_warehouse_staff_orders(limit=1, offset=0)
+    total_count = await count_warehouse_staff_orders()
     
     if not orders:
         await callback.message.edit_text(
@@ -264,8 +264,8 @@ async def navigate_prev(callback: CallbackQuery, state: FSMContext):
             text = format_technician_order(orders[0], new_index, total_count)
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "staff":
-        orders = await fetch_warehouse_saff_orders(limit=1, offset=new_index)
-        total_count = await count_warehouse_saff_orders()
+        orders = await fetch_warehouse_staff_orders(limit=1, offset=new_index)
+        total_count = await count_warehouse_staff_orders()
         if orders:
             text = format_staff_order(orders[0], new_index, total_count)
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
@@ -302,8 +302,8 @@ async def navigate_next(callback: CallbackQuery, state: FSMContext):
             text = format_technician_order(orders[0], new_index, total_count)
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "staff":
-        orders = await fetch_warehouse_saff_orders(limit=1, offset=new_index)
-        total_count = await count_warehouse_saff_orders()
+        orders = await fetch_warehouse_staff_orders(limit=1, offset=new_index)
+        total_count = await count_warehouse_staff_orders()
         if orders:
             text = format_staff_order(orders[0], new_index, total_count)
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
@@ -326,7 +326,7 @@ async def back_to_categories(callback: CallbackQuery, state: FSMContext):
         f"Omborda turgan arizalar:\n\n"
         f"🔗 <b>Ulanish arizalari:</b> {counts['connection_orders']}\n"
         f"🔧 <b>Texnik xizmat:</b> {counts['technician_orders']}\n"
-        f"👥 <b>Xodim arizalari:</b> {counts['saff_orders']}\n\n"
+        f"👥 <b>Xodim arizalari:</b> {counts['staff_orders']}\n\n"
         f"📊 <b>Jami:</b> {counts['total']}\n\n"
         f"Quyidagi tugmalardan birini tanlang:"
     )
@@ -452,8 +452,8 @@ async def confirm_staff_materials(callback: CallbackQuery, state: FSMContext):
     idx = int(data.get('current_index', 0))
     
     # Reload current selection
-    orders = await fetch_warehouse_saff_orders(limit=1, offset=idx)
-    total_count = await count_warehouse_saff_orders()
+    orders = await fetch_warehouse_staff_orders(limit=1, offset=idx)
+    total_count = await count_warehouse_staff_orders()
     
     if not orders:
         # Nothing left, go back to categories

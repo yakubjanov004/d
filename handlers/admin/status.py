@@ -68,7 +68,7 @@ async def system_overview_handler(callback: CallbackQuery):
         text += ("\n📝 **Zayavkalar:**\n" if lang == "uz" else "\n📝 **Заявки:**\n")
         text += (f"• Ulanish: {stats['total_connection_orders']}\n" if lang == "uz" else f"• Подключение: {stats['total_connection_orders']}\n")
         text += (f"• Texnik: {stats['total_technician_orders']}\n" if lang == "uz" else f"• Технические: {stats['total_technician_orders']}\n")
-        text += (f"• Xodim: {stats['total_saff_orders']}\n\n" if lang == "uz" else f"• Сотрудники: {stats['total_saff_orders']}\n\n")
+        text += (f"• Xodim: {stats['total_staff_orders']}\n\n" if lang == "uz" else f"• Сотрудники: {stats['total_staff_orders']}\n\n")
         
         text += ("📅 **Bugungi zayavkalar:**\n" if lang == "uz" else "📅 **Заявки за сегодня:**\n")
         text += (f"• Ulanish: {stats['today_connection_orders']}\n" if lang == "uz" else f"• Подключение: {stats['today_connection_orders']}\n")
@@ -143,7 +143,7 @@ async def system_orders_handler(callback: CallbackQuery):
             text += f"• {status_name}: {count}\n"
         
         text += ("\n👥 **Xodim zayavkalari:**\n" if lang == "uz" else "\n👥 **Заявки сотрудников:**\n")
-        for status, count in orders_data['saff_orders'].items():
+        for status, count in orders_data['staff_orders'].items():
             status_name = {
                 'new': ('Yangi' if lang == 'uz' else 'Новая'),
                 'in_manager': ('Menejerda' if lang == 'uz' else 'У менеджера'),
@@ -223,7 +223,7 @@ async def system_activity_handler(callback: CallbackQuery):
                 activity_type = {
                     'connection_order': ('🔗 Ulanish' if lang == 'uz' else '🔗 Подключение'),
                     'technician_order': ('🔧 Texnik' if lang == 'uz' else '🔧 Техническая'),
-                    'saff_order': ('👥 Xodim' if lang == 'uz' else '👥 Сотрудник')
+                    'staff_order': ('👥 Xodim' if lang == 'uz' else '👥 Сотрудник')
                 }.get(activity['type'], activity['type'])
                 
                 status_name = {

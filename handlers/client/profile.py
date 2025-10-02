@@ -3,8 +3,9 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from database.client_queries import find_user_by_telegram_id, get_user_orders_paginated, get_region_name_by_id
-from database.queries import get_user_language, update_user_full_name
+from database.client.queries import find_user_by_telegram_id, get_user_orders_paginated, get_region_name_by_id
+from database.basic.language import get_user_language
+from database.basic.user import update_user_full_name
 from keyboards.client_buttons import get_client_main_menu, get_client_profile_reply_keyboard
 from states.client_states import ProfileEditStates
 
