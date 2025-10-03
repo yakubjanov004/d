@@ -19,6 +19,7 @@ from database.client.queries import find_user_by_telegram_id
 from database.client.orders import create_smart_service_order
 from config import settings
 from loader import bot
+import asyncpg
 
 import logging
 
@@ -454,15 +455,11 @@ async def handle_old_category_selection(callback: CallbackQuery, state: FSMConte
                 (
                     "🛜 <b>Smart Service</b>\n\n"  # align with new copy
                     f"📂 <b>Kategoriya:</b> {category_name}\n\n"
-                    "Quyidagi xizmat turlaridan birini tanlang:"
-                ) if user_lang == "uz" else (
-                    "🛜 <b>Smart Service</b>\n\n"
-                    f"📂 <b>Категория:</b> {category_name}\n\n"
-                    "Выберите один из следующих типов услуг:"
+                    "Quyidagi xizmat turlaridan birini tanlang:" if user_lang == "uz" else f"📂 <b>Категория:</b> {category_name}\n\nВыберите один из следующих типов услуг:"
                 ),
                 reply_markup=get_smart_service_types_keyboard(new_callback, user_lang),
                 parse_mode='HTML'
-                )
+            )
             await state.set_state(SmartServiceStates.selecting_service_type)
             return
         
@@ -576,9 +573,8 @@ async def handle_address_input(message: Message, state: FSMContext):
         
         if len(address) < 10:
             error_text = (
-                "❌ Manzil juda qisqa. Iltimos, to'liq manzilni kiriting."
-            ) if user_lang == "uz" else (
-                "❌ Адрес слишком короткий. Пожалуйста, введите полный адрес."
+                "❌ Manzil juda qisqa. Iltimos, to'liq manzilni kiriting." if user_lang == "uz"
+                else "❌ Адрес слишком короткий. Пожалуйста, введите полный адрес."
             )
             await message.answer(error_text)
             return
@@ -620,9 +616,8 @@ async def handle_location_request(callback: CallbackQuery, state: FSMContext):
             location_instruction_text = (
                 "📍 <b>Geolokatsiya yuborish</b>\n\n"
                 "Iltimos, telefon orqali geolokatsiyangizni yuboring.\n"
-                "Buning uchun 📎 tugmasini bosib, 'Location' ni tanlang."
-            ) if user_lang == "uz" else (
-                "📍 <b>Отправка геолокации</b>\n\n"
+                "Buning uchun 📎 tugmasini bosib, 'Location' ni tanlang." if user_lang == "uz"
+                else "📍 <b>Отправка геолокации</b>\n\n"
                 "Пожалуйста, отправьте свою геолокацию через телефон.\n"
                 "Для этого нажмите кнопку 📎 и выберите 'Location'."
             )
@@ -636,7 +631,7 @@ async def handle_location_request(callback: CallbackQuery, state: FSMContext):
             await state.update_data(longitude=None, latitude=None)
             skip_text = (
                 "🚫 Geolokatsiya yuborilmadi."
-            ) if user_lang == "uz" else (
+            )
                 "🚫 Геолокация не отправлена."
             )
             # Remove inline keyboard by editing the same message
@@ -699,7 +694,7 @@ async def show_confirmation(message: Message, state: FSMContext):
         if longitude and latitude:
             location_info = (
                 f"🌍 <b>Geolokatsiya:</b> {latitude:.6f}, {longitude:.6f}\n"
-            ) if user_lang == "uz" else (
+            )
                 f"🌍 <b>Геолокация:</b> {latitude:.6f}, {longitude:.6f}\n"
             )
         
@@ -747,7 +742,7 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
             cancel_text = (
                 "❌ Buyurtma bekor qilindi.\n"
                 "Yangi buyurtma berish uchun /start buyrug'ini yuboring."
-            ) if user_lang == "uz" else (
+            )
                 "❌ Заказ отменён.\n"
                 "Для создания нового заказа отправьте команду /start."
             )
@@ -761,27 +756,25 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
         error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
         await callback.answer(error_text, show_alert=True)
 
-# Arizani yakunlash
+
 async def finish_smart_service_order(message: Message, state: FSMContext):
     try:
         data = await state.get_data()
         telegram_id = data.get('telegram_id')
         user_lang = (await state.get_data()).get('user_lang') or await get_user_language(telegram_id)
         
-        # Foydalanuvchini topish
         user_record = await find_user_by_telegram_id(telegram_id)
         user = dict(user_record) if user_record is not None else {}
         
         if not user:
             error_text = (
                 "❌ Foydalanuvchi topilmadi. Iltimos, avval ro'yxatdan o'ting."
-            ) if user_lang == "uz" else (
+            )
                 "❌ Пользователь не найден. Пожалуйста, сначала зарегистрируйтесь."
             )
             await message.answer(error_text)
             return
         
-        # Buyurtma ma'lumotlarini tayyorlash
         order_data = {
             'user_id': user.get('id'),
             'category': map_category_key_to_db_value(data.get('selected_category'), user_lang),
@@ -792,24 +785,31 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             'is_active': True
         }
         
-        # Bazaga yozish
         order_id = await create_smart_service_order(order_data)
-        
+
         if order_id:
-            # Kategoriya va service type nomlarini olish (bilingual)
+            conn = await asyncpg.connect(settings.DB_URL)
+            try:
+                app_number_result = await conn.fetchrow(
+                    "SELECT application_number FROM smart_service_orders WHERE id = $1",
+                    order_id
+                )
+                application_number = app_number_result['application_number'] if app_number_result else f"SMA-{order_id:04d}"
+            finally:
+                await conn.close()
+
             category_name = resolve_category_label(data.get('selected_category'), user_lang)
             service_name = resolve_service_label(data.get('selected_service_type'), user_lang)
-            
-            # Menejerga xabar yuborish
+
             try:
                 location_text = ""
                 if data.get('latitude') and data.get('longitude'):
                     location_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={data['latitude']},{data['longitude']}'>Google Maps</a>"
-                
+
                 group_msg = (
                     f"🛜 <b>YANGI SMARTSERVICE ARIZASI</b>\n"
                     f"{'='*30}\n"
-                    f"🆔 <b>ID:</b> <code>{order_id}</code>\n"
+                    f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
                     f"👤 <b>Mijoz:</b> {user.get('full_name', 'Noma\'lum')}\n"
                     f"📞 <b>Telefon:</b> {user.get('phone', 'Noma\'lum')}\n"
                     f"📂 <b>Kategoriya:</b> {category_name}\n"
@@ -830,32 +830,40 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             except Exception as group_error:
                 logger.error(f"Group notification error: {group_error}")
             
-            success_text = (
-                f"✅ <b>Smart Service buyurtmasi muvaffaqiyatli yaratildi!</b>\n\n"
-                f"📋 <b>Buyurtma raqami:</b> #{order_id}\n"
-                f"📂 <b>Kategoriya:</b> {category_name}\n"
-                f"🔧 <b>Xizmat turi:</b> {service_name}\n"
-                f"📍 <b>Manzil:</b> {data.get('address')}\n\n"
-                f"Tez orada mutaxassislarimiz siz bilan bog'lanishadi."
-            ) if user_lang == "uz" else (
-                f"✅ <b>Заказ Smart Service успешно создан!</b>\n\n"
-                f"📋 <b>Номер заказа:</b> #{order_id}\n"
-                f"📂 <b>Категория:</b> {category_name}\n"
-                f"🔧 <b>Тип услуги:</b> {service_name}\n"
-                f"📍 <b>Адрес:</b> {data.get('address')}\n\n"
-                f"В ближайшее время наши специалисты свяжутся с вами."
-            )
+            user_lang = await get_user_language(message.from_user.id)
+            if user_lang == "uz":
+                success_text = (
+                    f"✅ <b>Smart Service buyurtmasi muvaffaqiyatli yaratildi!</b>\n\n"
+                    f"📋 <b>Buyurtma raqami:</b> #{application_number}\n"
+                    f"📂 <b>Kategoriya:</b> {category_name}\n"
+                    f"🔧 <b>Xizmat turi:</b> {service_name}\n"
+                    f"📍 <b>Manzil:</b> {data.get('address')}\n\n"
+                    f"Tez orada mutaxassislarimiz siz bilan bog'lanishadi."
+                )
+            else:
+                success_text = (
+                    f"✅ <b>Заказ Smart Service успешно создан!</b>\n\n"
+                    f"📋 <b>Номер заказа:</b> #{application_number}\n"
+                    f"📂 <b>Категория:</b> {category_name}\n"
+                    f"🔧 <b>Тип услуги:</b> {service_name}\n"
+                    f"📍 <b>Адрес:</b> {data.get('address')}\n\n"
+                    f"В ближайшее время наши специалисты свяжутся с вами."
+                )
             
             await message.edit_text(
                 success_text,
                 parse_mode='HTML'
             )
         else:
-            error_text = (
-                "❌ Buyurtmani saqlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
-            ) if user_lang == "uz" else (
-                "❌ Ошибка при сохранении заказа. Пожалуйста, попробуйте снова."
-            )
+            user_lang = await get_user_language(message.from_user.id)
+            if user_lang == "uz":
+                error_text = (
+                    "❌ Buyurtmani saqlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
+                )
+            else:
+                error_text = (
+                    "❌ Ошибка при сохранении заказа. Пожалуйста, попробуйте снова."
+                )
             await message.answer(error_text)
         
         await state.clear()

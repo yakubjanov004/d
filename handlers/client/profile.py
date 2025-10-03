@@ -3,9 +3,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from database.client.queries import find_user_by_telegram_id, get_user_orders_paginated, get_region_name_by_id
+from database.client.queries import find_user_by_telegram_id, get_user_orders_paginated, get_region_display_name, update_user_full_name
 from database.basic.language import get_user_language
-from database.basic.user import update_user_full_name
 from keyboards.client_buttons import get_client_main_menu, get_client_profile_reply_keyboard
 from states.client_states import ProfileEditStates
 
@@ -113,7 +112,7 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
             f"📋 <b>Мои заявки</b>\n\n"
             f"<b>Заявка #{order['id']}</b>\n"
             f"📝 Тип: {order_type_text}\n"
-            f"📍 Регион: {get_region_name_by_id(order.get('region', '-'))}\n"
+            f"📍 Регион: {get_region_display_name(order.get('region', '-'))}\n"
             f"🏠 Адрес: {order.get('address','-')}\n"
         )
         if order.get('abonent_id'):
@@ -128,7 +127,7 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
             f"📋 <b>Mening arizalarim</b>\n\n"
             f"<b>Ariza #{order['id']}</b>\n"
             f"📝 Turi: {order_type_text}\n"
-            f"📍 Hudud: {get_region_name_by_id(order.get('region', '-'))}\n"
+            f"📍 Hudud: {get_region_display_name(order.get('region', '-'))}\n"
             f"🏠 Manzil: {order.get('address','-')}\n"
         )
         if order.get('abonent_id'):

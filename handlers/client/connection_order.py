@@ -20,6 +20,7 @@ from states.client_states import ConnectionOrderStates
 from config import settings
 from database.client.orders import ensure_user, get_or_create_tarif_by_code, create_connection_order
 from database.basic.language import get_user_language
+from database.connections import get_connection
 from loader import bot
 
 logger = logging.getLogger(__name__)
@@ -59,42 +60,6 @@ REGION_CODE_TO_RU: dict = {
     "karakalpakstan": "Каракалпакстан",
 }
 
-def t(lang: str, key: str) -> str:
-    uz = {
-        "start_title": "🔌 <b>Yangi ulanish arizasi</b>\n\n📍 Qaysi regionda ulanmoqchisiz?",
-        "ask_type": "Ulanish turini tanlang:",
-        "tariff_caption": "📋 <b>Tariflardan birini tanlang:</b>\n\n",
-        "ask_address": "📍 Manzilingizni kiriting:",
-        "ask_geo_q": "Geolokatsiya yuborasizmi?",
-        "send_geo": "📍 Joylashuvingizni yuboring:",
-        "geo_ok": "✅ Joylashuv qabul qilindi!",
-        "confirm_title": "Ma'lumotlar to'g'rimi?",
-        "confirm_wait": "⏳ Zayavka yaratilmoaqda...",
-        "not_found_tariff": "❌ Tanlangan tarif topilmadi. Iltimos, quyidagi ro'yxatdan tarifni qayta tanlang.",
-        "success_title": "✅ <b>Arizangiz muvaffaqiyatli qabul qilindi!</b>",
-        "will_call": "⏰ Menejerlarimiz tez orada siz bilan bog'lanadi!",
-        "main_menu": "Bosh menyu:",
-        "start_again": "🔌 <b>Yangi ulanish arizasi</b>\n\n📍 Qaysi regionda ulanmoqchisiz?",
-        "err_common": "❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
-    }
-    ru = {
-        "start_title": "🔌 <b>Новая заявка на подключение</b>\n\n📍 В каком регионе хотите подключиться?",
-        "ask_type": "Выберите тип подключения:",
-        "tariff_caption": "📋 <b>Выберите один из тарифов:</b>\n\n",
-        "ask_address": "📍 Введите ваш адрес:",
-        "ask_geo_q": "Отправите геолокацию?",
-        "send_geo": "📍 Отправьте свою локацию:",
-        "geo_ok": "✅ Геолокация получена!",
-        "confirm_title": "Данные верны?",
-        "confirm_wait": "⏳ Заявка создаётся...",
-        "not_found_tariff": "❌ Выбранный тариф не найден. Пожалуйста, выберите тариф заново из списка ниже.",
-        "success_title": "✅ <b>Ваша заявка успешно принята!</b>",
-        "will_call": "⏰ Наши менеджеры свяжутся с вами в ближайшее время!",
-        "main_menu": "Главное меню:",
-        "start_again": "🔌 <b>Новая заявка на подключение</b>\n\n📍 В каком регионе хотите подключиться?",
-        "err_common": "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.",
-    }
-    return (ru if lang == "ru" else uz)[key]
 
 def normalize_region(region_code: str, lang: str) -> str:
     if lang == "ru":
@@ -115,10 +80,13 @@ TARIFF_NAMES = {
 async def start_connection_order_client(message: Message, state: FSMContext):
     try:
         lang = await get_user_language(message.from_user.id) or "uz"
-        await state.update_data(lang=lang)
+
+        # Clear state and set defaults for new order
+        await state.clear()
+        await state.update_data(lang=lang, connection_type='b2c')  # Force B2C for clients
 
         await message.answer(
-            t(lang, "start_title"),
+            ("🔌 <b>Yangi ulanish arizasi</b>\n\n📍 Qaysi regionda ulanmoqchisiz?" if lang == "uz" else "🔌 <b>Новая заявка на подключение</b>\n\n📍 В каком регионе хотите подключиться?"),
             reply_markup=get_client_regions_keyboard(lang) if callable(get_client_regions_keyboard) else get_client_regions_keyboard(),
             parse_mode='HTML'
         )
@@ -126,7 +94,7 @@ async def start_connection_order_client(message: Message, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Error in start_connection_order_client: {e}")
-        await message.answer(t("uz", "err_common"))  # fallback
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.")  # fallback
 
 @router.callback_query(F.data.startswith("region_"), StateFilter(ConnectionOrderStates.selecting_region))
 async def select_region_old_client(callback: CallbackQuery, state: FSMContext):
@@ -140,14 +108,14 @@ async def select_region_old_client(callback: CallbackQuery, state: FSMContext):
         await state.update_data(selected_region=region_name)
 
         await callback.message.answer(
-            t(lang, "ask_type"),
+            ("Ulanish turini tanlang:" if lang == "uz" else "Выберите тип подключения:"),
             reply_markup=zayavka_type_keyboard(lang) if callable(zayavka_type_keyboard) else zayavka_type_keyboard()
         )
         await state.set_state(ConnectionOrderStates.selecting_connection_type)
 
     except Exception as e:
         logger.error(f"Error in select_region_old_client: {e}")
-        await callback.answer(t(lang, "err_common"), show_alert=True)
+        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
 
 @router.callback_query(F.data.startswith("zayavka_type_"), StateFilter(ConnectionOrderStates.selecting_connection_type))
 async def select_connection_type_client(callback: CallbackQuery, state: FSMContext):
@@ -163,14 +131,14 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
             photo = FSInputFile("static/image.png")
             await callback.message.answer_photo(
                 photo=photo,
-                caption=t(lang, "tariff_caption"),
+                caption=("📋 <b>Tariflardan birini tanlang:</b>\n\n" if lang == "uz" else "📋 <b>Выберите один из тарифов:</b>\n\n"),
                 reply_markup=get_client_tariff_selection_keyboard(lang) if callable(get_client_tariff_selection_keyboard) else get_client_tariff_selection_keyboard(),
                 parse_mode='HTML'
             )
         except Exception as img_error:
             logger.warning(f"Could not send tariff image: {img_error}")
             await callback.message.answer(
-                t(lang, "tariff_caption"),
+                ("📋 <b>Tariflardan birini tanlang:</b>\n\n" if lang == "uz" else "📋 <b>Выберите один из тарифов:</b>\n\n"),
                 reply_markup=get_client_tariff_selection_keyboard(lang) if callable(get_client_tariff_selection_keyboard) else get_client_tariff_selection_keyboard(),
                 parse_mode='HTML'
             )
@@ -178,7 +146,7 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
 
     except Exception as e:
         logger.error(f"Error in select_connection_type_client: {e}")
-        await callback.answer(t(lang, "err_common"), show_alert=True)
+        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
 
 @router.callback_query(F.data.in_(["tariff_xammasi_birga_4", "tariff_xammasi_birga_3_plus", "tariff_xammasi_birga_3", "tariff_xammasi_birga_2"]))
 async def select_tariff_client(callback: CallbackQuery, state: FSMContext):
@@ -190,12 +158,12 @@ async def select_tariff_client(callback: CallbackQuery, state: FSMContext):
         tariff_code = callback.data
         await state.update_data(selected_tariff=tariff_code)
 
-        await callback.message.answer(t(lang, "ask_address"))
+        await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
         await state.set_state(ConnectionOrderStates.entering_address)
 
     except Exception as e:
         logger.error(f"Error in select_tariff_client: {e}")
-        await callback.answer(t(lang, "err_common"), show_alert=True)
+        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
 
 @router.message(StateFilter(ConnectionOrderStates.entering_address))
 async def get_connection_address_client(message: Message, state: FSMContext):
@@ -203,14 +171,14 @@ async def get_connection_address_client(message: Message, state: FSMContext):
         lang = (await state.get_data()).get("lang", "uz")
         await state.update_data(address=message.text)
         await message.answer(
-            t(lang, "ask_geo_q"),
+            ("Geolokatsiya yuborasizmi?" if lang == "uz" else "Отправите геолокацию?"),
             reply_markup=geolocation_keyboard(lang) if callable(geolocation_keyboard) else geolocation_keyboard('uz')
         )
         await state.set_state(ConnectionOrderStates.asking_for_geo)
 
     except Exception as e:
         logger.error(f"Error in get_connection_address_client: {e}")
-        await message.answer(t(lang, "err_common"))
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
 @router.callback_query(F.data.in_(["send_location_yes", "send_location_no"]), StateFilter(ConnectionOrderStates.asking_for_geo))
 async def ask_for_geo_client(callback: CallbackQuery, state: FSMContext):
@@ -225,26 +193,26 @@ async def ask_for_geo_client(callback: CallbackQuery, state: FSMContext):
                 resize_keyboard=True,
                 one_time_keyboard=True
             )
-            await callback.message.answer(t(lang, "send_geo"), reply_markup=location_keyboard)
+            await callback.message.answer(("📍 Joylashuvingizni yuboring:" if lang == "uz" else "📍 Отправьте свою локацию:"), reply_markup=location_keyboard)
             await state.set_state(ConnectionOrderStates.waiting_for_geo)
         else:
             await finish_connection_order_client(callback, state, geo=None)
 
     except Exception as e:
         logger.error(f"Error in ask_for_geo_client: {e}")
-        await callback.answer(t((await state.get_data()).get("lang", "uz"), "err_common"), show_alert=True)
+        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if (await state.get_data()).get("lang", "uz") == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
 
 @router.message(StateFilter(ConnectionOrderStates.waiting_for_geo), F.location)
 async def get_geo_client(message: Message, state: FSMContext):
     try:
         lang = (await state.get_data()).get("lang", "uz")
         await state.update_data(geo=message.location)
-        await message.answer(t(lang, "geo_ok"), reply_markup=ReplyKeyboardRemove())
+        await message.answer(("✅ Joylashuv qabul qilindi!" if lang == "uz" else "✅ Геолокация получена!"), reply_markup=ReplyKeyboardRemove())
         await finish_connection_order_client(message, state, geo=message.location)
 
     except Exception as e:
         logger.error(f"Error in get_geo_client: {e}")
-        await message.answer(t(lang, "err_common"))
+        await message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
 async def finish_connection_order_client(message_or_callback, state: FSMContext, geo=None):
     """Client uchun complete connection request submission"""
@@ -253,7 +221,7 @@ async def finish_connection_order_client(message_or_callback, state: FSMContext,
         lang = data.get("lang", "uz")
 
         region = data.get('selected_region', data.get('region', 'toshkent shahri'))
-        connection_type = data.get('connection_type', 'standard')
+        connection_type = data.get('connection_type', 'b2c')
         tariff_code = data.get('selected_tariff', 'tariff_xammasi_birga_4')
         tariff_display = TARIFF_NAMES.get(tariff_code, {}).get(lang, tariff_code)
         address = data.get('address', '-')
@@ -264,7 +232,7 @@ async def finish_connection_order_client(message_or_callback, state: FSMContext,
             (f"💳 <b>Tarif:</b> {tariff_display}\n" if lang == "uz" else f"💳 <b>Тариф:</b> {tariff_display}\n") +
             (f"🏠 <b>Manzil:</b> {address}\n" if lang == "uz" else f"🏠 <b>Адрес:</b> {address}\n") +
             (f"📍 <b>Geolokatsiya:</b> {'✅ Yuborilgan' if geo else '❌ Yuborilmagan'}\n\n" if lang == "uz" else f"📍 <b>Геолокация:</b> {'✅ Отправлена' if geo else '❌ Не отправлена'}\n\n") +
-            t(lang, "confirm_title")
+            ("Ma'lumotlar to'g'rimi?" if lang == "uz" else "Данные верны?")
         )
 
         if hasattr(message_or_callback, "message"):
@@ -276,7 +244,7 @@ async def finish_connection_order_client(message_or_callback, state: FSMContext,
 
     except Exception as e:
         logger.error(f"Error in finish_connection_order_client: {e}")
-        msg = t((await state.get_data()).get("lang", "uz"), "err_common")
+        msg = ("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if (await state.get_data()).get("lang", "uz") == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
         if hasattr(message_or_callback, "message"):
             await message_or_callback.message.answer(msg)
         else:
@@ -290,7 +258,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         lang = data.get("lang", "uz")
 
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer(t(lang, "confirm_wait"))
+        await callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
 
         region = (data.get('selected_region') or data.get('region') or 'toshkent shahri')
         user_row = await ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
@@ -303,7 +271,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
 
         if tariff_code and not tarif_id:
             await callback.message.answer(
-                t(lang, "not_found_tariff"),
+                ("❌ Tanlangan tarif topilmadi. Iltimos, quyidagi ro'yxatdan tarifni qayta tanlang." if lang == "uz" else "❌ Выбранный тариф не найден. Пожалуйста, выберите тариф заново из списка ниже."),
                 reply_markup=get_client_tariff_selection_keyboard(lang) if callable(get_client_tariff_selection_keyboard) else get_client_tariff_selection_keyboard()
             )
             await state.set_state(ConnectionOrderStates.selecting_tariff)
@@ -313,13 +281,24 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         latitude = getattr(geo_data, 'latitude', None) if geo_data else None
         longitude = getattr(geo_data, 'longitude', None) if geo_data else None
 
+        # Force B2C for clients - always default to B2C
+        connection_type = data.get('connection_type', 'b2c')
+
+        # Force B2C unless explicitly B2B
+        if connection_type != 'b2b':
+            connection_type = 'b2c'
+
+        business_type = connection_type.upper()
+        
+        
         request_id = await create_connection_order(
             user_id=user_id,
             region=region.lower(),
             address=data.get('address', 'Kiritilmagan' if lang == "uz" else "Не указано"),
             tarif_id=tarif_id,
             latitude=latitude,
-            longitude=longitude
+            longitude=longitude,
+            business_type=business_type
         )
 
         if settings.ZAYAVKA_GROUP_ID:
@@ -329,7 +308,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                     geo_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={geo_data.latitude},{geo_data.longitude}'>Google Maps</a>"
                 phone_for_msg = data.get('phone') or user_phone or '-'
                 group_msg = (
-                    f"🔌 <b>YANGI ULANISH ARIZASI</b>\n"  # yoki RUga ham o‘zgartirsangiz bo‘ladi
+                    f"🔌 <b>YANGI ULANISH ARIZASI</b>\n" 
                     f"{'='*30}\n"
                     f"🆔 <b>ID:</b> <code>{request_id}</code>\n"
                     f"👤 <b>Mijoz:</b> {callback.from_user.full_name}\n"
@@ -345,27 +324,42 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             except Exception:
                 pass
 
-        phone_for_msg = data.get('phone') or user_phone or '-'
-        success_msg = (
-            f"{t(lang, 'success_title')}\n\n" +
-            (f"🆔 Ariza raqami: <code>{request_id}</code>\n" if lang == "uz" else f"🆔 Номер заявки: <code>{request_id}</code>\n") +
-            (f"📍 Region: {region}\n" if lang == "uz" else f"📍 Регион: {region}\n") +
-            (f"💳 Tarif: {tariff_name}\n" if lang == "uz" else f"💳 Тариф: {tariff_name}\n") +
-            (f"📞 Telefon: {phone_for_msg}\n" if lang == "uz" else f"📞 Телефон: {phone_for_msg}\n") +
-            (f"📍 Manzil: {data.get('address')}\n\n" if lang == "uz" else f"📍 Адрес: {data.get('address')}\n\n") +
-            t(lang, "will_call")
-        )
+        # Get the full application number from the database
+        conn = await get_connection()
+        try:
+            # Fetch the application number using the request_id
+            result = await conn.fetchrow(
+                "SELECT application_number FROM connection_orders WHERE id = $1", 
+                request_id
+            )
+            app_number = result['application_number'] if result else f"CONN-{request_id:04d}"
+        except Exception as e:
+            logger.error(f"Error fetching application number: {e}")
+            app_number = f"CONN-{request_id:04d}"
+        finally:
+            await conn.close()
 
-        await callback.message.answer(success_msg, parse_mode='HTML')
+        # Yuborish muvaffaqiyatli bo'lsa, foydalanuvchiga xabar bering
+        success_msg = (
+            f"✅ {'<b>Arizangiz muvaffaqiyatli qabul qilindi!</b>' if lang == 'uz' else '<b>Ваша заявка успешно принята!</b>'}\n\n"
+            f"🆔 {'Ariza raqami' if lang == 'uz' else 'Номер заявки'}: {app_number}\n"
+            f"📍 {'Hudud' if lang == 'uz' else 'Регион'}: {normalize_region(region, lang)}\n"
+            f"💳 {'Tarif' if lang == 'uz' else 'Тариф'}: {tariff_name}\n"
+            f"📞 {'Telefon' if lang == 'uz' else 'Телефон'}: {user_phone or '-'}\n"
+            f"📍 {'Manzil' if lang == 'uz' else 'Адрес'}: {data.get('address', '-')}\n\n"
+            f"⏰ {'Menejerlarimiz tez orada siz bilan bog\'lanadi!' if lang == 'uz' else 'Наши менеджеры свяжутся с вами в ближайшее время!'}"
+        )
+        
+        # Send the success message
         await callback.message.answer(
-            t(lang, "main_menu"),
+            success_msg,
             reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu('uz')
         )
         await state.clear()
 
     except Exception as e:
         logger.error(f"Error in confirm_connection_order_client: {e}")
-        await callback.message.answer(t((await state.get_data()).get("lang", "uz"), "err_common"))
+        await callback.message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if (await state.get_data()).get("lang", "uz") == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
 @router.callback_query(F.data == "resend_zayavka", StateFilter(ConnectionOrderStates.confirming_connection))
 async def resend_connection_order_client(callback: CallbackQuery, state: FSMContext):
@@ -379,7 +373,7 @@ async def resend_connection_order_client(callback: CallbackQuery, state: FSMCont
         await state.update_data(lang=lang)  # tilni saqlab qo'yamiz
 
         await callback.message.answer(
-            t(lang, "start_again"),
+            ("🔌 <b>Yangi ulanish arizasi</b>\n\n📍 Qaysi regionda ulanmoqchisiz?" if lang == "uz" else "🔌 <b>Новая заявка на подключение</b>\n\n📍 В каком регионе хотите подключиться?"),
             reply_markup=get_client_regions_keyboard(lang) if callable(get_client_regions_keyboard) else get_client_regions_keyboard(),
             parse_mode='HTML'
         )
@@ -387,4 +381,4 @@ async def resend_connection_order_client(callback: CallbackQuery, state: FSMCont
 
     except Exception as e:
         logger.error(f"Error in resend_connection_order_client: {e}")
-        await callback.answer(t((await state.get_data()).get("lang", "uz"), "err_common"), show_alert=True)
+        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if (await state.get_data()).get("lang", "uz") == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)

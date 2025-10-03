@@ -46,7 +46,7 @@ def zayavka_type_keyboard(lang="uz"):
     """Zayavka turini tanlash klaviaturasi - 2 tilda"""
     person_physical_text = "👤 Jismoniy shaxs" if lang == "uz" else "👤 Физическое лицо"
     person_legal_text = "🏢 Yuridik shaxs" if lang == "uz" else "🏢 Юридическое лицо"
-    
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=person_physical_text, callback_data="zayavka_type_b2c")],

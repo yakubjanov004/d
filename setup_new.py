@@ -308,16 +308,17 @@ FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- SMART_SERVICE_ORDERS (exact match)
 CREATE TABLE IF NOT EXISTS public.smart_service_orders (
-  id           BIGSERIAL PRIMARY KEY,
-  user_id      BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  category     public.smart_service_category NOT NULL,
-  service_type public.smart_service_type NOT NULL,
-  address      TEXT NOT NULL,
-  longitude    DOUBLE PRECISION,
-  latitude     DOUBLE PRECISION,
-  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                BIGSERIAL PRIMARY KEY,
+  application_number VARCHAR(50),  -- SMA-0001 format
+  user_id           BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
+  category          public.smart_service_category NOT NULL,
+  service_type      public.smart_service_type NOT NULL,
+  address           TEXT NOT NULL,
+  longitude         DOUBLE PRECISION,
+  latitude          DOUBLE PRECISION,
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_sso_user_id ON public.smart_service_orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_sso_category ON public.smart_service_orders(category);
@@ -490,6 +491,107 @@ CREATE INDEX IF NOT EXISTS idx_media_files_related ON public.media_files(related
 DROP TRIGGER IF EXISTS trg_media_files_updated_at ON public.media_files;
 CREATE TRIGGER trg_media_files_updated_at BEFORE UPDATE ON public.media_files
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ===== SEQUENTIAL USER ID FUNCTIONS =====
+
+-- Create a custom sequence for sequential user IDs
+CREATE SEQUENCE IF NOT EXISTS user_sequential_id_seq START 1;
+
+-- Function to get next sequential user ID
+CREATE OR REPLACE FUNCTION get_next_sequential_user_id()
+RETURNS INTEGER AS $$
+DECLARE
+    next_id INTEGER;
+BEGIN
+    -- Get the next value from our custom sequence
+    SELECT nextval('user_sequential_id_seq') INTO next_id;
+    
+    -- Check if this ID already exists in users table
+    WHILE EXISTS (SELECT 1 FROM users WHERE id = next_id) LOOP
+        SELECT nextval('user_sequential_id_seq') INTO next_id;
+    END LOOP;
+    
+    RETURN next_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to create user with sequential ID
+CREATE OR REPLACE FUNCTION create_user_sequential(
+    p_telegram_id BIGINT,
+    p_username TEXT DEFAULT NULL,
+    p_full_name TEXT DEFAULT NULL,
+    p_phone TEXT DEFAULT NULL,
+    p_role user_role DEFAULT 'client'
+)
+RETURNS TABLE(
+    user_id INTEGER,
+    user_telegram_id BIGINT,
+    user_username TEXT,
+    user_full_name TEXT,
+    user_phone TEXT,
+    user_role user_role,
+    user_created_at TIMESTAMPTZ
+) AS $$
+DECLARE
+    new_user_id INTEGER;
+    ret_user_id INTEGER;
+    ret_telegram_id BIGINT;
+    ret_username TEXT;
+    ret_full_name TEXT;
+    ret_phone TEXT;
+    ret_role user_role;
+    ret_created_at TIMESTAMPTZ;
+BEGIN
+    -- Get next sequential ID
+    SELECT get_next_sequential_user_id() INTO new_user_id;
+    
+    -- Insert user with sequential ID
+    INSERT INTO users (id, telegram_id, username, full_name, phone, role)
+    VALUES (new_user_id, p_telegram_id, p_username, p_full_name, p_phone, p_role)
+    ON CONFLICT (telegram_id) DO UPDATE SET
+        username = EXCLUDED.username,
+        full_name = EXCLUDED.full_name,
+        phone = EXCLUDED.phone,
+        updated_at = NOW()
+    RETURNING users.id, users.telegram_id, users.username, users.full_name, users.phone, users.role, users.created_at
+    INTO ret_user_id, ret_telegram_id, ret_username, ret_full_name, ret_phone, ret_role, ret_created_at;
+    
+    create_user_sequential.user_id := ret_user_id;
+    create_user_sequential.user_telegram_id := ret_telegram_id;
+    create_user_sequential.user_username := ret_username;
+    create_user_sequential.user_full_name := ret_full_name;
+    create_user_sequential.user_phone := ret_phone;
+    create_user_sequential.user_role := ret_role;
+    create_user_sequential.user_created_at := ret_created_at;
+    
+    RETURN NEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to reset sequence to match existing data
+CREATE OR REPLACE FUNCTION reset_user_sequential_sequence()
+RETURNS VOID AS $$
+DECLARE
+    max_id INTEGER;
+BEGIN
+    -- Get the maximum existing user ID
+    SELECT COALESCE(MAX(id), 0) + 1 INTO max_id FROM users;
+    
+    -- Reset the sequence to start from the next available ID
+    PERFORM setval('user_sequential_id_seq', max_id, false);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Reset the sequence to match existing data
+SELECT reset_user_sequential_sequence();
+
+-- Create index for better performance
+CREATE INDEX IF NOT EXISTS idx_users_id ON users(id);
+
+COMMENT ON SEQUENCE user_sequential_id_seq IS 'Sequential ID generator for users table';
+COMMENT ON FUNCTION get_next_sequential_user_id() IS 'Returns next available sequential user ID';
+COMMENT ON FUNCTION create_user_sequential(BIGINT, TEXT, TEXT, TEXT, user_role) IS 'Creates user with sequential ID';
+COMMENT ON FUNCTION reset_user_sequential_sequence() IS 'Resets sequence to match existing data';
 """
 
 def run_sql(conn, sql_text):
@@ -536,10 +638,10 @@ def verify_setup():
 
         # Add default tariffs if they don't exist
         default_tariffs = [
-            ("Hammasi birga 4"),
-            ("Hammasi birga 3+"),
-            ("Hammasi birga 3"),
-            ("Hammasi birga 2")
+            ("Hammasi birga 4", None),
+            ("Hammasi birga 3+", None),
+            ("Hammasi birga 3", None),
+            ("Hammasi birga 2", None)
         ]
         
         cur.execute("SELECT name FROM tarif")
@@ -548,7 +650,7 @@ def verify_setup():
         for name, picture in default_tariffs:
             if name not in existing_tariffs:
                 cur.execute(
-                    "INSERT INTO tarif (name, picture) VALUES (%s, %s)",
+                    "INSERT INTO tarif (name, picture, created_at, updated_at) VALUES (%s, %s, NOW(), NOW())",
                     (name, picture)
                 )
                 print(f"[+] Added default tariff: {name}")

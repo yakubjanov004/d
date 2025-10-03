@@ -30,9 +30,7 @@ def setup_media_structure(base_path: str = 'media') -> None:
         try:
             path = Path(directory)
             path.mkdir(parents=True, exist_ok=True)
-            # Only print message if it's not the temp directory
-            if 'temp' not in path.parts:
-                print(f"Directory created or already exists: {directory}")
+            # Silent creation - no print messages
         except Exception as e:
             print(f"Error creating directory {directory}: {e}")
             raise

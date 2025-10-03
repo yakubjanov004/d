@@ -258,13 +258,31 @@ async def create_smart_service_order(user_id: int, category: str, service_type: 
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Generate application number for smart service
+        # Get next number for smart service orders
+        next_num = await conn.fetchval(
+            """
+            SELECT COALESCE(MAX(
+                CASE 
+                    WHEN application_number ~ '^SMA-[0-9]+$' THEN 
+                        CAST(SUBSTRING(application_number FROM 'SMA-([0-9]+)$') AS INTEGER)
+                    ELSE 0
+                END
+            ), 0) + 1
+            FROM smart_service_orders 
+            WHERE application_number IS NOT NULL
+            """
+        )
+        
+        application_number = f"SMA-{next_num:04d}"
+        
         order_id = await conn.fetchval(
             """
-            INSERT INTO smart_service_orders (user_id, category, service_type, address)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO smart_service_orders (application_number, user_id, category, service_type, address)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id
             """,
-            user_id, category, service_type, address
+            application_number, user_id, category, service_type, address
         )
         return order_id
     finally:

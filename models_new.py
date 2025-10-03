@@ -265,7 +265,7 @@ class ConnectionOrders(BaseModel, OrderBase):
     Yangi ulanish so'rovlari haqida ma'lumot saqlaydi
     """
     _prefix: ClassVar[str] = "CONN"  # Prefix for connection orders
-    application_number: Optional[str] = None  # Format: CONN-B2B-1001
+    application_number: Optional[str] = None  # Format: CONN-B2C-1001
     """
     Internet ulanish arizalari jadvali modeli
     Yangi ulanish so'rovlari haqida ma'lumot saqlaydi
@@ -319,7 +319,7 @@ class StaffOrders(BaseModel, OrderBase):
     """
     user_id: Optional[int] = None               # Foydalanuvchi IDsi (FK users.id) - Yaratuvchi
     phone: Optional[str] = None                 # Telefon raqami
-    region: Optional[int] = None                # Hudud IDsi
+    region: Optional[str] = None                # Hudud nomi
     abonent_id: Optional[str] = None            # Abonent identifikatori
     tarif_id: Optional[int] = None              # Tarif IDsi (FK tarif.id) - Faqat ulanish uchun
     address: Optional[str] = None               # Manzil
@@ -351,6 +351,7 @@ class SmartServiceOrders(BaseModel):
     Smart Service buyurtmalari jadvali modeli
     Aqlli texnologiyalar bo'yicha so'rovlarni saqlaydi
     """
+    application_number: Optional[str] = None    # Format: SMA-0001
     user_id: Optional[int] = None               # Foydalanuvchi IDsi (FK users.id)
     category: SmartServiceCategory = None       # Xizmat kategoriyasi (ENUM)
     service_type: str = None                    # Xizmat turi (DOMAIN qiymat)
@@ -438,9 +439,9 @@ class MaterialIssued(BaseModel):
     notes: Optional[str] = None               # Qo'shimcha izohlar
     
     # Qaysi arizaga tegishli ekanligi (bittasi bo'lishi shart)
-    connection_order_id: Optional[str] = None   # Ulanish arizasi IDsi (CONN-B2B-1001)
-    technician_order_id: Optional[str] = None   # Texnik ariza IDsi (TECH-B2C-1001)
-    staff_order_id: Optional[str] = None        # staff arizasi IDsi (STAFF-B2B-1001)
+    connection_order_id: Optional[int] = None   # Ulanish arizasi IDsi (database ID)
+    technician_order_id: Optional[int] = None   # Texnik ariza IDsi (database ID)
+    staff_order_id: Optional[int] = None        # staff arizasi IDsi (database ID)
     
     # Material haqida ma'lumot (avtomatik to'ldiriladi)
     material_name: Optional[str] = None        # Material nomi
@@ -612,3 +613,55 @@ def validate_request_type(value: str) -> bool:
         bool: Qiymat ruxsat etilganlar ro'yxatida bo'lsa True, aks holda False
     """
     return value in ['connection', 'technician', 'staff']
+
+# ==================== DATABASE FUNCTIONS ====================
+# PostgreSQL funksiyalari uchun Python wrapper'lar
+
+def get_sequential_user_functions() -> dict:
+    """
+    Sequential user ID funksiyalari haqida ma'lumot
+    
+    Returns:
+        dict: Funksiyalar haqida ma'lumot
+    """
+    return {
+        "create_user_sequential": {
+            "description": "Ketma-ket ID bilan foydalanuvchi yaratish",
+            "parameters": {
+                "p_telegram_id": "BIGINT - Telegram foydalanuvchi IDsi",
+                "p_username": "TEXT - Username (ixtiyoriy)",
+                "p_full_name": "TEXT - To'liq ism (ixtiyoriy)", 
+                "p_phone": "TEXT - Telefon raqami (ixtiyoriy)",
+                "p_role": "user_role - Foydalanuvchi roli (default: 'client')"
+            },
+            "returns": "TABLE with user data",
+            "usage": "SELECT * FROM create_user_sequential($1, $2, $3, $4, $5)"
+        },
+        "get_next_sequential_user_id": {
+            "description": "Keyingi ketma-ket user ID ni olish",
+            "parameters": {},
+            "returns": "INTEGER - Keyingi ID",
+            "usage": "SELECT get_next_sequential_user_id()"
+        },
+        "reset_user_sequential_sequence": {
+            "description": "Sequence ni mavjud ma'lumotlarga moslashtirish",
+            "parameters": {},
+            "returns": "VOID",
+            "usage": "SELECT reset_user_sequential_sequence()"
+        }
+    }
+
+def get_database_sequences() -> dict:
+    """
+    Database sequence'lari haqida ma'lumot
+    
+    Returns:
+        dict: Sequence'lar haqida ma'lumot
+    """
+    return {
+        "user_sequential_id_seq": {
+            "description": "Foydalanuvchilar uchun ketma-ket ID generator",
+            "start_value": 1,
+            "purpose": "users jadvali uchun ketma-ket ID yaratish"
+        }
+    }

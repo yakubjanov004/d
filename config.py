@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     DB_PORT: int
     DB_USER: str
     DB_PASSWORD: str
-    DB_NAME: Optional[str] = "alfabot"
+    DB_NAME: Optional[str] = "aldb1"
     ADMINS_ID: int
+    MEDIA_ROOT: str = "media"
 
     class Config:
         env_file = ".env"
@@ -20,11 +21,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Database configuration for setup scripts
 DB_CONFIG: Dict[str, Any] = {
     'host': settings.DB_HOST,
     'port': settings.DB_PORT,
     'user': settings.DB_USER,
     'password': settings.DB_PASSWORD,
-    'database': settings.DB_NAME or 'alfabot'
+    'database': settings.DB_NAME or 'aldb1'
 }
