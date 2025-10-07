@@ -1,4 +1,4 @@
-# handlers/manager/realtime_monitoring.py
+# handlers/controller/realtime_monitoring.py
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -10,11 +10,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
 
 from filters.role_filter import RoleFilter
-from database.controller_realtime_monitoring_queries import (
+from database.controller.monitoring import (
     get_realtime_counts,
-    list_active_detailed,
-    list_urgent_detailed,
-    get_workflow_history,
+    list_active_orders_detailed,
+    get_controller_workflow_history,
 )
 
 router = Router()

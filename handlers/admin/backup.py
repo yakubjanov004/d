@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from filters.role_filter import RoleFilter
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 from config import settings
 import asyncio
 import datetime

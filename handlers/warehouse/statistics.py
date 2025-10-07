@@ -12,16 +12,16 @@ from keyboards.warehouse_buttons import (
     get_stats_period_keyboard,
     get_warehouse_main_menu
 )
-from database.warehouse_queries import (
+from database.warehouse.statistics import (
     get_warehouse_statistics,
     get_warehouse_daily_statistics,
     get_warehouse_weekly_statistics,
     get_warehouse_monthly_statistics,
     get_warehouse_yearly_statistics,
-    get_low_stock_materials,
     get_warehouse_financial_report,
     get_warehouse_range_statistics,
 )
+from database.warehouse.materials import get_low_stock_materials
 from filters.role_filter import RoleFilter
 
 router = Router()
@@ -155,13 +155,19 @@ async def financial_report_handler(message: Message):
     try:
         rep = await get_warehouse_financial_report()
         text = (
-            "💰 <b>Moliyaviy hisobot (oy):</b>\n\n"
-            f"🏬 Omborga kiritilgan mahsulotlar: <b>{format_number(rep['in_count'])}</b> dona\n"
-            f"📦 Ombordan chiqarilgan mahsulotlar: <b>{format_number(rep['out_count'])}</b> dona\n"
-            f"💵 Umumiy qiymat: <b>{format_currency(rep['total_value_month'])}</b>\n"
+            "💰 <b>Moliyaviy hisobot:</b>\n\n"
+            f"💵 Umumiy qiymat: <b>{format_currency(rep['total_value'])}</b>\n"
+            f"📊 O'rtacha narx: <b>{format_currency(rep['avg_price'])}</b>\n"
         )
+        
+        if rep['most_expensive']:
+            text += f"💎 Eng qimmat: <b>{rep['most_expensive']['name']}</b> - {format_currency(rep['most_expensive']['price'])}\n"
+        
+        if rep['cheapest']:
+            text += f"💸 Eng arzon: <b>{rep['cheapest']['name']}</b> - {format_currency(rep['cheapest']['price'])}\n"
+            
         await message.answer(text, parse_mode="HTML")
-    except Exception:
+    except Exception as e:
         await message.answer("❌ Moliyaviy hisobotni yuklashda xatolik yuz berdi.")
 
 

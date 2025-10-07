@@ -17,7 +17,7 @@ DB_CONFIG = {
     'host': os.getenv('PGHOST', 'localhost'),
     'port': int(os.getenv('PGPORT', '5432')),
     'user': os.getenv('PGUSER', 'postgres'),
-    'password': os.getenv('PGPASSWORD', 'ulugbek202'),
+    'password': os.getenv('PGPASSWORD', '1'),
     'database': os.getenv('PGDATABASE', 'aldb1'),
 }
 
@@ -88,7 +88,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Staff order status (exact match with Python enum)
+-- Staff order status (exact match with Python enum + additional values from database)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='staff_order_status' AND n.nspname='public') THEN
@@ -96,7 +96,8 @@ DO $$ BEGIN
       'new', 'in_call_center_operator', 'in_call_center_supervisor',
       'in_manager', 'in_junior_manager', 'in_controller', 'in_technician',
       'in_diagnostics', 'in_repairs', 'in_warehouse', 'in_technician_work',
-      'completed', 'between_controller_technician'
+      'completed', 'between_controller_technician', 'cancelled', 
+      'in_progress', 'assigned_to_technician'
     );
   END IF;
 END $$;
@@ -292,6 +293,9 @@ CREATE TABLE IF NOT EXISTS public.staff_orders (
   tarif_id         BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   address          TEXT,
   description      TEXT,
+  problem_description TEXT,  -- Muammo haqida batafsil (texnik xizmat uchun)
+  diagnostics      TEXT,  -- Diagnostika natijalari (texnik xizmat uchun)
+  jm_notes         TEXT,  -- Junior manager izohlari
   business_type    public.business_type NOT NULL DEFAULT 'B2C',
   status           public.staff_order_status NOT NULL DEFAULT 'new',
   type_of_zayavka  public.type_of_zayavka NOT NULL DEFAULT 'connection',
@@ -660,7 +664,6 @@ def verify_setup():
         return True
     except Exception as e:
         print(f"[!] verify_setup error: {e}")
-        return False
         return False
 
 def main():

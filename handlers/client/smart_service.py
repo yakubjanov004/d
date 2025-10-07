@@ -14,8 +14,8 @@ from keyboards.client_buttons import (
     geolocation_keyboard
 )
 from states.client_states import SmartServiceStates
+from database.basic.user import get_user_by_telegram_id
 from database.basic.language import get_user_language
-from database.client.queries import find_user_by_telegram_id
 from database.client.orders import create_smart_service_order
 from config import settings
 from loader import bot
@@ -630,9 +630,7 @@ async def handle_location_request(callback: CallbackQuery, state: FSMContext):
         else:
             await state.update_data(longitude=None, latitude=None)
             skip_text = (
-                "🚫 Geolokatsiya yuborilmadi."
-            )
-                "🚫 Геолокация не отправлена."
+                "🚫 Geolokatsiya yuborilmadi." if user_lang == "uz" else "🚫 Геолокация не отправлена."
             )
             # Remove inline keyboard by editing the same message
             try:
@@ -694,7 +692,6 @@ async def show_confirmation(message: Message, state: FSMContext):
         if longitude and latitude:
             location_info = (
                 f"🌍 <b>Geolokatsiya:</b> {latitude:.6f}, {longitude:.6f}\n"
-            )
                 f"🌍 <b>Геолокация:</b> {latitude:.6f}, {longitude:.6f}\n"
             )
         
@@ -742,7 +739,7 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
             cancel_text = (
                 "❌ Buyurtma bekor qilindi.\n"
                 "Yangi buyurtma berish uchun /start buyrug'ini yuboring."
-            )
+            ) if user_lang == "uz" else (
                 "❌ Заказ отменён.\n"
                 "Для создания нового заказа отправьте команду /start."
             )
@@ -763,13 +760,12 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
         telegram_id = data.get('telegram_id')
         user_lang = (await state.get_data()).get('user_lang') or await get_user_language(telegram_id)
         
-        user_record = await find_user_by_telegram_id(telegram_id)
+        user_record = await get_user_by_telegram_id(telegram_id)
         user = dict(user_record) if user_record is not None else {}
         
         if not user:
             error_text = (
                 "❌ Foydalanuvchi topilmadi. Iltimos, avval ro'yxatdan o'ting."
-            )
                 "❌ Пользователь не найден. Пожалуйста, сначала зарегистрируйтесь."
             )
             await message.answer(error_text)
@@ -834,7 +830,7 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             if user_lang == "uz":
                 success_text = (
                     f"✅ <b>Smart Service buyurtmasi muvaffaqiyatli yaratildi!</b>\n\n"
-                    f"📋 <b>Buyurtma raqami:</b> #{application_number}\n"
+                    f"📋 <b>Buyurtma raqami:</b> {application_number}\n"
                     f"📂 <b>Kategoriya:</b> {category_name}\n"
                     f"🔧 <b>Xizmat turi:</b> {service_name}\n"
                     f"📍 <b>Manzil:</b> {data.get('address')}\n\n"
@@ -843,7 +839,7 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             else:
                 success_text = (
                     f"✅ <b>Заказ Smart Service успешно создан!</b>\n\n"
-                    f"📋 <b>Номер заказа:</b> #{application_number}\n"
+                    f"📋 <b>Номер заказа:</b> {application_number}\n"
                     f"📂 <b>Категория:</b> {category_name}\n"
                     f"🔧 <b>Тип услуги:</b> {service_name}\n"
                     f"📍 <b>Адрес:</b> {data.get('address')}\n\n"

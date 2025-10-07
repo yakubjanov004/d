@@ -2,14 +2,14 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database.warehouse_queries import get_all_materials, search_materials, get_material_by_id
-from database.technician_queries import fetch_technician_materials, fetch_assigned_qty
-from database.jm_inbox_queries import db_get_user_by_id
-from database.warehouse_queries import get_users_by_role
+from database.warehouse.materials import get_all_materials, search_materials, get_material_by_id
+from database.technician.materials import fetch_technician_materials, fetch_assigned_qty
+from database.basic.user import find_user_by_telegram_id, get_user_by_id
+from database.warehouse.users import get_users_by_role
 from keyboards.warehouse_buttons import get_warehouse_main_menu
 from filters.role_filter import RoleFilter
 from states.warehouse_states import TechnicianMaterialStates
-from database.language_queries import get_user_language  # ← tilni admin-uslubda olamiz
+from database.basic.language import get_user_language
 
 router = Router()
 
@@ -64,7 +64,7 @@ async def select_technician(callback: CallbackQuery, state: FSMContext):
     tech_id = int(callback.data.split("_")[-1])
     
     # Texnik ma'lumotlarini olish
-    technician = await db_get_user_by_id(tech_id)
+    technician = await get_user_by_id(tech_id)
     if not technician:
         await callback.answer(("❌ Texnik topilmadi!" if lang == "uz" else "❌ Техник не найден!"), show_alert=True)
         return
@@ -228,7 +228,7 @@ async def enter_quantity(message: Message, state: FSMContext):
         return
     
     # Texnik ma'lumotlarini olish
-    technician = await db_get_user_by_id(tech_id)
+    technician = await get_user_by_id(tech_id)
     full_name = (technician.get('full_name') or '').strip() or f"ID: {tech_id}"
     
     # Tasdiqlash uchun keyboard
@@ -277,7 +277,7 @@ async def confirm_assignment(callback: CallbackQuery, state: FSMContext):
         
         # Material va texnik ma'lumotlarini olish
         material = await get_material_by_id(material_id)
-        technician = await db_get_user_by_id(tech_id)
+        technician = await get_user_by_id(tech_id)
         
         if not material or not technician:
             await callback.answer(("❌ Ma'lumotlar topilmadi!" if lang == "uz" else "❌ Данные не найдены!"), show_alert=True)
@@ -301,15 +301,38 @@ async def confirm_assignment(callback: CallbackQuery, state: FSMContext):
                 )
                 
                 # Texnikka material berish (material_and_technician jadvaliga qo'shish)
-                await conn.execute(
-                    """
-                    INSERT INTO material_and_technician (user_id, material_id, quantity)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (user_id, material_id)
-                    DO UPDATE SET quantity = material_and_technician.quantity + $3
-                    """,
-                    tech_id, material_id, quantity
+                # First check if record exists
+                existing_record = await conn.fetchrow(
+                    "SELECT id, quantity FROM material_and_technician WHERE user_id = $1 AND material_id = $2",
+                    tech_id, material_id
                 )
+                
+                if existing_record:
+                    # Update existing record
+                    await conn.execute(
+                        "UPDATE material_and_technician SET quantity = quantity + $1 WHERE id = $2",
+                        quantity, existing_record['id']
+                    )
+                else:
+                    # Insert new record
+                    await conn.execute(
+                        "INSERT INTO material_and_technician (user_id, material_id, quantity) VALUES ($1, $2, $3)",
+                        tech_id, material_id, quantity
+                    )
+        except asyncpg.UniqueViolationError as e:
+            # Handle unique constraint violation
+            await callback.answer(
+                ("❌ Bu material allaqachon texnikka berilgan!" if lang == "uz" else "❌ Этот материал уже выдан технику!"), 
+                show_alert=True
+            )
+            return
+        except Exception as db_error:
+            # Handle other database errors
+            await callback.answer(
+                (f"❌ Ma'lumotlar bazasi xatosi: {str(db_error)}" if lang == "uz" else f"❌ Ошибка базы данных: {str(db_error)}"), 
+                show_alert=True
+            )
+            return
         finally:
             await conn.close()
         

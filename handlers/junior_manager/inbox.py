@@ -1,20 +1,24 @@
-# handlers/junior_manager/inbox.py  (yoki siz ishlatayotgan fayl nomi)
-
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from typing import List, Dict, Any
 from datetime import datetime
 import html
+import logging
 
 from filters.role_filter import RoleFilter
-from database.jm_inbox_queries import (
-    db_get_user_by_telegram_id,
-    db_get_jm_inbox_items,
-    db_move_order_to_controller,  # hozircha ishlatmayapmiz, kerak bo'lsa o'zgartirasiz
+from database.junior_manager.queries import (
+    get_user_by_telegram_id,
+    get_connections_by_recipient,
+    get_connection_order_by_id,
+    get_staff_order_by_id,
+    move_order_to_controller,
+    set_jm_notes,
 )
 from keyboards.junior_manager_buttons import get_junior_manager_main_menu
 from aiogram.fsm.state import StatesGroup, State
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 router.message.filter(RoleFilter("junior_manager"))
@@ -183,7 +187,7 @@ def _fmt_dt(dt) -> str:
 # =========================
 @router.message(F.text == "📥 Inbox")
 async def handle_inbox(msg: Message, state: FSMContext):
-    user = await db_get_user_by_telegram_id(msg.from_user.id)
+    user = await get_user_by_telegram_id(msg.from_user.id)
     if not user:
         # til ma'lum bo'lmagani uchun UZ default
         return await msg.answer(_t("uz", "user_not_found"))
@@ -192,7 +196,7 @@ async def handle_inbox(msg: Message, state: FSMContext):
     if user.get("is_blocked"):
         return await msg.answer(_t(lang, "blocked"))
 
-    items = await db_get_jm_inbox_items(recipient_id=user["id"], limit=50)
+    items = await get_connections_by_recipient(recipient_id=user["id"], limit=50)
     if not items:
         return await msg.answer(_t(lang, "inbox_empty"), reply_markup=get_junior_manager_main_menu(lang))
 
@@ -206,38 +210,69 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     total = len(items)
     it = items[idx]
 
-    conn_id_raw      = it.get("connection_id")
-    order_created    = _fmt_dt(it.get("order_created_at"))
-    client_name_raw  = it.get("client_full_name")
-    client_phone_raw = it.get("client_phone")
-    region_raw       = it.get("order_region")
-    address_raw      = it.get("order_address")
-    jm_notes_raw     = it.get("order_jm_notes") or it.get("jm_notes")  # lokal yangilanish bo‘lishi mumkin
+    # Determine which order type we're dealing with
+    is_connection_order = it.get("order_id") is not None
+    is_staff_order = it.get("staff_order_id") is not None
+    
+    # Get the appropriate order ID for buttons
+    order_id = it.get("order_id") or it.get("staff_order_id")
+    
+    # Get application number for display
+    application_number = it.get("application_number") or it.get("staff_application_number")
+    
+    # Get creation date
+    order_created = _fmt_dt(it.get("order_created_at") or it.get("staff_created_at"))
+    
+    # Get client information (prioritize connection order data, fallback to staff order)
+    client_name_raw = it.get("client_full_name") or it.get("staff_client_full_name")
+    client_phone_raw = it.get("client_phone") or it.get("staff_client_phone")
+    
+    # Get location information
+    region_raw = it.get("order_region") or it.get("staff_region")
+    address_raw = it.get("order_address") or it.get("staff_address")
+    
+    # Get notes
+    jm_notes_raw = it.get("order_jm_notes") or it.get("staff_jm_notes") or it.get("jm_notes")
+    
+    # Get tariff information
+    tariff_name = it.get("tariff_name") or it.get("staff_tariff_name")
+    
+    # Get order type
+    order_type = it.get("staff_type", "connection") if is_staff_order else "connection"
 
-    # escape
-    conn_id_txt  = _esc(conn_id_raw)
-    client_name  = _esc(client_name_raw)
+    # Escape all values
+    order_id_txt = _esc(application_number) if application_number else _esc(order_id)
+    client_name = _esc(client_name_raw)
     client_phone = _esc(client_phone_raw)
-    region       = _esc(region_raw)
-    address      = _esc(address_raw)
+    region = _esc(region_raw)
+    address = _esc(address_raw)
+    tariff = _esc(tariff_name)
 
+    # Build notes block
     notes_block = ""
     if jm_notes_raw:
         notes_block = f"\n\n{_t(lang,'card_notes_title')}\n" + _esc(jm_notes_raw)
 
+    # Determine card title based on order type
+    if order_type == "technician":
+        card_title = f"🔧 <b>Texnik xizmat arizasi — To'liq ma'lumot</b>" if lang == "uz" else f"🔧 <b>Заявка на техническое обслуживание — Полные данные</b>"
+    else:
+        card_title = _t(lang, 'card_title')
+
     text = (
-        f"{_t(lang,'card_title')}\n\n"
-        f"{_t(lang,'card_id')} {conn_id_txt}\n"
+        f"{card_title}\n\n"
+        f"{_t(lang,'card_id')} {order_id_txt}\n"
         f"{_t(lang,'card_date')} {order_created}\n"
         f"{_t(lang,'card_client')} {client_name}\n"
         f"{_t(lang,'card_phone')} {client_phone}\n"
         f"{_t(lang,'card_region')} {region}\n"
         f"{_t(lang,'card_address')} {address}\n"
+        f"💳 <b>Tarif:</b> {tariff}\n"
         f"{notes_block}\n\n"
         f"{_t(lang,'card_pager').format(idx=idx+1, total=total)}"
     )
 
-    kb = _kb(idx, total, conn_id=conn_id_raw, lang=lang)
+    kb = _kb(idx, total, conn_id=order_id, lang=lang)
     if isinstance(target, Message):
         await target.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
@@ -323,24 +358,70 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
     order_id = int(cb.data.split(":")[1])  # = connection_id (order_id)
 
     # JM foydalanuvchi ID sini olamiz
-    jm_user = await db_get_user_by_telegram_id(cb.from_user.id)
+    jm_user = await get_user_by_telegram_id(cb.from_user.id)
     if not jm_user:
         return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
     lang = _norm_lang(jm_user.get("language"))
 
-    # Status + connections yozuvi
-    from database.jm_inbox_queries import db_jm_send_to_controller as _jm_send
-    ok = await _jm_send(order_id=order_id, jm_id=jm_user["id"])  # controller_id bermasak, o'zi tanlaydi
-
-    if not ok:
+    try:
+        # Database funksiyasini chaqiramiz - endi notification info qaytaradi
+        result = await move_order_to_controller(order_id=order_id, jm_id=jm_user["id"])
+        
+        if not result:
+            return await cb.answer(_t(lang, "send_fail"), show_alert=True)
+        
+        # Controller'ga notification yuboramiz
+        try:
+            from loader import bot
+            
+            # Notification matnini tayyorlash
+            app_num = result["application_number"]
+            current_load = result["current_load"]
+            recipient_lang = result["language"]
+            order_type = result.get("order_type", "connection")
+            
+            # Ariza turini formatlash
+            if recipient_lang == "ru":
+                if order_type == "connection":
+                    order_type_text = "подключения"
+                elif order_type == "technician":
+                    order_type_text = "технической"
+                else:
+                    order_type_text = "сотрудника"
+            else:
+                if order_type == "connection":
+                    order_type_text = "ulanish"
+                elif order_type == "technician":
+                    order_type_text = "texnik xizmat"
+                else:
+                    order_type_text = "xodim"
+            
+            # Notification xabari
+            if recipient_lang == "ru":
+                notification = f"📬 <b>Новая заявка {order_type_text}</b>\n\n🆔 {app_num}\n\n📊 У вас теперь <b>{current_load}</b> активных заявок"
+            else:
+                notification = f"📬 <b>Yangi {order_type_text} arizasi</b>\n\n🆔 {app_num}\n\n📊 Sizda yana <b>{current_load}ta</b> ariza bor"
+            
+            # Notification yuborish
+            await bot.send_message(
+                chat_id=result["telegram_id"],
+                text=notification,
+                parse_mode="HTML"
+            )
+            logger.info(f"Notification sent to controller {result['telegram_id']} for order {app_num}")
+        except Exception as notif_error:
+            logger.error(f"Failed to send notification: {notif_error}")
+            # Notification xatosi asosiy jarayonga ta'sir qilmaydi
+        
+    except Exception as e:
+        logger.error(f"Error in jm_send_to_controller: {e}")
         return await cb.answer(_t(lang, "send_fail"), show_alert=True)
 
-    # Ro'yxatdan olib tashlab, sahifani yangilaymiz
     data  = await state.get_data()
     items = data.get("items", [])
     idx   = data.get("idx", 0)
 
-    items = [x for x in items if x.get("connection_id") != order_id]
+    items = [x for x in items if (x.get("connection_id") != order_id and x.get("staff_id") != order_id)]
 
     if not items:
         await state.clear()
@@ -367,13 +448,16 @@ async def jm_note_start(cb: CallbackQuery, state: FSMContext):
     lang = data.get("lang", "uz")
     order_id = int(cb.data.split(":")[1])
 
-    # oldingi matn bo‘lsa ko‘rsatamiz (state yoki items’dan)
+    # oldingi matn bo'lsa ko'rsatamiz (state yoki items'dan)
     pending = data.get("pending_note")
     if not pending:
         items = data.get("items", [])
         idx   = data.get("idx", 0)
-        if 0 <= idx < len(items) and items[idx].get("connection_id") == order_id:
-            pending = items[idx].get("order_jm_notes") or items[idx].get("jm_notes")
+        if 0 <= idx < len(items):
+            current_item = items[idx]
+            # Check if this is the right order (handle both connection_id and staff_id)
+            if (current_item.get("connection_id") == order_id or current_item.get("staff_id") == order_id):
+                pending = current_item.get("order_jm_notes") or current_item.get("staff_jm_notes") or current_item.get("jm_notes")
 
     await state.update_data(note_order_id=order_id, pending_note=(pending or ""))
 
@@ -411,8 +495,6 @@ async def jm_note_edit_again(cb: CallbackQuery, state: FSMContext):
     await cb.message.answer(prompt, parse_mode="HTML")
     await state.set_state(JMNoteStates.waiting_text)
 
-from database.jm_inbox_queries import db_set_jm_notes  # saqlash uchun
-
 @router.callback_query(JMNoteStates.confirming, F.data == "jm_note_confirm")
 async def jm_note_confirm(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
@@ -425,21 +507,25 @@ async def jm_note_confirm(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(_t(lang, "error_generic"), show_alert=True)
 
     # JM foydalanuvchini tekshiramiz
-    jm_user = await db_get_user_by_telegram_id(cb.from_user.id)
+    jm_user = await get_user_by_telegram_id(cb.from_user.id)
     if not jm_user:
         return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
 
-    ok = await db_set_jm_notes(order_id=order_id, jm_id=jm_user["id"], note_text=note)
+    ok = await set_jm_notes(order_id=order_id, notes=note)
     if not ok:
         return await cb.answer(_t(lang, "note_save_fail"), show_alert=True)
 
-    # Lokal ro‘yxatni ham yangilab qo‘yamiz (kartochka qayta chizilganda ko‘rinsin)
+    # Lokal ro'yxatni ham yangilab qo'yamiz (kartochka qayta chizilganda ko'rinsin)
     items = data.get("items", [])
     idx   = data.get("idx", 0)
-    if 0 <= idx < len(items) and items[idx].get("connection_id") == order_id:
-        items[idx]["jm_notes"] = note
-        items[idx]["order_jm_notes"] = note
-        await state.update_data(items=items)
+    if 0 <= idx < len(items):
+        current_item = items[idx]
+        # Check if this is the right order (handle both connection_id and staff_id)
+        if (current_item.get("connection_id") == order_id or current_item.get("staff_id") == order_id):
+            items[idx]["jm_notes"] = note
+            items[idx]["order_jm_notes"] = note
+            items[idx]["staff_jm_notes"] = note
+            await state.update_data(items=items)
 
     await cb.message.answer(_t(lang, "note_saved"))
     # Viewing holatini qayta tiklaymiz (state ni to'liq tozalamasdan)

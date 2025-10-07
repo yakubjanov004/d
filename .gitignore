@@ -5,3 +5,4 @@ bot.log
 documents/
 logs/
 *.pyc
+media/

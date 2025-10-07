@@ -16,5 +16,4 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# Middleware'larni qo'shish
 dp.update.middleware(ErrorHandlingMiddleware(bot=bot))

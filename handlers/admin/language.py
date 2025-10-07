@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from database.language_queries import update_user_language, get_user_language
+from database.basic.language import update_user_language, get_user_language
 from keyboards.admin_buttons import get_admin_main_menu
 from filters.role_filter import RoleFilter
 

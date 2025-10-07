@@ -1,12 +1,30 @@
 from aiogram import types, F, Router
 from aiogram.fsm.context import FSMContext
-from database.rating_queries import save_rating
+from database.basic.rating import save_rating
 from states.client_states import RatingStates
 from keyboards.client_buttons import get_rating_keyboard, get_skip_comment_keyboard
+from utils.akt_service import AKTService
 import logging
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+async def create_and_send_akt_after_rating(request_id: int, request_type: str):
+    """
+    Rating qilgandan so'ng AKT yaratish va yuborish.
+    """
+    try:
+        from loader import bot
+        
+        # AKT service orqali AKT yaratish va yuborish
+        akt_service = AKTService()
+        await akt_service.post_completion_pipeline(bot, request_id, request_type)
+        
+        logger.info(f"AKT created and sent after rating for {request_type} request {request_id}")
+        
+    except Exception as e:
+        logger.error(f"Error creating AKT after rating: {e}")
+        # AKT xatosi clientga ko'rinmaydi, faqat log qilinadi
 
 @router.callback_query(F.data.startswith("rate:") | F.data.startswith("skip_comment:"))
 async def handle_rating_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -54,6 +72,9 @@ async def handle_rating_callback(callback: types.CallbackQuery, state: FSMContex
                 "Tashakkur! Sizning bahoingiz biz uchun muhim.",
                 parse_mode='HTML'
             )
+            
+            # Rating qilgandan so'ng AKT yaratish va yuborish
+            await create_and_send_akt_after_rating(request_id, request_type)
             await state.clear()
             
     except Exception as e:
@@ -80,6 +101,9 @@ async def handle_comment_message(message: types.Message, state: FSMContext):
             "Tashakkur! Sizning bahoingiz va izohingiz biz uchun muhim.",
             parse_mode='HTML'
         )
+        
+        # Rating va comment qilgandan so'ng AKT yaratish va yuborish
+        await create_and_send_akt_after_rating(request_id, request_type)
         await state.clear()
         
     except Exception as e:
@@ -92,7 +116,7 @@ async def handle_rating_stats_callback(callback: types.CallbackQuery):
     Reyting statistikalarini ko'rsatish
     """
     try:
-        from database.rating_queries import get_rating_stats
+        from database.basic.rating import get_rating_stats
         
         stats = await get_rating_stats()
         
@@ -130,8 +154,8 @@ async def handle_my_ratings_callback(callback: types.CallbackQuery):
     Foydalanuvchining o'z reytinglarini ko'rsatish
     """
     try:
-        from database.queries import find_user_by_telegram_id
-        from database.rating_queries import get_rating
+        from database.basic.user import find_user_by_telegram_id
+        from database.basic.rating import get_rating
         
         user = await find_user_by_telegram_id(callback.from_user.id)
         if not user:

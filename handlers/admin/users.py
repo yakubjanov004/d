@@ -8,16 +8,15 @@ import re
 from config import settings
 from typing import Optional
 from filters.role_filter import RoleFilter
-from database.queries import (
+from database.basic.user import (
     find_user_by_telegram_id,
     find_user_by_phone,
     update_user_role
 )
-from database.admin_queries import (
+from database.admin.users import (
     get_all_users_paginated,
     get_users_by_role_paginated,
     search_users_paginated,
-    get_user_statistics,
     toggle_user_block_status
 )
 from datetime import datetime
@@ -27,7 +26,7 @@ from keyboards.admin_buttons import (
     get_inline_search_method,
     get_admin_main_menu
 )
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter("admin")) 

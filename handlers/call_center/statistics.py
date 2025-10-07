@@ -5,11 +5,11 @@ from filters.role_filter import RoleFilter
 from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 
-from database.call_center_statistic_queries import (
+from database.call_center.statistics import (
     get_user_id_by_telegram_id,
     get_operator_stats_by_range,
 )
-from database.language_queries import get_user_language  # 👈 shu yerdan import qilamiz (siz bergan query)
+from database.basic.language import get_user_language
 router = Router()
 router.message.filter(RoleFilter("callcenter_operator"))
 router.callback_query.filter(RoleFilter("callcenter_operator"))

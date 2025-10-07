@@ -3,15 +3,15 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 import html
-from database.admin_orders_queries import (
-    get_user_by_telegram_id,
+from database.admin.orders import (
     get_connection_orders,
     get_technician_orders,
     get_staff_orders
 )
+from database.basic.user import get_user_by_telegram_id
 from filters.role_filter import RoleFilter
 from keyboards.admin_buttons import get_applications_main_menu, get_admin_main_menu
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 
 router = Router()
 
@@ -77,7 +77,7 @@ def technician_status_names(lang: str) -> dict:
     }
 
 def connection_order_text(item: dict, lang: str) -> str:
-    order_id = item['id']
+    order_id = item.get('application_number') or item['id']
     created = item["created_at"]
     created_dt = datetime.fromisoformat(created) if isinstance(created, str) else created
     
@@ -134,7 +134,7 @@ def connection_order_text(item: dict, lang: str) -> str:
     )
 
 def technician_order_text(item: dict, lang: str) -> str:
-    order_id = item['id']
+    order_id = item.get('application_number') or item['id']
     created = item["created_at"]
     created_dt = datetime.fromisoformat(created) if isinstance(created, str) else created
     
@@ -191,7 +191,7 @@ def technician_order_text(item: dict, lang: str) -> str:
     )
 
 def staff_order_text(item: dict, lang: str) -> str:
-    order_id = item['id']
+    order_id = item.get('application_number') or item['id']
     created = item["created_at"]
     created_dt = datetime.fromisoformat(created) if isinstance(created, str) else created
     

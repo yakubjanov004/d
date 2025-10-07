@@ -7,9 +7,9 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from filters.role_filter import RoleFilter
-from database.manager_staff_activity import fetch_staff_activity
+from database.manager.orders import fetch_staff_activity
 # Foydalanuvchi tilini olish uchun (users.language) — loyihangizdagi mavjud funksiya:
-from database.manager_inbox import get_user_by_telegram_id  # <- shu modulda language bor deb ishlatamiz
+from database.basic.user import get_user_by_telegram_id
 
 router = Router()
 router.message.filter(RoleFilter("manager"))
@@ -66,9 +66,9 @@ def _build_report(lang: str, items: list[dict]) -> str:
         return _t(lang, "empty")
 
     # Umumiy yig'indilar
-    conn_sum = sum(x["conn_count"] for x in items)
-    tech_sum = sum(x["tech_count"] for x in items)
-    total_sum = sum(x["total_count"] for x in items)
+    conn_sum = sum(x.get("conn_count", 0) for x in items)
+    tech_sum = sum(x.get("tech_count", 0) for x in items)
+    total_sum = sum(x.get("total_orders", 0) for x in items)
 
     lines = [f"{_t(lang,'title')}\n", _t(lang, "legend"), ""]
     for i, it in enumerate(items):
@@ -78,7 +78,7 @@ def _build_report(lang: str, items: list[dict]) -> str:
         tech_c = it.get("tech_count", 0)
         active_c = it.get("active_count", 0)
 
-        # Ko‘rinish:
+        # Ko'rinish:
         # 1. 🥇 Ism Fam (Rol)
         #    ├ Connection: 7 ta
         #    ├ Technician: 4 ta

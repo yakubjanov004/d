@@ -25,8 +25,8 @@ def _get_tashkent_tz():
     # 3. Fallback to UTC+5 (Tashkent time) using datetime.timezone
     return dt.timezone(dt.timedelta(hours=5), 'Asia/Tashkent')
 
-from database.queries import find_user_by_telegram_id
-from database.technician_report_queries import (
+from database.basic.user import find_user_by_telegram_id
+from database.technician.report import (
     count_connection_status,
     count_technician_status,
     count_staff_status,

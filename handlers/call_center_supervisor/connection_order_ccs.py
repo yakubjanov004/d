@@ -25,13 +25,13 @@ from keyboards.call_center_supervisor_buttons import (
 from states.call_center_states import staffConnectionOrderStates
 
 # === DB ===
-from database.call_center_supervisor_queries import (
+from database.call_center_supervisor.orders import (
     find_user_by_phone,
     staff_orders_create,
     get_or_create_tarif_by_code,
 )
-from database.client_queries import ensure_user
-from database.queries import get_user_language   # til
+from database.basic.user import ensure_user
+from database.basic.language import get_user_language   # til
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -277,11 +277,35 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         request_id = await staff_orders_create(
             user_id=user_id,
             phone=acting_client.get("phone"),
-            abonent_id=str(client_user_id),
+            abonent_id=str(client_user_id) if client_user_id is not None else None,
             region=region_id,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
         )
+
+        # Guruhga xabar yuborish
+        try:
+            from loader import bot
+            from utils.notification_service import send_group_notification_for_staff_order
+            
+            tariff_name = tariff_code or None
+            region_name = region_code.replace('_', ' ').title()
+            
+            await send_group_notification_for_staff_order(
+                bot=bot,
+                order_id=request_id,
+                order_type="connection",
+                client_name=acting_client.get('full_name', 'Noma\'lum'),
+                client_phone=acting_client.get('phone', '-'),
+                creator_name=callback.from_user.full_name,
+                creator_role='call_center_supervisor',
+                region=region_name,
+                address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
+                tariff_name=tariff_name,
+                business_type="B2C"
+            )
+        except Exception as group_error:
+            logger.error(f"Failed to send group notification for Call Center Supervisor order: {group_error}")
 
         done_text = (
             "✅ <b>Ariza yaratildi</b>\n\n"

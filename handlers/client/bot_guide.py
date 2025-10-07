@@ -51,7 +51,7 @@ async def bot_guide_handler(message: Message):
 
     # Video faylni yuborish
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    video_path = os.path.join(base_dir, "media", "uztelecom.MP4")
+    video_path = os.path.join(base_dir, "static", "videos", "uztelecom.MP4")
 
     if os.path.exists(video_path):
         video = FSInputFile(video_path)

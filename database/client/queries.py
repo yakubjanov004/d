@@ -130,7 +130,10 @@ async def get_user_orders_paginated(telegram_id: int, offset: int = 0, limit: in
                     updated_at,
                     tarif_id,
                     NULL as abonent_id,
-                    NULL as description
+                    NULL as description,
+                    application_number,
+                    NULL as media_file_id,
+                    NULL as media_type
                 FROM connection_orders 
                 WHERE user_id = $1
             )
@@ -146,7 +149,13 @@ async def get_user_orders_paginated(telegram_id: int, offset: int = 0, limit: in
                     updated_at,
                     NULL as tarif_id,
                     abonent_id,
-                    description
+                    description,
+                    application_number,
+                    media as media_file_id,
+                    CASE 
+                        WHEN media IS NOT NULL THEN 'photo'
+                        ELSE NULL
+                    END as media_type
                 FROM technician_orders 
                 WHERE user_id = $1
             )

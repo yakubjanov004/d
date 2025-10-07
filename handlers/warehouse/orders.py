@@ -6,15 +6,15 @@ import html
 
 from states.warehouse_states import MaterialRequestsStates
 from filters.role_filter import RoleFilter
-from database.queries import find_user_by_telegram_id
-from database.warehouse_inbox import (
+from database.basic.user import find_user_by_telegram_id
+from database.warehouse.inbox import (
     fetch_material_requests_by_connection_orders,
     fetch_material_requests_by_technician_orders,
     fetch_material_requests_by_staff_orders,
     count_material_requests_by_connection_orders,
     count_material_requests_by_technician_orders,
     count_material_requests_by_staff_orders,
-    get_all_material_requests_count
+    get_all_material_requests_count,
 )
 from keyboards.warehouse_buttons import (
     get_warehouse_material_requests_keyboard,
@@ -126,7 +126,7 @@ async def show_material_requests_connection(callback: CallbackQuery, state: FSMC
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_connection")
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_connection", material_requests[0].get('applications_id', 0))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -150,7 +150,7 @@ async def show_material_requests_technician(callback: CallbackQuery, state: FSMC
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_technician")
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_technician", material_requests[0].get('applications_id', 0))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -174,7 +174,7 @@ async def show_material_requests_staff(callback: CallbackQuery, state: FSMContex
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_staff")
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_staff", material_requests[0].get('applications_id', 0))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -205,7 +205,7 @@ async def navigate_material_requests_prev(callback: CallbackQuery, state: FSMCon
     
     if material_requests:
         text = format_material_request(material_requests[0], new_index, total_count)
-        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type)
+        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('applications_id', 0))
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     
     await callback.answer()
@@ -235,7 +235,7 @@ async def navigate_material_requests_next(callback: CallbackQuery, state: FSMCon
     
     if material_requests:
         text = format_material_request(material_requests[0], new_index, total_count)
-        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type)
+        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('applications_id', 0))
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     
     await callback.answer()
@@ -267,6 +267,58 @@ async def back_to_material_requests_categories(callback: CallbackQuery, state: F
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     
     await callback.answer()
+
+# Material confirmation handlers
+@router.callback_query(F.data.startswith("warehouse_confirm_material_"))
+async def confirm_material_request(callback: CallbackQuery, state: FSMContext):
+    """Confirm material request and transfer materials to technician"""
+    user = await find_user_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Foydalanuvchi topilmadi!", show_alert=True)
+        return
+    
+    # Parse callback data: warehouse_confirm_material_{order_type}_{order_id}
+    parts = callback.data.split("_")
+    if len(parts) < 5:
+        await callback.answer("❌ Noto'g'ri format!", show_alert=True)
+        return
+    
+    order_type = parts[3]  # material_requests_connection/technician/staff
+    order_id = int(parts[4])
+    
+    try:
+        # Import confirmation functions
+        from database.warehouse.inbox import (
+            confirm_materials_and_update_status_for_connection,
+            confirm_materials_and_update_status_for_technician,
+            confirm_materials_and_update_status_for_staff
+        )
+        
+        # Call appropriate confirmation function
+        if order_type == "material_requests_connection":
+            success = await confirm_materials_and_update_status_for_connection(order_id, user["id"])
+        elif order_type == "material_requests_technician":
+            success = await confirm_materials_and_update_status_for_technician(order_id, user["id"])
+        elif order_type == "material_requests_staff":
+            success = await confirm_materials_and_update_status_for_staff(order_id, user["id"])
+        else:
+            await callback.answer("❌ Noto'g'ri ariza turi!", show_alert=True)
+            return
+        
+        if success:
+            await callback.message.edit_text(
+                "✅ <b>Materiallar tasdiqlandi!</b>\n\n"
+                f"📦 Materiallar texnikka o'tkazildi\n"
+                f"🔄 Ariza holati yangilandi\n"
+                f"📋 Ariza ID: {order_id}",
+                parse_mode="HTML"
+            )
+            await callback.answer("✅ Muvaffaqiyatli tasdiqlandi!")
+        else:
+            await callback.answer("❌ Tasdiqlashda xatolik!", show_alert=True)
+            
+    except Exception as e:
+        await callback.answer(f"❌ Xatolik: {str(e)}", show_alert=True)
 
 # Back to main warehouse menu
 @router.callback_query(F.data == "warehouse_material_requests_back")

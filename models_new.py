@@ -79,13 +79,11 @@ class StaffOrderStatus(Enum):
     Turli foydalanuvchilar tomonidan yaratilgan va ko'rib chiqiladigan buyurtmalar
     """
     # Yaratish bosqichlari
-    NEW = 'new'  # new
     IN_CALL_CENTER_OPERATOR = "in_call_center_operator"      # Call center operatoriga tayinlangan
     IN_CALL_CENTER_SUPERVISOR = "in_call_center_supervisor"  # Call center nazoratchisiga tayinlangan
     
     # Ko'rib chiqish va tasdiqlash bosqichlari
     IN_MANAGER = "in_manager"                    # Managerga tayinlangan
-    IN_JUNIOR_MANAGER = "in_junior_manager"      # Kichik managerga tayinlangan
     IN_CONTROLLER = "in_controller"              # Kontrollerga tayinlangan
     
     # Bajarish bosqichlari
@@ -97,6 +95,7 @@ class StaffOrderStatus(Enum):
     
     # Yakunlash
     COMPLETED = "completed"                      # Yakunlangan
+    CANCELLED = "cancelled"                      # Bekor qilingan
     BETWEEN_CONTROLLER_TECHNICIAN = "between_controller_technician"  # Kontroller va texnik o'rtasida
 
 class StaffOrderTypeOfZayavka(Enum):
@@ -191,9 +190,9 @@ class BaseModel:
     Barcha ma'lumotlar bazasi modellarining asosiy klassi
     Umumiy maydonlarni o'z ichiga oladi
     """
-    id: Optional[int] = None                    # Jadval yozuvi IDsi (PRIMARY KEY)
-    created_at: Optional[datetime] = None       # Yozuv yaratilgan vaqt
-    updated_at: Optional[datetime] = None       # Yozuv oxirgi marta yangilangan vaqt
+    id: Optional[int] = field(default=None)                    # Jadval yozuvi IDsi (PRIMARY KEY)
+    created_at: Optional[datetime] = field(default=None)       # Yozuv yaratilgan vaqt
+    updated_at: Optional[datetime] = field(default=None)       # Yozuv oxirgi marta yangilangan vaqt
 
 @dataclass
 class Users(BaseModel):
@@ -327,7 +326,7 @@ class StaffOrders(BaseModel, OrderBase):
     problem_description: Optional[str] = None   # Muammo haqida batafsil (texnik xizmat uchun)
     diagnostics: Optional[str] = None           # Diagnostika natijalari (texnik xizmat uchun)
     business_type: BusinessType = BusinessType.B2C  # Business type (B2B/B2C)
-    status: StaffOrderStatus = StaffOrderStatus.NEW  # Boshlang'ich status - NEW
+    status: StaffOrderStatus = StaffOrderStatus.IN_CALL_CENTER_OPERATOR  # Boshlang'ich status
     type_of_zayavka: StaffOrderTypeOfZayavka = StaffOrderTypeOfZayavka.CONNECTION  # Ariza turi
     is_active: bool = True                      # Ariza faolmi?
     created_by_role: Optional[UserRole] = None  # Kim tomonidan yaratilgani (qo'shimcha)
@@ -336,14 +335,8 @@ class StaffOrders(BaseModel, OrderBase):
         """Ariza turiga qarab maydonlarni sozlash"""
         if self.type_of_zayavka == StaffOrderTypeOfZayavka.TECHNICIAN:
             # Texnik xizmat uchun kerakli maydonlar
-            if self.status == StaffOrderStatus.NEW:
-                self.status = StaffOrderStatus.IN_CALL_CENTER_OPERATOR
             if not self.problem_description:
                 self.problem_description = ""
-        else:
-            # Ulanish arizasi uchun kerakli maydonlar
-            if self.status == StaffOrderStatus.NEW:
-                self.status = StaffOrderStatus.IN_CALL_CENTER_OPERATOR
 
 @dataclass
 class SmartServiceOrders(BaseModel):

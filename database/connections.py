@@ -1,12 +1,13 @@
-import asyncpg
-from config import settings
-from typing import Optional
+# database/connections.py
+# Database connection utilities
 
-async def get_connection() -> asyncpg.Connection:
+from config import settings
+
+def get_connection_url() -> str:
     """
-    Create and return a new database connection.
+    Get the database connection URL from settings.
     
     Returns:
-        asyncpg.Connection: A new database connection
+        str: The database connection URL
     """
-    return await asyncpg.connect(settings.DB_URL)
+    return settings.DB_URL

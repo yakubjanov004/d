@@ -12,7 +12,7 @@ from keyboards.warehouse_buttons import (
     get_inventory_actions_keyboard,
 )
 from states.warehouse_states import WarehouseStates, AddMaterialStates, UpdateMaterialStates
-from database.warehouse_queries import (
+from database.warehouse.materials import (
     create_material,
     search_materials,
     get_all_materials,

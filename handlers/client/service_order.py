@@ -18,18 +18,15 @@ from keyboards.client_buttons import (
     get_contact_keyboard,
 )
 from states.client_states import ServiceOrderStates
+from database.basic.user import get_user_by_telegram_id, get_user_phone_by_telegram_id, update_user_phone_by_telegram_id
 from database.basic.language import get_user_language
-from database.client.queries import (
-    find_user_by_telegram_id,
-    get_user_phone_by_telegram_id,
-    update_user_phone_by_telegram_id
-)
 from database.client.orders import create_service_order
 from utils.directory_utils import setup_media_structure
 from config import settings
 from loader import bot
 import os
 import asyncio
+import asyncpg
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -68,24 +65,9 @@ async def save_service_media_file(file_id: str, media_type: str, user_id: int, o
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
 
             # Media faylini database ga saqlash
-            from database.models import MediaFiles
-
-            media_file = MediaFiles(
-                file_path=file_path,
-                file_type=media_type,
-                file_size=file_size,
-                original_name=file_name,
-                mime_type=f'image/jpeg' if media_type == 'photo' else 'video/mp4',
-                category='service_attachment',
-                related_table='technician_orders',
-                related_id=order_id,
-                uploaded_by=user_id,
-                is_active=True
-            )
 
 
             import psycopg2
-            from config import settings
 
             conn = psycopg2.connect(
                 host=settings.DB_HOST,
@@ -104,16 +86,16 @@ async def save_service_media_file(file_id: str, media_type: str, user_id: int, o
                         category, related_table, related_id, uploaded_by, is_active
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    media_file.file_path,
-                    media_file.file_type,
-                    media_file.file_size,
-                    media_file.original_name,
-                    media_file.mime_type,
-                    media_file.category,
-                    media_file.related_table,
-                    media_file.related_id,
-                    media_file.uploaded_by,
-                    media_file.is_active
+                    file_path,
+                    media_type,
+                    file_size,
+                    file_name,
+                    f'image/jpeg' if media_type == 'photo' else 'video/mp4',
+                    'service_attachment',
+                    'technician_orders',
+                    order_id,
+                    user_id,
+                    True
                 ))
 
                 conn.commit()
@@ -309,7 +291,7 @@ async def ask_for_media(callback: CallbackQuery, state: FSMContext):
 
         if callback.data == "attach_media_yes":
             await callback.message.answer("📷 Rasm yoki video yuboring:" if lang == "uz" else "📷 Отправьте фото или видео:")
-            await state.set_stte(ServiceOrderStates.waiting_for_media)
+            await state.set_state(ServiceOrderStates.waiting_for_media)
         else:
             await ask_for_geolocation(callback.message, state, lang)
     except Exception as e:
@@ -405,17 +387,37 @@ async def show_service_order_confirmation(message: Message, state: FSMContext, l
         else:
             geo_text = "Berilmagan" if lang == "uz" else "Не указана"
 
+        # Ma'lumotlarni olish
+        region_name = normalize_region(region) if region else "Tanlanmagan"
+        abonent_type = data.get('abonent_type') or "Tanlanmagan"
+        abonent_id = data.get('abonent_id') or "Kiritilmagan"
+        phone = data.get('phone') or "Kiritilmagan"
+        reason = data.get('reason') or data.get('description') or "Kiritilmagan"
+        address = data.get('address') or "Kiritilmagan"
+        media_status = "✅ Mavjud" if data.get('media_id') else "❌ Yo'q"
+        
         summary_msg = (
-            "📋 <b>Texnik xizmat arizasi ma'lumotlari:</b>\n\n" if lang == "uz" else "📋 <b>Данные по заявке в техподдержку:</b>\n\n" +
-            "🌍 <b>Hudud:</b> {val}\n" if lang == "uz" else "🌍 <b>Регион:</b> {val}\n" +
-            "👤 <b>Abonent turi:</b> {val}\n" if lang == "uz" else "👤 <b>Тип абонента:</b> {val}\n" +
-            "🆔 <b>Abonent ID:</b> {val}\n" if lang == "uz" else "🆔 <b>ID абонента:</b> {val}\n" +
-            "📞 <b>Telefon:</b> {val}\n" if lang == "uz" else "📞 <b>Телефон:</b> {val}\n" +
-            "📝 <b>Muammo:</b> {val}\n" if lang == "uz" else "📝 <b>Проблема:</b> {val}\n" +
-            "📍 <b>Manzil:</b> {val}\n" if lang == "uz" else "📍 <b>Адрес:</b> {val}\n" +
-            "🗺 <b>Joylashuv:</b> {val}\n" if lang == "uz" else "🗺 <b>Локация:</b> {val}\n" +
-            "📷 <b>Media:</b> {val}\n\n" if lang == "uz" else "📷 <b>Медиа:</b> {val}\n\n" +
-            "Ma'lumotlar to'g'rimi?" if lang == "uz" else "Все верно?"
+            "📋 <b>Texnik xizmat arizasi ma'lumotlari:</b>\n\n" +
+            f"🌍 <b>Hudud:</b> {region_name}\n" +
+            f"👤 <b>Abonent turi:</b> {abonent_type}\n" +
+            f"🆔 <b>Abonent ID:</b> {abonent_id}\n" +
+            f"📞 <b>Telefon:</b> {phone}\n" +
+            f"📝 <b>Muammo:</b> {reason}\n" +
+            f"📍 <b>Manzil:</b> {address}\n" +
+            f"🗺 <b>Joylashuv:</b> {geo_text}\n" +
+            f"📷 <b>Media:</b> {media_status}\n\n" +
+            "Ma'lumotlar to'g'rimi?"
+        ) if lang == "uz" else (
+            "📋 <b>Данные по заявке в техподдержку:</b>\n\n" +
+            f"🌍 <b>Регион:</b> {region_name}\n" +
+            f"👤 <b>Тип абонента:</b> {abonent_type}\n" +
+            f"🆔 <b>ID абонента:</b> {abonent_id}\n" +
+            f"📞 <b>Телефон:</b> {phone}\n" +
+            f"📝 <b>Проблема:</b> {reason}\n" +
+            f"📍 <b>Адрес:</b> {address}\n" +
+            f"🗺 <b>Локация:</b> {geo_text}\n" +
+            f"📷 <b>Медиа:</b> {media_status}\n\n" +
+            "Все верно?"
         )
         await message.answer(summary_msg, reply_markup=confirmation_inline_kb(lang), parse_mode="HTML")
         await state.set_state(ServiceOrderStates.confirming_service)
@@ -450,7 +452,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
         region = data.get('selected_region') or data.get('region')
         region_db_value = (region or '').lower()
 
-        user_record = await find_user_by_telegram_id(data['telegram_id'])
+        user_record = await get_user_by_telegram_id(data['telegram_id'])
         user = dict(user_record) if user_record is not None else {}
 
         if geo:
@@ -473,6 +475,17 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
             geo_str,
             business_type
         )
+        
+        # Application number ni olish
+        conn = await asyncpg.connect(settings.DB_URL)
+        try:
+            app_number_result = await conn.fetchrow(
+                "SELECT application_number FROM technician_orders WHERE id = $1",
+                request_id
+            )
+            application_number = app_number_result['application_number'] if app_number_result else f"TECH-{business_type}-{request_id:04d}"
+        finally:
+            await conn.close()
 
         # Media faylini saqlash (agar mavjud bo'lsa)
         if data.get('media_id') and data.get('media_type'):
@@ -487,7 +500,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
             else:
                 logger.warning(f"Failed to save media file for order {request_id}")
 
-        # Guruhga xabar (hozir UZda; xohlasangiz ru versiyasini ham shunday qo‘shamiz)
+        # Guruhga xabar (hozir UZda; xohlasangiz ru versiyasini ham shunday qo'shamiz)
         if settings.ZAYAVKA_GROUP_ID:
             try:
                 geo_text = ""
@@ -497,18 +510,20 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     geo_text = f"\n📍 <b>Lokatsiya:</b> {data.get('location')}"
 
                 phone_for_msg = data.get('phone') or user.get('phone') or '-'
+                region_name = normalize_region(region) if region else "Tanlanmagan"
+                
                 group_msg = (
                     f"🔧 <b>YANGI TEXNIK XIZMAT ARIZASI</b>\n"
                     f"{'='*30}\n"
-                    f"🆔 <b>ID:</b> <code>{request_id}</code>\n"
+                    f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
                     f"👤 <b>Mijoz:</b> {user.get('full_name', '-')}\n"
                     f"📞 <b>Tel:</b> {phone_for_msg}\n"
-                    f"🏢 <b>Region:</b> {region}\n"
+                    f"🏢 <b>Region:</b> {region_name}\n"
                     f"🏢 <b>Abonent:</b> {data.get('abonent_type')} - {data.get('abonent_id')}\n"
                     f"📍 <b>Manzil:</b> {data.get('address')}\n"
                     f"📝 <b>Muammo:</b> {((data.get('reason') or data.get('description') or '')[:100])}...\n"
                     f"{geo_text}\n"
-                    f"📷 <b>Media:</b> {'✅ Mavjud' if data.get('media_id') else '❌ Yo‘q'}\n"
+                    f"📷 <b>Media:</b> {'✅ Mavjud' if data.get('media_id') else "❌ Yo'q"}\n"
                     f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
                     f"{'='*30}"
                 )
@@ -544,31 +559,39 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
 
             except Exception as group_error:
                 logger.error(f"Group notification error: {group_error}")
-                try:
-                    await bot.send_message(
-                        chat_id=settings.ADMIN_GROUP_ID,
-                        text=f"⚠️ Guruhga xabar yuborishda xato:\n{group_msg}\n\nXato: {group_error}",
-                        parse_mode='HTML'
-                    )
-                except:
-                    pass
+                # Guruh topilmagan bo'lsa, admin guruhiga yuborish
+                if hasattr(settings, 'ADMIN_GROUP_ID') and settings.ADMIN_GROUP_ID:
+                    try:
+                        await bot.send_message(
+                            chat_id=settings.ADMIN_GROUP_ID,
+                            text=f"⚠️ Guruhga xabar yuborishda xato:\n{group_msg}\n\nXato: {group_error}",
+                            parse_mode='HTML'
+                        )
+                    except:
+                        pass
+        else:
+            logger.warning("ZAYAVKA_GROUP_ID not configured - skipping group notification")
 
         # Foydalanuvchiga muvaffaqiyat xabari — tilga mos
+        region_name = normalize_region(region) if region else "Tanlanmagan"
+        abonent_id = data.get('abonent_id') or "Kiritilmagan"
+        address = data.get('address') or "Kiritilmagan"
+        
         success_msg = (
-    "✅ <b>Texnik xizmat arizangiz qabul qilindi!</b>\n\n"
-    "🆔 Ariza raqami: <code>{id}</code>\n"
-    "📍 Hudud: {region}\n"
-    "🏢 Abonent ID: {abonent_id}\n"
-    "📍 Manzil: {address}\n"
-    "⏰ Texnik mutaxassis tez orada bog'lanadi!\n"
-) if lang == "uz" else (
-    "✅ <b>Ваша заявка в техподдержку принята!</b>\n\n"
-    "🆔 Номер: <code>{id}</code>\n"
-    "📍 Регион: {region}\n"
-    "🏢 ID абонента: {abonent_id}\n"
-    "📍 Адрес: {address}\n"
-    "⏰ Специалист свяжется с вами в ближайшее время!\n"
-).format(id=request_id, region=region, abonent_id=data.get('abonent_id'), address=data.get('address'))
+            f"✅ <b>Texnik xizmat arizangiz qabul qilindi!</b>\n\n"
+            f"🆔 <b>Ariza raqami:</b> <code>{application_number}</code>\n"
+            f"📍 <b>Hudud:</b> {region_name}\n"
+            f"🏢 <b>Abonent ID:</b> {abonent_id}\n"
+            f"📍 <b>Manzil:</b> {address}\n"
+            f"⏰ <b>Texnik mutaxassis tez orada bog'lanadi!</b>"
+        ) if lang == "uz" else (
+            f"✅ <b>Ваша заявка в техподдержку принята!</b>\n\n"
+            f"🆔 <b>Номер:</b> <code>{application_number}</code>\n"
+            f"📍 <b>Регион:</b> {region_name}\n"
+            f"🏢 <b>ID абонента:</b> {abonent_id}\n"
+            f"📍 <b>Адрес:</b> {address}\n"
+            f"⏰ <b>Специалист свяжется с вами в ближайшее время!</b>"
+        )
 
         await message.answer(success_msg, parse_mode='HTML', reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
         await state.clear()

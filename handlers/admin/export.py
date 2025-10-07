@@ -7,20 +7,23 @@ from keyboards.admin_buttons import (
     get_admin_export_formats_keyboard,
 )
 from utils.export_utils import ExportUtils
-from database.admin_export import (
+from database.admin.export import (
     get_admin_users_for_export,
     get_admin_connection_orders_for_export,
     get_admin_technician_orders_for_export,
     get_admin_staff_orders_for_export,
     get_admin_statistics_for_export,
 )
-from database.warehouse_queries import (
+from database.warehouse.queries import (
     get_warehouse_inventory_for_export,
     get_warehouse_statistics_for_export,
 )
 from datetime import datetime
 import logging
-from database.language_queries import get_user_language
+import os
+import zipfile
+import io
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter(role="admin"))
@@ -35,6 +38,114 @@ async def export_handler(message: Message, state: FSMContext):
         reply_markup=get_admin_export_types_keyboard(lang),
         parse_mode="HTML",
     )
+
+
+@router.message(F.text.in_(["🗄️ Backup & Logs", "🗄️ Бэкап и логи"]))
+async def backup_and_logs_handler(message: Message, state: FSMContext):
+    """Baza backup va log fayllarini zip qilib yuklab berish"""
+    await state.clear()
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    try:
+        # Loading xabari
+        loading_text = "⏳ <b>Backup va loglar tayyorlanmoqda...</b>" if lang == "uz" else "⏳ <b>Подготовка бэкапа и логов...</b>"
+        loading_msg = await message.answer(loading_text, parse_mode="HTML")
+        
+        # Zip fayl yaratish
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Database backup qo'shish
+            try:
+                from config import settings
+                import subprocess
+                import tempfile
+                
+                # PostgreSQL dump yaratish
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as temp_file:
+                    temp_sql_path = temp_file.name
+                
+                # pg_dump buyrug'ini ishga tushirish
+                dump_cmd = [
+                    'pg_dump',
+                    f'--host={settings.DB_HOST}',
+                    f'--port={settings.DB_PORT}',
+                    f'--username={settings.DB_USER}',
+                    f'--dbname={settings.DB_NAME}',
+                    '--no-password',  # Parol environment variable dan olinadi
+                    '--format=plain',
+                    '--no-owner',
+                    '--no-privileges',
+                    '--file', temp_sql_path
+                ]
+                
+                # Environment variable qo'shish
+                env = os.environ.copy()
+                env['PGPASSWORD'] = settings.DB_PASSWORD
+                
+                result = subprocess.run(dump_cmd, env=env, capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    # SQL faylni zip ga qo'shish
+                    with open(temp_sql_path, 'rb') as sql_file:
+                        zip_file.writestr('database_backup.sql', sql_file.read())
+                    
+                    # Temp faylni o'chirish
+                    os.unlink(temp_sql_path)
+                else:
+                    logger.error(f"Database backup failed: {result.stderr}")
+                    # Xatolik bo'lsa ham davom etamiz
+                    
+            except Exception as e:
+                logger.error(f"Database backup error: {e}")
+                # Xatolik bo'lsa ham davom etamiz
+            
+            # Log fayllarini qo'shish
+            log_files = ['logs/bot.log', 'logs/errors.log']
+            for log_file in log_files:
+                if os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'r', encoding='utf-8') as f:
+                            log_content = f.read()
+                        zip_file.writestr(f'logs/{os.path.basename(log_file)}', log_content)
+                    except Exception as e:
+                        logger.error(f"Error reading {log_file}: {e}")
+            
+            # README fayl qo'shish
+            readme_content = f"""# System Backup - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Bu fayl quyidagilarni o'z ichiga oladi:
+- database_backup.sql: PostgreSQL ma'lumotlar bazasi backup
+- logs/bot.log: Bot ishlash loglari
+- logs/errors.log: Xatolik loglari
+
+Backup vaqt: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+            zip_file.writestr('README.txt', readme_content)
+        
+        # Zip faylni yuklab berish
+        zip_buffer.seek(0)
+        timestamp = int(datetime.now().timestamp())
+        filename = f"system_backup_{timestamp}.zip"
+        
+        file_to_send = BufferedInputFile(
+            zip_buffer.getvalue(), 
+            filename=filename
+        )
+        
+        success_text = f"✅ <b>Backup muvaffaqiyatli yaratildi!</b>\n\n📁 Fayl: {filename}\n📅 Vaqt: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}" if lang == "uz" else f"✅ <b>Бэкап успешно создан!</b>\n\n📁 Файл: {filename}\n📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        await loading_msg.delete()
+        await message.answer_document(
+            document=file_to_send,
+            caption=success_text,
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        logger.error(f"Backup and logs error: {e}", exc_info=True)
+        error_text = "❌ Backup yaratishda xatolik yuz berdi" if lang == "uz" else "❌ Ошибка при создании бэкапа"
+        await message.answer(error_text)
 
 
 @router.callback_query(F.data.startswith("admin_export_users_"))

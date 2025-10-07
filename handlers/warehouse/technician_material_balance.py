@@ -2,12 +2,12 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database.warehouse_queries import get_users_by_role
-from database.technician_queries import fetch_technician_materials
-from database.jm_inbox_queries import db_get_user_by_id
+from database.warehouse.users import get_users_by_role
+from database.technician.materials import fetch_technician_materials
+from database.basic.user import find_user_by_telegram_id, get_user_by_id
+from database.basic.language import get_user_language
 from keyboards.warehouse_buttons import get_warehouse_main_menu
 from filters.role_filter import RoleFilter
-from database.language_queries import get_user_language
 
 router = Router()
 
@@ -142,7 +142,7 @@ async def show_technician_balance(callback: CallbackQuery, state: FSMContext):
     tech_id = int(callback.data.split("_")[-1])
     
     # Texnik ma'lumotlarini olish
-    technician = await db_get_user_by_id(tech_id)
+    technician = await get_user_by_id(tech_id)
     if not technician:
         await callback.answer(("❌ Texnik topilmadi!" if lang == "uz" else "❌ Техник не найден!"), show_alert=True)
         return

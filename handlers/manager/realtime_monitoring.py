@@ -12,14 +12,14 @@ import json
 import html
 
 from filters.role_filter import RoleFilter
-from database.manager_realtime_monitoring_queries import (
+from database.manager.monitoring import (
     get_realtime_counts,
     list_active_detailed,
     list_urgent_detailed,
     get_workflow_history,  # NEW
 )
-# 🔑 Tilni DB’dan olish uchun:
-from database.manager_inbox import get_user_by_telegram_id
+# 🔑 Tilni DB'dan olish uchun:
+from database.basic.user import get_user_by_telegram_id
 
 router = Router()
 router.message.filter(RoleFilter("manager"))
@@ -62,7 +62,7 @@ T = {
     "list_empty_err": {"uz": "Xatolik: ro‘yxat bo‘sh.", "ru": "Ошибка: список пуст."},
 
     # Karta (order) maydonlari
-    "card_title": {"uz": "🗂 <b>Zayavka #{id}</b>", "ru": "🗂 <b>Заявка #{id}</b>"},
+    "card_title": {"uz": "🗂 <b>Zayavka {id}</b>", "ru": "🗂 <b>Заявка #{id}</b>"},
     "field_id": {"uz": "🪪 <b>ID:</b>", "ru": "🪪 <b>ID:</b>"},
     "field_type": {"uz": "📁 <b>Turi:</b>", "ru": "📁 <b>Тип:</b>"},
     "type_connection": {"uz": "ulanish", "ru": "подключение"},
@@ -117,7 +117,7 @@ def _human_duration(delta: timedelta, lang: str) -> str:
     d, r = divmod(secs, 86400)
     h, r = divmod(r, 3600)
     m, s = divmod(r, 60)
-    # qisqa birliklar: UZ -> d h m s; RU -> д ч м с
+    # qisqa birliklar: UZ -> k s m; RU -> д ч м
     if normalize_lang(lang) == "ru":
         parts = []
         if d: parts.append(f"{d}д")
@@ -127,8 +127,8 @@ def _human_duration(delta: timedelta, lang: str) -> str:
         return " ".join(parts)
     else:
         parts = []
-        if d: parts.append(f"{d}d")
-        if h: parts.append(f"{h}h")
+        if d: parts.append(f"{d}k")
+        if h: parts.append(f"{h}s")
         if m: parts.append(f"{m}m")
         if not parts: parts.append(f"{s}s")
         return " ".join(parts)
@@ -195,11 +195,17 @@ def _fmt_card(lang: str, rec: dict) -> str:
     status  = html.escape(rec.get("status_text") or "—", quote=False)
     addr    = html.escape(rec.get("address") or "—", quote=False)
     creator = html.escape(rec.get("creator_name") or "—", quote=False)
-    _id = rec.get("id", "—")
+    
+    # Use application_number if available, otherwise fall back to id
+    app_number = rec.get("application_number", "")
+    if app_number and app_number.strip():
+        display_id = app_number
+    else:
+        display_id = rec.get("id", "—")
 
     return (
-        f"{t(lang,'card_title', id=_id)}\n"
-        f"{t(lang,'field_id')} <code>{_id}</code>\n"
+        f"{t(lang,'card_title', id=display_id)}\n"
+        f"{t(lang,'field_id')} <code>{display_id}</code>\n"
         f"{t(lang,'field_type')} {t(lang,'type_connection')}\n"
         f"{t(lang,'field_status')} <code>{status}</code>\n"
         f"{t(lang,'field_creator')} {creator}\n"

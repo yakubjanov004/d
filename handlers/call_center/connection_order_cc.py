@@ -25,13 +25,13 @@ from keyboards.call_center_buttons import (
 from states.call_center_states import staffConnectionOrderStates
 
 # === DB functions ===
-from database.call_center_operator_queries import (
+from database.call_center.orders import (
     find_user_by_phone,
     staff_orders_create,
     get_or_create_tarif_by_code,
 )
-from database.client_queries import ensure_user
-from database.queries import get_user_language  # <<< TIL
+from database.basic.user import ensure_user
+from database.basic.language import get_user_language  # <<< TIL
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -156,7 +156,7 @@ async def op_back_to_phone(cq: CallbackQuery, state: FSMContext):
         reply_markup=ReplyKeyboardRemove()
     )
 
-# ======================= STEP 2: region =======================
+# ======================= STEP 2: business type selection =======================
 @router.callback_query(
     StateFilter(staffConnectionOrderStates.waiting_client_phone),
     F.data == "op_conn_continue"
@@ -165,13 +165,48 @@ async def op_after_confirm_user(cq: CallbackQuery, state: FSMContext):
     lang = await get_user_language(cq.from_user.id) or "uz"
 
     await cq.message.edit_reply_markup()
-    text = "🌍 Regionni tanlang:" if lang == "uz" else "🌍 Выберите регион:"
-
-    # 🔑 lang ni uzatamiz
-    await cq.message.answer(text, reply_markup=get_client_regions_keyboard(lang))
-
-    await state.set_state(staffConnectionOrderStates.selecting_region)
+    text = (
+        "🏢 <b>Biznes turini tanlang:</b>\n\n"
+        "• <b>B2C</b> - Jismoniy shaxslar uchun\n"
+        "• <b>B2B</b> - Yuridik shaxslar uchun"
+        if lang == "uz" else
+        "🏢 <b>Выберите тип бизнеса:</b>\n\n"
+        "• <b>B2C</b> - Для физических лиц\n"
+        "• <b>B2B</b> - Для юридических лиц"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="B2C", callback_data="business_type_b2c"),
+            InlineKeyboardButton(text="B2B", callback_data="business_type_b2b")
+        ],
+        [InlineKeyboardButton(text="🔙 Orqaga" if lang == "uz" else "🔙 Назад", callback_data="op_conn_back_to_phone")]
+    ])
+    
+    await cq.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await state.set_state(staffConnectionOrderStates.selecting_business_type)
     await cq.answer()
+
+@router.callback_query(F.data.startswith("business_type_"), StateFilter(staffConnectionOrderStates.selecting_business_type))
+async def op_select_business_type(callback: CallbackQuery, state: FSMContext):
+    lang = await get_user_language(callback.from_user.id) or "uz"
+    await callback.answer()
+    
+    business_type = callback.data.split("_")[-1].upper()
+    await state.update_data(business_type=business_type)
+    
+    text = (
+        f"✅ <b>{business_type}</b> tanlandi\n\n"
+        "📍 Qaysi regionda ulanmoqchisiz?"
+        if lang == "uz" else
+        f"✅ <b>{business_type}</b> выбрано\n\n"
+        "📍 В каком регионе хотите подключиться?"
+    )
+    
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_client_regions_keyboard(lang))
+    await state.set_state(staffConnectionOrderStates.selecting_region)
+
+# ======================= STEP 3: region selection =======================
 
 
 # ======================= STEP 3: connection type =======================
@@ -290,7 +325,32 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             region=region_id,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
+            business_type=data.get("business_type", "B2C"),
         )
+
+        # Guruhga xabar yuborish
+        try:
+            from loader import bot
+            from utils.notification_service import send_group_notification_for_staff_order
+            
+            tariff_name = tariff_code or None
+            region_name = region_code.replace('_', ' ').title()
+            
+            await send_group_notification_for_staff_order(
+                bot=bot,
+                order_id=request_id,
+                order_type="connection",
+                client_name=acting_client.get('full_name', 'Noma\'lum'),
+                client_phone=acting_client.get('phone', '-'),
+                creator_name=callback.from_user.full_name,
+                creator_role='call_center',
+                region=region_name,
+                address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
+                tariff_name=tariff_name,
+                business_type=data.get("business_type", "B2C")
+            )
+        except Exception as group_error:
+            logger.error(f"Failed to send group notification for Call Center order: {group_error}")
 
         done_text = (
             "✅ <b>Ariza yaratildi</b>\n\n"

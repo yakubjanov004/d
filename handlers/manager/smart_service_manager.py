@@ -7,10 +7,9 @@ from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 import html
 
-from database.smart_service_queries import (
-    get_user_by_telegram_id,       # ⚠️ tilni (language) ham qaytarsa yaxshi; bo'lmasa default 'uz'
-    fetch_smart_service_orders,
-)
+from database.basic.user import get_user_by_telegram_id
+from database.basic.language import get_user_language
+from database.basic.smart_service import fetch_smart_service_orders
 from filters.role_filter import RoleFilter
 from keyboards.manager_buttons import get_manager_main_menu
 
@@ -124,6 +123,13 @@ def short_view_text(item: dict, index: int, total: int, lang: str) -> str:
     Dinamik maydonlar HTML-escape qilinadi.
     """
     order_id = item["id"]
+    # Bazadan application_number ni olamiz
+    application_number = item.get("application_number")
+    if application_number:
+        formatted_order_id = application_number
+    else:
+        # Fallback: agar application_number yo'q bo'lsa, oddiy ID
+        formatted_order_id = str(order_id)
     category = cat_name(lang, item.get("category") or "-")
 
     # Xizmat nomlarini bazadan ru/uzga alohida tarjima qilmasak,

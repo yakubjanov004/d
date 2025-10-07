@@ -6,21 +6,20 @@ from datetime import datetime
 import html
 
 from filters.role_filter import RoleFilter
-from database.queries import find_user_by_telegram_id
-from database.warehouse_inbox import (
+from database.basic.user import find_user_by_telegram_id
+from database.warehouse.inbox import (
     fetch_warehouse_connection_orders,
     fetch_warehouse_connection_orders_with_materials,
     count_warehouse_connection_orders_with_materials,
+    count_warehouse_technician_orders,
+    count_warehouse_staff_orders,
     fetch_materials_for_connection_order,
-    confirm_materials_and_update_status_for_connection,
-    confirm_materials_and_update_status_for_technician,
-    confirm_materials_and_update_status_for_staff,
     fetch_warehouse_technician_orders,
     fetch_warehouse_staff_orders,
     get_all_warehouse_orders_count,
-    count_warehouse_connection_orders,
-    count_warehouse_technician_orders,
-    count_warehouse_staff_orders
+    confirm_materials_and_update_status_for_connection,
+    confirm_materials_and_update_status_for_technician,
+    confirm_materials_and_update_status_for_staff,
 )
 from keyboards.warehouse_buttons import (
     get_warehouse_main_menu,
@@ -67,13 +66,12 @@ def format_connection_order(order: dict, index: int, total: int) -> str:
     )
     return (
         f"📦 <b>Ombor - Ulanish arizasi</b>\n\n"
-        f"🆔 <b>ID:</b> {esc(order.get('id'))}\n"
+        f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
         f"👤 <b>Mijoz:</b> {esc(client_name_value)}\n"
         f"📞 <b>Telefon:</b> {esc(client_phone_value)}\n"
         f"📍 <b>Manzil:</b> {esc(order.get('address'))}\n"
         f"🌍 <b>Hudud:</b> {esc(order.get('region'))}\n"
         f"📊 <b>Tarif:</b> {esc(order.get('tariff_name'))}\n"
-        f"📝 <b>Izohlar:</b> {esc(order.get('notes'))}\n"
         f"📋 <b>JM izohi:</b> {esc(order.get('jm_notes'))}\n"
         f"📅 <b>Yaratilgan:</b> {fmt_dt(order.get('created_at'))}\n"
         f"🔄 <b>Yangilangan:</b> {fmt_dt(order.get('updated_at'))}\n\n"
@@ -95,7 +93,7 @@ def format_technician_order(order: dict, index: int, total: int) -> str:
     )
     return (
         f"🔧 <b>Ombor - Texnik xizmat arizasi</b>\n\n"
-        f"🆔 <b>ID:</b> {esc(order.get('id'))}\n"
+        f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
         f"👤 <b>Mijoz:</b> {esc(client_name_value)}\n"
         f"📞 <b>Telefon:</b> {esc(client_phone_value)}\n"
         f"🏠 <b>Abonent ID:</b> {esc(order.get('abonent_id'))}\n"
@@ -103,7 +101,7 @@ def format_technician_order(order: dict, index: int, total: int) -> str:
         f"🌍 <b>Hudud:</b> {esc(order.get('region'))}\n"
         f"📝 <b>Tavsif:</b> {esc(order.get('description'))}\n"
         f"🔧 <b>Ish tavsifi:</b> {esc(order.get('description_ish'))}\n"
-        f"📋 <b>Izohlar:</b> {esc(order.get('notes'))}\n"
+        f"📋 <b>JM izohi:</b> {esc(order.get('jm_notes'))}\n"
         f"📅 <b>Yaratilgan:</b> {fmt_dt(order.get('created_at'))}\n"
         f"🔄 <b>Yangilangan:</b> {fmt_dt(order.get('updated_at'))}\n\n"
         f"📄 <b>{index + 1}/{total}</b>"
@@ -124,7 +122,7 @@ def format_staff_order(order: dict, index: int, total: int) -> str:
     )
     return (
         f"👥 <b>Ombor - Xodim arizasi</b>\n\n"
-        f"🆔 <b>ID:</b> {esc(order.get('id'))}\n"
+        f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
         f"👤 <b>Mijoz:</b> {esc(client_name_value)}\n"
         f"📞 <b>Telefon:</b> {esc(client_phone_value)}\n"
         f"🏠 <b>Abonent ID:</b> {esc(order.get('abonent_id'))}\n"

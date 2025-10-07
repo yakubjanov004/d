@@ -26,13 +26,12 @@ from keyboards.controllers_buttons import (
 from states.controller_states import ControllerConnectionOrderStates
 
 # === DB ===
-from database.client_queries import ensure_user
-from database.controller_inbox import get_user_by_telegram_id
-from database.controller_connection_queries import (
-    find_user_by_phone,
-    get_or_create_tarif_by_code,
-    staff_orders_create_by_controller,
+from database.basic.user import ensure_user, get_user_by_telegram_id
+from database.controller.orders import (
+    staff_orders_create,
 )
+from database.basic.tariff import get_or_create_tarif_by_code
+from database.basic.phone import find_user_by_phone
 
 # === Role filter ===
 from filters.role_filter import RoleFilter

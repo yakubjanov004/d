@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+import asyncpg
 from aiogram import F, Router
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -18,9 +19,10 @@ from keyboards.client_buttons import (
 )
 from states.client_states import ConnectionOrderStates
 from config import settings
-from database.client.orders import ensure_user, get_or_create_tarif_by_code, create_connection_order
+from database.basic.user import ensure_user
+from database.basic.tariff import get_or_create_tarif_by_code
 from database.basic.language import get_user_language
-from database.connections import get_connection
+from database.client.orders import create_connection_order
 from loader import bot
 
 logger = logging.getLogger(__name__)
@@ -128,7 +130,7 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
         await state.update_data(connection_type=connection_type)
 
         try:
-            photo = FSInputFile("static/image.png")
+            photo = FSInputFile("static/images/image.png")
             await callback.message.answer_photo(
                 photo=photo,
                 caption=("📋 <b>Tariflardan birini tanlang:</b>\n\n" if lang == "uz" else "📋 <b>Выберите один из тарифов:</b>\n\n"),
@@ -325,7 +327,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                 pass
 
         # Get the full application number from the database
-        conn = await get_connection()
+        conn = await asyncpg.connect(settings.DB_URL)
         try:
             # Fetch the application number using the request_id
             result = await conn.fetchrow(

@@ -5,8 +5,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import html
 
-from database.queries import get_or_create_user, find_user_by_telegram_id, update_user_phone, update_user_full_name
-from database.language_queries import get_user_language
+from database.basic.user import get_or_create_user, find_user_by_telegram_id, update_user_phone, update_user_full_name
+from database.basic.language import get_user_language
 
 from keyboards.admin_buttons import get_admin_main_menu
 from keyboards.client_buttons import get_client_main_menu, get_contact_keyboard

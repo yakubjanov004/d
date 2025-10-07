@@ -12,12 +12,10 @@ import json
 import os
 from logging.handlers import RotatingFileHandler
 
-# Log papkasini yaratish
-log_dir = "logs"
+log_dir = "media/logs"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-# Configure logging with rotation
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",

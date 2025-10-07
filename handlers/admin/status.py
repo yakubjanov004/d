@@ -3,15 +3,14 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from database.admin_system_status_queries import (
+from database.admin.queries import (
     get_system_overview,
-    get_orders_by_status,
     get_recent_activity,
     get_performance_metrics,
     get_database_info
 )
 from keyboards.admin_buttons import get_system_status_keyboard
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 
 router = Router()
 

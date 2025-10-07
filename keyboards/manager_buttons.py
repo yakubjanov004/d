@@ -8,7 +8,6 @@ def get_manager_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📥 Inbox"), KeyboardButton(text="📋 Arizalarni ko'rish")],
             [KeyboardButton(text="🔌 Ulanish arizasi yaratish"), KeyboardButton(text="🔧 Texnik xizmat yaratish")],
             [KeyboardButton(text="🛜 SmartService arizalari"), KeyboardButton(text="📤 Export")],
-            # 📊 Monitoring va 🔄 Status o'zgartirish OLIB TASHLANDI
             [KeyboardButton(text="🕐 Real vaqtda kuzatish"), KeyboardButton(text="👥 Xodimlar faoliyati")],
             [KeyboardButton(text="🌐 Tilni o'zgartirish")],
         ]
@@ -17,7 +16,6 @@ def get_manager_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📥 Входящие"), KeyboardButton(text="📋 Все заявки")],
             [KeyboardButton(text="🔌 Создать заявку на подключение"), KeyboardButton(text="🔧 Создать заявку на тех. обслуживание")],
             [KeyboardButton(text="🛜 SmartService заявки"), KeyboardButton(text="📤 Экспорт")],
-            # 📊 Мониторинг и 🔄 Изменить статус УДАЛЕНЫ
             [KeyboardButton(text="🕐 Мониторинг в реальном времени"), KeyboardButton(text="👥 Активность сотрудников")],
             [KeyboardButton(text="🌐 Изменить язык")],
         ]

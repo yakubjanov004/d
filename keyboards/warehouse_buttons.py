@@ -370,6 +370,7 @@ def get_warehouse_material_requests_navigation_keyboard(
     current_index: int, 
     total_count: int, 
     order_type: str,
+    order_id: int,
     lang: str = "uz"
 ) -> InlineKeyboardMarkup:
     """
@@ -398,6 +399,13 @@ def get_warehouse_material_requests_navigation_keyboard(
     
     if nav_row:
         keyboard.append(nav_row)
+    
+    # Confirm button
+    confirm_text = "✅ Materiallarni tasdiqlash" if lang == "uz" else "✅ Подтвердить материалы"
+    keyboard.append([InlineKeyboardButton(
+        text=confirm_text,
+        callback_data=f"warehouse_confirm_material_{order_type}_{order_id}"
+    )])
     
     # Back to categories button
     back_text = "🔙 Orqaga" if lang == "uz" else "🔙 Назад"

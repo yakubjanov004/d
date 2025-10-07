@@ -9,19 +9,17 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from filters.role_filter import RoleFilter
-from database.manager_inbox import get_user_by_telegram_id
-
-from database.manager_application import (
-    get_total_orders_count,
-    get_in_progress_count,
-    get_completed_today_count,
-    get_cancelled_count,
-    get_new_orders_today_count,
-    list_new_orders,
-    list_in_progress_orders,
-    list_completed_today_orders,
-    list_cancelled_orders,
-    # 🆕 yangi import:
+from database.basic.user import get_user_by_telegram_id
+from database.manager.orders import (
+    get_connection_orders_count,
+    get_connection_orders_in_progress_count,
+    get_connection_orders_completed_today_count,
+    get_connection_orders_cancelled_count,
+    get_connection_orders_new_today_count,
+    list_connection_orders_new,
+    list_connection_orders_in_progress,
+    list_connection_orders_completed_today,
+    list_connection_orders_cancelled,
     list_my_created_orders_by_type,
 )
 
@@ -101,14 +99,22 @@ def t(lang: str, key: str) -> str:
     return T.get(key, {}).get(lang, T.get(key, {}).get("uz", key))
 
 STATUS_T = {
-    "new":               {"uz": "Yangi",             "ru": "Новая"},
-    "in_progress":       {"uz": "Jarayonda",         "ru": "В процессе"},
-    "done":              {"uz": "Bajarilgan",        "ru": "Выполнена"},
-    "completed":         {"uz": "Bajarilgan",        "ru": "Выполнена"},
-    "done_today":        {"uz": "Bugun bajarilgan",  "ru": "Выполнено сегодня"},
-    "cancelled":         {"uz": "Bekor qilingan",    "ru": "Отменена"},
-    "in_manager":        {"uz": "Managerda",         "ru": "У менеджера"},
-    "in_junior_manager": {"uz": "Kichik menejerda",  "ru": "У младшего менеджера"},
+    "new":               {"uz": "🆕 Yangi",             "ru": "🆕 Новая"},
+    "in_progress":       {"uz": "⏳ Jarayonda",         "ru": "⏳ В процессе"},
+    "done":              {"uz": "✅ Bajarilgan",        "ru": "✅ Выполнена"},
+    "completed":         {"uz": "✅ Bajarilgan",        "ru": "✅ Выполнена"},
+    "done_today":        {"uz": "✅ Bugun bajarilgan",  "ru": "✅ Выполнено сегодня"},
+    "cancelled":         {"uz": "❌ Bekor qilingan",    "ru": "❌ Отменена"},
+    "in_manager":        {"uz": "👨‍💼 Managerda",         "ru": "👨‍💼 У менеджера"},
+    "in_junior_manager": {"uz": "👨‍💻 Kichik menejerda",  "ru": "👨‍💻 У младшего менеджера"},
+    "in_controller":     {"uz": "👨‍🔧 Kontrollerda",      "ru": "👨‍🔧 У контроллера"},
+    "in_technician":     {"uz": "👨‍🔧 Texnikada",         "ru": "👨‍🔧 У техника"},
+    "in_warehouse":      {"uz": "🏪 Omborda",           "ru": "🏪 На складе"},
+    "in_repairs":        {"uz": "🔧 Ta'mirlashda",      "ru": "🔧 В ремонте"},
+    "in_technician_work":{"uz": "⚙️ Texnik ishda",      "ru": "⚙️ В технической работе"},
+    "in_call_center_operator": {"uz": "📞 Call center operatorida", "ru": "📞 У оператора call center"},
+    "in_call_center_supervisor": {"uz": "📞 Call center nazoratchisida", "ru": "📞 У супервизора call center"},
+    "between_controller_technician": {"uz": "🔄 Kontroller va texnik o'rtasida", "ru": "🔄 Между контроллером и техником"},
 }
 def t_status(lang: str, status: str | None) -> str:
     key = (status or "").strip().lower()
@@ -119,13 +125,72 @@ def t_status(lang: str, status: str | None) -> str:
 def _esc(x: str | None) -> str:
     return html.escape(x or "-", quote=False)
 
-def _fmt_dt(dt) -> str:
+def _fmt_dt(dt, lang: str = "uz") -> str:
     try:
         if isinstance(dt, str):
             return dt
-        return dt.strftime("%Y-%m-%d %H:%M")
+        if not dt:
+            return "-"
+        
+        # Oylar nomlari
+        months_uz = {
+            1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 
+            5: "may", 6: "iyun", 7: "iyul", 8: "avgust", 
+            9: "sentabr", 10: "oktabr", 11: "noyabr", 12: "dekabr"
+        }
+        months_ru = {
+            1: "января", 2: "февраля", 3: "марта", 4: "апреля", 
+            5: "мая", 6: "июня", 7: "июля", 8: "августа", 
+            9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+        }
+        
+        if lang == "ru":
+            month_name = months_ru.get(dt.month, str(dt.month))
+            return f"{dt.day} {month_name} {dt.year} {dt.hour:02d}:{dt.minute:02d}"
+        else:  # uz
+            month_name = months_uz.get(dt.month, str(dt.month))
+            return f"{dt.day} {month_name} {dt.year} {dt.hour:02d}:{dt.minute:02d}"
     except Exception:
         return str(dt) if dt else "-"
+
+def _fmt_duration(created_at, lang: str = "uz") -> str:
+    """Vaqt davomiyligini o'zbekcha formatda ko'rsatish"""
+    try:
+        from datetime import datetime
+        if not created_at:
+            return "N/A"
+        
+        if isinstance(created_at, str):
+            created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+        else:
+            created_dt = created_at
+        
+        now = datetime.now(created_dt.tzinfo) if created_dt.tzinfo else datetime.now()
+        duration = now - created_dt
+        
+        total_seconds = int(duration.total_seconds())
+        
+        if total_seconds < 0:
+            return "0m"
+        
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        minutes = (total_seconds % 3600) // 60
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days}k")
+        if hours > 0:
+            parts.append(f"{hours}s")
+        if minutes > 0:
+            parts.append(f"{minutes}m")
+        
+        if not parts:
+            return "0m"
+        
+        return " ".join(parts)
+    except Exception:
+        return "N/A"
 
 # ---------- UI helpers ----------
 
@@ -181,35 +246,62 @@ def _card_text(lang: str, total: int, new_today: int, in_progress: int, done_tod
     )
 
 def _item_card(lang: str, item: dict, index: int, total: int) -> str:
-    full_id     = _esc(str(item.get("id", "-")))
-    client_name = _esc(item.get("client_name"))
-    client_phone= _esc(item.get("client_phone"))
-    address     = _esc(item.get("address"))
-    tariff      = _esc(item.get("tariff"))
+    # ID formatini tuzatamiz - connection_orders uchun
+    app_number_raw = item.get("application_number", "")
+    if app_number_raw and app_number_raw != "N/A" and app_number_raw.strip():
+        # Connection orders uchun application_number to'g'ridan-to'g'ri CONN-B2C-0001 formatida
+        app_number = app_number_raw
+    else:
+        # Agar application_number bo'lmasa, id dan foydalanamiz
+        item_id = item.get("id", "N/A")
+        if item_id != "N/A":
+            app_number = f"CONN-B2C-{item_id:04d}"
+        else:
+            app_number = "N/A"
+    
+    client_name = _esc(item.get("client_name", "N/A"))
+    client_phone= _esc(item.get("client_phone", "N/A"))
+    address     = _esc(item.get("address", "N/A"))
+    tariff      = _esc(item.get("tariff", "N/A"))
     status_raw  = item.get("status")
     status_txt  = _esc(t_status(lang, status_raw))
-    created_at  = _fmt_dt(item.get("created_at"))
-    updated_at  = _fmt_dt(item.get("updated_at"))
+    created_at  = _fmt_dt(item.get("created_at"), lang)
+    updated_at  = _fmt_dt(item.get("updated_at"), lang)
+    
+    # Ariza turini ko'rsatamiz - connection_orders uchun har doim ulanish arizasi
+    type_text = "🔌 Ulanish arizasi"
+    
+    # Tarif uchun maxsus ko'rinish
+    tariff_display = tariff if tariff != "N/A" else "❌ Tarif tanlanmagan"
+    
+    # Telefon uchun maxsus ko'rinish
+    phone_display = client_phone if client_phone != "N/A" else "❌ Telefon kiritilmagan"
+    
+    # Mijoz nomi uchun maxsus ko'rinish
+    client_display = client_name if client_name != "N/A" else "❌ Mijoz nomi kiritilmagan"
+    
+    # Umumiy vaqt hisoblash
+    total_duration = _fmt_duration(item.get("created_at"), lang)
 
     return (
         f"{t(lang,'card_title')}\n\n"
-        f"{t(lang,'id')} {full_id}\n"
-        f"{t(lang,'tariff')} {tariff}\n"
-        f"{t(lang,'client')} {client_name}\n"
-        f"{t(lang,'phone')} {client_phone}\n"
-        f"{t(lang,'address')} {address}\n"
-        f"{t(lang,'status')} {status_txt}\n"
-        f"{t(lang,'created')} {created_at}\n"
-        f"{t(lang,'updated')} {updated_at}\n"
-        f"{t(lang,'item_idx')} {index + 1}/{total}"
+        f"🪪 <b>ID:</b> {app_number}\n"
+        f"📋 <b>Turi:</b> {type_text}\n"
+        f"📊 <b>Status:</b> {status_txt}\n"
+        f"👤 <b>Yaratgan:</b> {client_display}\n"
+        f"🕘 <b>Yaratilgan:</b> {created_at}\n"
+        f"📍 <b>Manzil:</b> {address}\n\n"
+        f"📈 <b>Umumiy:</b>\n"
+        f"• Umumiy vaqt: {total_duration}\n"
+        f"📄 <b>Ariza:</b> {index + 1}/{total}"
     )
 
-async def _load_stats():
-    total      = await get_total_orders_count()
-    new_today  = await get_new_orders_today_count()
-    in_prog    = await get_in_progress_count()
-    done_today = await get_completed_today_count()
-    cancelled  = await get_cancelled_count()
+async def _load_stats(user_id: int):
+    total      = await get_connection_orders_count()
+    new_today  = await get_connection_orders_new_today_count()
+    in_prog    = await get_connection_orders_in_progress_count()
+    done_today = await get_connection_orders_completed_today_count()
+    cancelled  = await get_connection_orders_cancelled_count()
     return total, new_today, in_prog, done_today, cancelled
 
 async def _safe_edit(call: CallbackQuery, lang: str, text: str, kb: InlineKeyboardMarkup):
@@ -230,8 +322,13 @@ async def _safe_edit(call: CallbackQuery, lang: str, text: str, kb: InlineKeyboa
 async def applications_handler(message: Message, state: FSMContext):
     user = await get_user_by_telegram_id(message.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
+    user_id = int(user["id"]) if user and user.get("id") else None
 
-    total, new_today, in_prog, done_today, cancelled = await _load_stats()
+    if not user_id:
+        await message.answer("❌ Foydalanuvchi topilmadi!")
+        return
+
+    total, new_today, in_prog, done_today, cancelled = await _load_stats(user_id)
     await message.answer(
         _card_text(lang, total, new_today, in_prog, done_today, cancelled),
         reply_markup=_apps_menu_kb(lang),
@@ -248,13 +345,13 @@ CAT_MY_CREATED = "my_created"     # 🆕
 
 async def _load_items_by_cat(cat: str, manager_user_id: Optional[int] = None, my_type: Optional[str] = None) -> list[dict]:
     if cat == CAT_NEW:
-        return await list_new_orders(limit=50)
+        return await list_connection_orders_new(limit=50)
     if cat == CAT_PROGRESS:
-        return await list_in_progress_orders(limit=50)
+        return await list_connection_orders_in_progress(limit=50)
     if cat == CAT_DONE_TODAY:
-        return await list_completed_today_orders(limit=50)
+        return await list_connection_orders_completed_today(limit=50)
     if cat == CAT_CANCELLED:
-        return await list_cancelled_orders(limit=50)
+        return await list_connection_orders_cancelled(limit=50)
     if cat == CAT_MY_CREATED and manager_user_id and my_type in {"connection", "technician"}:
         return await list_my_created_orders_by_type(manager_user_id, my_type, limit=50)
     return []
@@ -279,25 +376,49 @@ async def _open_category(call: CallbackQuery, state: FSMContext, lang: str, cat:
 async def apps_new(call: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
-    await _open_category(call, state, lang, CAT_NEW, t(lang, "title_new"))
+    user_id = int(user["id"]) if user and user.get("id") else None
+    
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
+        
+    await _open_category(call, state, lang, CAT_NEW, t(lang, "title_new"), manager_user_id=user_id)
 
 @router.callback_query(F.data == "apps:progress")
 async def apps_progress(call: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
-    await _open_category(call, state, lang, CAT_PROGRESS, t(lang, "title_progress"))
+    user_id = int(user["id"]) if user and user.get("id") else None
+    
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
+        
+    await _open_category(call, state, lang, CAT_PROGRESS, t(lang, "title_progress"), manager_user_id=user_id)
 
 @router.callback_query(F.data == "apps:done_today")
 async def apps_done_today(call: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
-    await _open_category(call, state, lang, CAT_DONE_TODAY, t(lang, "title_done"))
+    user_id = int(user["id"]) if user and user.get("id") else None
+    
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
+        
+    await _open_category(call, state, lang, CAT_DONE_TODAY, t(lang, "title_done"), manager_user_id=user_id)
 
 @router.callback_query(F.data == "apps:cancelled")
 async def apps_cancelled(call: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
-    await _open_category(call, state, lang, CAT_CANCELLED, t(lang, "title_cancel"))
+    user_id = int(user["id"]) if user and user.get("id") else None
+    
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
+        
+    await _open_category(call, state, lang, CAT_CANCELLED, t(lang, "title_cancel"), manager_user_id=user_id)
 
 # --------- 🆕 Men yaratgan arizalar: submenu ---------
 
@@ -391,9 +512,14 @@ async def apps_nav_next(call: CallbackQuery, state: FSMContext):
 async def apps_refresh(call: CallbackQuery, state: FSMContext):
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
+    user_id = int(user["id"]) if user and user.get("id") else None
+
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
 
     await call.answer(t(lang, "updating"))
-    total, new_today, in_prog, done_today, cancelled = await _load_stats()
+    total, new_today, in_prog, done_today, cancelled = await _load_stats(user_id)
     await _safe_edit(
         call,
         lang,
@@ -406,8 +532,13 @@ async def apps_back(call: CallbackQuery, state: FSMContext):
     await call.answer()
     user = await get_user_by_telegram_id(call.from_user.id)
     lang = normalize_lang(user.get("language") if user else "uz")
+    user_id = int(user["id"]) if user and user.get("id") else None
 
-    total, new_today, in_prog, done_today, cancelled = await _load_stats()
+    if not user_id:
+        await call.answer("❌ Foydalanuvchi topilmadi!")
+        return
+
+    total, new_today, in_prog, done_today, cancelled = await _load_stats(user_id)
     await _safe_edit(
         call,
         lang,

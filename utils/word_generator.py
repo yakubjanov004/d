@@ -1,4 +1,3 @@
-# utils/word_generator.py
 from docx import Document
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -138,18 +137,28 @@ class AKTGenerator:
 
             doc.add_paragraph()  # bo'sh qator
 
-            # --- Baholash bo‘limi ---
+            # --- Baholash bo'limi ---
             p = doc.add_paragraph()
             p.add_run("Уважаемый Абонент! Просим Вас оценить работу представителя ООО «ALFA CONNECT»").bold = True
-            doc.add_paragraph("5    4    3    2    1    0")
+            
+            # Client rating ko'rsatish
+            client_rating = data.get('client_rating', 0)
+            if client_rating > 0:
+                rating_text = "★" * client_rating + "☆" * (5 - client_rating)
+                doc.add_paragraph(f"Оценка клиента: {rating_text} ({client_rating}/5)")
+            else:
+                doc.add_paragraph("5    4    3    2    1    0")
 
             # --- Izoh (Kommentariya) ---
-            doc.add_paragraph().add_run("Комментарий:").bold = True
-            doc.add_paragraph(data.get('client_comment', ''))
+            doc.add_paragraph().add_run("Комментарий клиента:").bold = True
+            client_comment = data.get('client_comment', '')
+            if client_comment:
+                doc.add_paragraph(f'"{client_comment}"')
+            else:
+                doc.add_paragraph("Комментарий не предоставлен")
 
-            doc.add_paragraph()  # bo'sh qator
+            doc.add_paragraph()  
 
-            # --- Imzolar bo‘limi ---
             sign = doc.add_paragraph()
             sign.add_run("Представитель ООО «ALFA CONNECT»: ").bold = True
             sign.add_run(f"{data.get('technician_name', '—')}")

@@ -2,8 +2,10 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from keyboards.warehouse_buttons import get_warehouse_export_types_keyboard, get_warehouse_export_formats_keyboard
-from database.warehouse_queries import (
+from database.warehouse.materials import (
     get_warehouse_inventory_for_export,
+)
+from database.warehouse.statistics import (
     get_warehouse_statistics_for_export,
 )
 from utils.export_utils import ExportUtils

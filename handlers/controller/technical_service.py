@@ -23,14 +23,14 @@ from keyboards.controllers_buttons import (
 from states.controller_states import ControllerTechnicianOrderStates
 
 # === DB (controller varianti) ===
-from database.controller_connection_queries import (
-    find_user_by_phone,                          # user lookup
-    staff_orders_technician_create_by_controller, # texnik xizmat arizasi yaratish
+from database.basic.phone import find_user_by_phone                          # user lookup
+from database.controller.orders import (
+    staff_orders_technician_create, # texnik xizmat arizasi yaratish
 )
-from database.client_queries import ensure_user   # controller userini ensure
+from database.basic.user import ensure_user   # controller userini ensure
 
 # 🔑 tilni olish
-from database.controller_inbox import get_user_by_telegram_id
+from database.basic.user import get_user_by_telegram_id
 
 # === Role filter ===
 from filters.role_filter import RoleFilter

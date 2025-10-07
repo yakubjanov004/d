@@ -1,5 +1,3 @@
-# handlers/call_center/technician_order_cc.py
-
 import re
 import logging
 from aiogram import Router, F
@@ -22,10 +20,10 @@ from keyboards.call_center_buttons import (
 from states.call_center_states import staffTechnicianOrderStates
 
 # === DB ===
-from database.call_center_operator_queries import find_user_by_phone
-from database.client_queries import ensure_user
-from database.call_technician_queries import staff_orders_create
-from database.queries import get_user_language   # 🔑 yangi qo‘shildi
+from database.call_center.search import find_user_by_phone
+from database.basic.user import ensure_user
+from database.technician.call_center import staff_orders_create
+from database.basic.language import get_user_language  
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -294,6 +292,30 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             description=description,
         )
+
+        # Guruhga xabar yuborish
+        try:
+            from loader import bot
+            from utils.notification_service import send_group_notification_for_staff_order
+            
+            region_name = region_code.replace('_', ' ').title()
+            
+            await send_group_notification_for_staff_order(
+                bot=bot,
+                order_id=request_id,
+                order_type="technician",
+                client_name=acting_client.get('full_name', 'Noma\'lum'),
+                client_phone=acting_client.get('phone', '-'),
+                creator_name=callback.from_user.full_name,
+                creator_role='call_center',
+                region=region_name,
+                address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
+                tariff_name=None,  # Texnik xizmatda tarif yo'q
+                description=description,
+                business_type="B2C"
+            )
+        except Exception as group_error:
+            logger.error(f"Failed to send group notification for Call Center technician order: {group_error}")
 
         text = (
             "✅ <b>Texnik xizmat arizasi yaratildi</b>\n\n"

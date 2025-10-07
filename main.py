@@ -3,13 +3,14 @@ import sys
 import logging
 from loader import dp, bot
 from handlers import router as handlers_router
-from utils import setup_media_structure
+from utils.directory_utils import setup_media_structure, setup_static_structure
 
 logger = logging.getLogger(__name__)
 
-# Setup media directory structure
+# Setup media and static directory structures
 try:
     setup_media_structure()
+    setup_static_structure()
 except Exception as e:
     sys.exit(1)
 

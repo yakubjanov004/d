@@ -1,16 +1,17 @@
 # handlers/controller/staff_activity.py
 # Reply tugmadan: "👥 Xodimlar faoliyati" / "👥 Активность сотрудников"
-# Hech qanday inline tugma yo‘q — darhol matnli hisobot yuboradi (UZ/RU).
+# Hech qanday inline tugma yo'q — darhol matnli hisobot yuboradi (UZ/RU).
 
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from filters.role_filter import RoleFilter
-from database.controller_staff_activity import (
+from database.controller.orders import (
     fetch_staff_activity,
-    get_user_language_by_telegram_id,
 )
+from database.basic.user import get_user_by_telegram_id
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter("controller"))
@@ -95,7 +96,7 @@ RU_ENTRY_TEXT = "👥 Активность сотрудников"
 
 @router.message(F.text.in_([UZ_ENTRY_TEXT, RU_ENTRY_TEXT]))
 async def staff_activity_entry(message: Message, state: FSMContext):
-    lang = await get_user_language_by_telegram_id(message.from_user.id)
+    lang = await get_user_language(message.from_user.id)
     items = await fetch_staff_activity()  # texniklar bo‘yicha activity
     text = _build_report(lang, items)
 

@@ -41,7 +41,7 @@ def get_admin_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     export_text = "📤 Export" if lang == "uz" else "📤 Экспорт"
     language_text = "🌐 Til" if lang == "uz" else "🌐 Язык"
     status_text = "🔧 Tizim holati" if lang == "uz" else "🔧 Состояние системы"
-    backup_text = "🗄️ Baza backup (.sql)" if lang == "uz" else "🗄️ Бэкап базы (.sql)"
+    backup_text = "🗄️ Backup & Logs" if lang == "uz" else "🗄️ Бэкап и логи"
 
     keyboard = [
         [KeyboardButton(text=statistics_text), KeyboardButton(text=users_text)],

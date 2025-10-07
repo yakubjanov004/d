@@ -2,11 +2,10 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from filters.role_filter import RoleFilter
 from keyboards.admin_buttons import get_statistics_keyboard
-from database.admin_queries import get_user_statistics
-from database.admin_system_status_queries import get_system_overview
-from database.manager_export import get_manager_statistics_for_export
-from database.controller_export import get_controller_statistics_for_export
-from database.language_queries import get_user_language
+from database.admin.queries import get_user_statistics, get_system_overview
+from database.manager.export import get_manager_statistics_for_export
+from database.controller.export import get_controller_statistics_for_export
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter("admin"))

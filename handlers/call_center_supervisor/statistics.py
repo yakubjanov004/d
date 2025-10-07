@@ -4,12 +4,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from filters.role_filter import RoleFilter
-from database.call_supervisor_static_queries import (
+from database.call_center_supervisor.statistics import (
     get_active_connection_tasks_count,
     get_callcenter_operator_count,
     get_canceled_connection_tasks_count,
 )
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter("callcenter_supervisor"))

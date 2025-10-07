@@ -6,11 +6,8 @@ from zoneinfo import ZoneInfo
 from datetime import timezone, timedelta
 
 from filters.role_filter import RoleFilter
-from database.jm_inbox_queries import db_get_user_by_telegram_id
-
-# --- import fallback: stats_queries yoki statistika_queries ---
-
-from database.junior_manager_statistika_queries import get_jm_stats_for_telegram
+from database.basic.user import get_user_by_telegram_id
+from database.junior_manager.statistics import get_jm_stats_for_telegram
 
 router = Router()
 router.message.filter(RoleFilter("junior_manager"))
@@ -41,9 +38,14 @@ TR = {
     "created_completed": {"uz": "• O‘zim yaratganlardan <code>completed</code>",
                           "ru": "• Из созданных мной <code>completed</code>"},
     "no_user": {
-        "uz": "Foydalanuvchi profili topilmadi (users jadvali bilan moslik yo‘q).",
+        "uz": "Foydalanuvchi profili topilmadi (users jadvali bilan moslik yo'q).",
         "ru": "Профиль пользователя не найден (нет соответствия с таблицей users).",
     },
+    "total_orders": {"uz": "📊 Jami arizalar", "ru": "📊 Всего заявок"},
+    "new_orders": {"uz": "🆕 Yangi arizalar", "ru": "🆕 Новые заявки"},
+    "in_progress_orders": {"uz": "⏳ Ishlayotgan arizalar", "ru": "⏳ Заявки в работе"},
+    "completed_orders": {"uz": "✅ Tugallangan arizalar", "ru": "✅ Завершённые заявки"},
+    "today_completed": {"uz": "📅 Bugun tugallangan", "ru": "📅 Завершено сегодня"},
 }
 
 def tr(lang: str, key: str) -> str:
@@ -51,41 +53,23 @@ def tr(lang: str, key: str) -> str:
     return TR.get(key, {}).get(lang, key)
 
 # --- Timezone ---
-def _tz():
-    try:
-        return ZoneInfo("Asia/Tashkent")
-    except Exception:
-        return timezone(timedelta(hours=5))
 
 # --- Format helpers ---
-def _fmt_block(lang: str, row: dict) -> str:
-    # row ichida kalitlar bo'lmasa, 0 sifatida ko'rsatamiz
-    r = int(row.get("received", 0))
-    s = int(row.get("sent_to_controller", 0))
-    c = int(row.get("completed_from_sent", 0))
-    m = int(row.get("created_by_me", 0))
-    mc = int(row.get("created_completed", 0))
-
-    return (
-        f"{tr(lang,'received')}: <b>{r}</b>\n"
-        f"{tr(lang,'sent_to_controller')}: <b>{s}</b>\n"
-        f"{tr(lang,'completed_from_sent')}: <b>{c}</b>\n"
-        f"{tr(lang,'created_by_me')}: <b>{m}</b>\n"
-        f"{tr(lang,'created_completed')}: <b>{mc}</b>\n"
-    )
 
 def _fmt_stats(lang: str, stats: dict) -> str:
-    return "\n".join([
-        tr(lang, "title"),
-        tr(lang, "today"),
-        _fmt_block(lang, stats["today"]),
-        tr(lang, "7d"),
-        _fmt_block(lang, stats["7d"]),
-        tr(lang, "10d"),
-        _fmt_block(lang, stats["10d"]),
-        tr(lang, "30d"),
-        _fmt_block(lang, stats["30d"]),
-    ])
+    if not stats:
+        return tr(lang, "no_user")
+    
+    manager_name = stats.get("manager_name", "Noma'lum")
+    
+    return (
+        f"📊 <b>Kichik menejer — {manager_name}</b>\n\n"
+        f"{tr(lang, 'total_orders')}: <b>{stats.get('total_orders', 0)}</b>\n"
+        f"{tr(lang, 'new_orders')}: <b>{stats.get('new_orders', 0)}</b>\n"
+        f"{tr(lang, 'in_progress_orders')}: <b>{stats.get('in_progress_orders', 0)}</b>\n"
+        f"{tr(lang, 'completed_orders')}: <b>{stats.get('completed_orders', 0)}</b>\n"
+        f"{tr(lang, 'today_completed')}: <b>{stats.get('today_completed', 0)}</b>\n"
+    )
 
 # --- Entry (reply button) ---
 ENTRY_TEXTS = [
@@ -96,12 +80,11 @@ ENTRY_TEXTS = [
 @router.message(F.text.in_(ENTRY_TEXTS))
 async def jm_stats_msg(msg: Message, state: FSMContext):
     # tilni olish uchun foydalanuvchini DBdan olamiz
-    u = await db_get_user_by_telegram_id(msg.from_user.id)
+    u = await get_user_by_telegram_id(msg.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
 
-    # statistika olishda tz beramiz
-    stats = await get_jm_stats_for_telegram(msg.from_user.id, tz=_tz())
-    if stats is None:
+    stats = await get_jm_stats_for_telegram(msg.from_user.id)
+    if not stats:
         await msg.answer(tr(lang, "no_user"))
         return
     await msg.answer(_fmt_stats(lang, stats))
@@ -109,11 +92,11 @@ async def jm_stats_msg(msg: Message, state: FSMContext):
 # --- Callback variant ---
 @router.callback_query(F.data == "jm_stats")
 async def jm_stats_cb(cb: CallbackQuery, state: FSMContext):
-    u = await db_get_user_by_telegram_id(cb.from_user.id)
+    u = await get_user_by_telegram_id(cb.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
 
-    stats = await get_jm_stats_for_telegram(cb.from_user.id, tz=_tz())
-    if stats is None:
+    stats = await get_jm_stats_for_telegram(cb.from_user.id)
+    if not stats:
         await cb.message.edit_text(tr(lang, "no_user"))
         return
     await cb.message.edit_text(_fmt_stats(lang, stats))

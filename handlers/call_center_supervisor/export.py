@@ -7,14 +7,14 @@ from keyboards.call_center_supervisor_buttons import (
     get_ccs_export_types_keyboard,
     get_ccs_export_formats_keyboard,
 )
-from database.call_center_supervisor_export import (
+from database.call_center_supervisor.export import (
     get_ccs_connection_orders_for_export,
     get_ccs_operator_orders_for_export,
     get_ccs_operators_for_export,
     get_ccs_statistics_for_export
 )
 from utils.export_utils import ExportUtils
-from database.language_queries import get_user_language
+from database.basic.language import get_user_language
 import logging
 from datetime import datetime
 

@@ -13,14 +13,13 @@ import html
 from filters.role_filter import RoleFilter
 
 # --- DB: ro'yxatlar ---
-from database.junior_manager_orders_queries import (
+from database.junior_manager.orders import (
     list_new_for_jm,
     list_inprogress_for_jm,
     list_completed_for_jm,
+    list_assigned_for_jm,
 )
-
-# --- Foydalanuvchi tilini olish (users.language) ---
-from database.jm_inbox_queries import db_get_user_by_telegram_id
+from database.basic.user import get_user_by_telegram_id
 
 router = Router()
 router.message.filter(RoleFilter("junior_manager"))
@@ -38,6 +37,7 @@ def _L(lang: str) -> dict:
             "menu_title": "📋 <b>Просмотр заявок</b>\nВыберите раздел ниже:",
             "empty": "Ничего не найдено.",
             "new": "🆕 <b>Новые заявки</b>",
+            "assigned": "🔗 <b>Назначенные</b>",
             "wip": "⏳ <b>В работе</b>",
             "done": "✅ <b>Завершённые</b>",
             "type_connection": "📦 connection",
@@ -50,13 +50,15 @@ def _L(lang: str) -> dict:
             "back": "🔙 Назад",
             "nochange": "Без изменений ✅",
             "btn_new": "🆕 Новые заявки",
+            "btn_assigned": "🔗 Назначенные",
             "btn_wip": "⏳ В работе",
             "btn_done": "✅ Завершённые",
         }
     return {
-        "menu_title": "📋 <b>Arizalarni ko‘rish</b>\nQuyidan bo‘limni tanlang:",
+        "menu_title": "📋 <b>Arizalarni ko'rish</b>\nQuyidan bo'limni tanlang:",
         "empty": "Hech narsa topilmadi.",
         "new": "🆕 <b>Yangi buyurtma</b>",
+        "assigned": "🔗 <b>Biriktirilgan</b>",
         "wip": "⏳ <b>Jarayonda</b>",
         "done": "✅ <b>Tugatilgan</b>",
         "type_connection": "📦 connection",
@@ -67,18 +69,15 @@ def _L(lang: str) -> dict:
         "prev": "⬅️ Oldingi",
         "next": "➡️ Keyingi",
         "back": "🔙 Orqaga",
-        "nochange": "Yangilanish yo‘q ✅",
+        "nochange": "Yangilanish yo'q ✅",
         "btn_new": "🆕 Yangi buyurtmalar",
+        "btn_assigned": "🔗 Biriktirilganlar",
         "btn_wip": "⏳ Jarayondagilar",
         "btn_done": "✅ Tugatilganlari",
     }
 
 # ===================== TZ & time =====================
-def _tz():
-    try:
-        return ZoneInfo("Asia/Tashkent")
-    except Exception:
-        return timezone(timedelta(hours=5))
+# --- Timezone ---
 
 def _ago_text(dt: datetime, L: dict) -> str:
     if dt is None:
@@ -102,9 +101,9 @@ def _ago_text(dt: datetime, L: dict) -> str:
 def _kb_root(lang: str) -> InlineKeyboardMarkup:
     L = _L(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=L["btn_new"],  callback_data="jm_list:new")
-    kb.button(text=L["btn_wip"],  callback_data="jm_list:wip")
-    kb.button(text=L["btn_done"], callback_data="jm_list:done")
+    kb.button(text=L["btn_assigned"], callback_data="jm_list:assigned")
+    kb.button(text=L["btn_wip"],     callback_data="jm_list:wip")
+    kb.button(text=L["btn_done"],    callback_data="jm_list:done")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -117,6 +116,7 @@ def _kb_pager(idx: int, total: int, kind: str, lang: str) -> InlineKeyboardMarku
     kb.row()
     kb.button(text=L["back"], callback_data="jm_back")
     return kb.as_markup()
+
 
 def _safe_kb_fp(kb) -> str:
     if kb is None:
@@ -144,35 +144,73 @@ async def _safe_edit(cb: CallbackQuery, text: str, kb: InlineKeyboardMarkup | No
 # ===================== Card formatter =====================
 def _fmt_card(item: dict, kind: str, lang: str) -> str:
     L = _L(lang)
+    
+    # Asosiy ma'lumotlar
     rid = item.get("id")
     fio = html.escape(item.get("user_name") or "—", quote=False)
+    phone = html.escape(item.get("client_phone") or "—", quote=False)
     addr = html.escape(item.get("address") or "—", quote=False)
+    region = html.escape(str(item.get("region") or "—"), quote=False)
+    abonent_id = html.escape(str(item.get("abonent_id") or "—"), quote=False)
+    description = html.escape(str(item.get("description") or "—"), quote=False)
+    tariff_name = html.escape(str(item.get("tariff_name") or "—"), quote=False)
+    status = html.escape(item.get("status") or "—", quote=False)
+    
+    # Order type
+    order_type = item.get("order_type", "staff")
+    type_icon = "🔗" if order_type == "connection" else "👨‍💼"
+    type_text = "Ulanish arizasi" if order_type == "connection" else "Xodim arizasi"
+    
+    # Vaqtni formatlash
     created_at = item.get("created_at")
-    when = html.escape(_ago_text(created_at, L), quote=False)
-
-    if kind == "wip":
-        status_line = html.escape(item.get("flow_status") or item.get("status_text") or "—", quote=False)
-    elif kind == "done":
-        status_line = "completed"  # kerak bo'lsa bu yerda i18n mapping qo'shing
+    updated_at = item.get("updated_at")
+    
+    if created_at and hasattr(created_at, 'strftime'):
+        created_str = created_at.strftime("%d.%m.%Y %H:%M")
     else:
-        status_line = html.escape(item.get("status_text") or "—", quote=False)
-
-    title = {"new": L["new"], "wip": L["wip"], "done": L["done"]}[kind]
+        created_str = str(created_at or "—")
+        
+    if updated_at and hasattr(updated_at, 'strftime'):
+        updated_str = updated_at.strftime("%d.%m.%Y %H:%M")
+    else:
+        updated_str = str(updated_at or "—")
+    
+    # Statusni o'zbek tiliga tarjima qilamiz
+    status_uz = {
+        'in_controller': 'Controllerda',
+        'in_technician': 'Texnikda',
+        'in_manager': 'Menedjerda',
+        'in_junior_manager': 'Kichik menedjerda',
+        'in_progress': 'Jarayonda',
+        'assigned_to_technician': 'Texnikga biriktirilgan',
+        'completed': 'Bajarilgan',
+        'cancelled': 'Bekor qilingan'
+    }.get(status, status)
+    
+    title = {"new": L["new"], "assigned": L["assigned"], "wip": L["wip"], "done": L["done"]}[kind]
 
     try:
         rid_view = f"{int(rid):03d}"
     except Exception:
         rid_view = html.escape(str(rid or "—"), quote=False)
+    
+    text = f"<b>📋 ARIZA BATAFSIL MA'LUMOTLARI</b>\n"
+    text += f"{'=' * 40}\n\n"
+    text += f"<b>📄 Ariza raqami:</b> #{rid_view}\n"
+    text += f"<b>{type_icon} Ariza turi:</b> {type_text}\n"
+    text += f"<b>👤 Mijoz:</b> {fio}\n"
+    text += f"<b>📞 Telefon:</b> {phone}\n"
+    text += f"<b>📍 Manzil:</b> {addr}\n"
+    text += f"<b>🌍 Hudud:</b> {region}\n"
+    text += f"<b>🆔 Abonent ID:</b> {abonent_id}\n"
+    text += f"<b>📊 Holat:</b> {status_uz}\n"
+    text += f"<b>📝 Tavsif:</b> {description}\n"
+    text += f"<b>💰 Tarif:</b> {tariff_name}\n"
+    text += f"<b>🕐 Yaratilgan:</b> {created_str}\n"
+    text += f"<b>🔄 Yangilangan:</b> {updated_str}\n"
+    
+    return text
 
-    return (
-        f"{title}\n"
-        f"<b>#{rid_view}</b>\n"
-        f"👤 {fio}\n"
-        f"{L['type_connection']}\n"
-        f"📊 <code>{status_line}</code>\n"
-        f"📍 {addr}\n"
-        f"⏱ {when}"
-    )
 
 # ===================== Entry trigger (Reply button) =====================
 # Tugmani O'ZGARTIRMAYMIZ: reply keyboarddagi label'lar bilan to'g'ridan-to'g'ri mos.
@@ -184,21 +222,21 @@ ENTRY_TEXTS = [
 
 @router.message(F.text.in_(ENTRY_TEXTS))
 async def jm_orders_menu(msg: Message):
-    u = await db_get_user_by_telegram_id(msg.from_user.id)
+    u = await get_user_by_telegram_id(msg.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
     await msg.answer(_L(lang)["menu_title"], reply_markup=_kb_root(lang))
 
 # ===================== Open list =====================
 @router.callback_query(F.data.startswith("jm_list:"))
 async def jm_open_list(cb: CallbackQuery, state: FSMContext):
-    u = await db_get_user_by_telegram_id(cb.from_user.id)
+    u = await get_user_by_telegram_id(cb.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
 
-    kind = cb.data.split(":")[1]  # new | wip | done
+    kind = cb.data.split(":")[1]  # assigned | wip | done
     tg_id = cb.from_user.id
 
-    if kind == "new":
-        items = await list_new_for_jm(tg_id)
+    if kind == "assigned":
+        items = await list_assigned_for_jm(tg_id)
     elif kind == "wip":
         items = await list_inprogress_for_jm(tg_id)
     else:
@@ -215,7 +253,7 @@ async def jm_open_list(cb: CallbackQuery, state: FSMContext):
 # ===================== Navigation =====================
 @router.callback_query(F.data.startswith("jm_nav:"))
 async def jm_nav(cb: CallbackQuery, state: FSMContext):
-    u = await db_get_user_by_telegram_id(cb.from_user.id)
+    u = await get_user_by_telegram_id(cb.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
 
     _, kind, direction = cb.data.split(":")
@@ -236,11 +274,12 @@ async def jm_nav(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "jm_back")
 async def jm_back(cb: CallbackQuery, state: FSMContext):
-    u = await db_get_user_by_telegram_id(cb.from_user.id)
+    u = await get_user_by_telegram_id(cb.from_user.id)
     lang = _norm_lang(u.get("language") if u else "uz")
 
     await state.clear()
     await _safe_edit(cb, _L(lang)["menu_title"], _kb_root(lang), lang)
+
 
 @router.callback_query(F.data == "noop")
 async def noop(cb: CallbackQuery):

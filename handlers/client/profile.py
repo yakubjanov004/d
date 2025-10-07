@@ -3,8 +3,9 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from database.client.queries import find_user_by_telegram_id, get_user_orders_paginated, get_region_display_name, update_user_full_name
+from database.basic.user import get_user_by_telegram_id, update_user_full_name
 from database.basic.language import get_user_language
+from database.client.queries import get_user_orders_paginated, get_region_display_name
 from keyboards.client_buttons import get_client_main_menu, get_client_profile_reply_keyboard
 from states.client_states import ProfileEditStates
 
@@ -43,7 +44,7 @@ async def view_info_handler(message: Message):
     user_lang = await get_user_language(message.from_user.id)
     telegram_id = message.from_user.id
 
-    user_info = await find_user_by_telegram_id(telegram_id)
+    user_info = await get_user_by_telegram_id(telegram_id)
     if not user_info:
         text = "❌ Foydalanuvchi ma'lumotlar bazasida topilmadi." if user_lang == "uz" else "❌ Пользователь не найден в базе данных."
         await message.answer(text, parse_mode="HTML")
@@ -52,20 +53,16 @@ async def view_info_handler(message: Message):
     if user_lang == "ru":
         text = (
             "👀 <b>Просмотр информации</b>\n\n"
-            f"🆔 ID: {user_info['id']}\n"
             f"👤 Имя: {user_info.get('full_name', 'Не указано')}\n"
             f"📱 Телефон: {user_info.get('phone', 'Не указан')}\n"
-            f"🏷️ Роль: {user_info.get('role', 'Не указана')}\n"
             f"📅 Дата регистрации: {_fmt_dt(user_info.get('created_at'))}\n"
         )
     else:
         text = (
             "👀 <b>Ma'lumotlarni ko'rish</b>\n\n"
-            f"🆔 ID: {user_info['id']}\n"
-            f"👤 Ism: {user_info.get('full_name', 'Ko‘rsatilmagan')}\n"
-            f"📱 Telefon: {user_info.get('phone', 'Ko‘rsatilmagan')}\n"
-            f"🏷️ Rol: {user_info.get('role', 'Ko‘rsatilmagan')}\n"
-            f"📅 Ro‘yxatdan o‘tgan: {_fmt_dt(user_info.get('created_at'))}\n"
+            f"👤 Ism: {user_info.get('full_name', "Ko'rsatilmagan")}\n"
+            f"📱 Telefon: {user_info.get('phone', "Ko'rsatilmagan")}\n"
+            f"📅 Ro'yxatdan o'tgan: {_fmt_dt(user_info.get('created_at'))}\n"
         )
 
     if user_info.get('username'):
@@ -105,12 +102,19 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
     order = orders[idx]
     otype = (order.get('order_type') or '').lower()
     is_conn = otype in ('connection', 'connection_request')
+    
+    # Application number ni olish
+    application_number = order.get('application_number') or f"#{order['id']}"
+    
+    # Media faylini tekshirish
+    media_file_id = order.get('media_file_id')
+    media_type = order.get('media_type')
 
     if user_lang == "ru":
         order_type_text = "🔗 Подключение" if is_conn else "🔧 Техническая заявка"
         text = (
             f"📋 <b>Мои заявки</b>\n\n"
-            f"<b>Заявка #{order['id']}</b>\n"
+            f"<b>Заявка {application_number}</b>\n"
             f"📝 Тип: {order_type_text}\n"
             f"📍 Регион: {get_region_display_name(order.get('region', '-'))}\n"
             f"🏠 Адрес: {order.get('address','-')}\n"
@@ -125,7 +129,7 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
         order_type_text = "🔗 Ulanish" if is_conn else "🔧 Texnik ariza"
         text = (
             f"📋 <b>Mening arizalarim</b>\n\n"
-            f"<b>Ariza #{order['id']}</b>\n"
+            f"<b>Ariza {application_number}</b>\n"
             f"📝 Turi: {order_type_text}\n"
             f"📍 Hudud: {get_region_display_name(order.get('region', '-'))}\n"
             f"🏠 Manzil: {order.get('address','-')}\n"
@@ -150,11 +154,32 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
         keyboard.append(nav_buttons)
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
-
+    
+    # Media faylini yuborish
     if isinstance(target, CallbackQuery):
+        # Callback query uchun - faqat matn yuborish
         await target.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
     else:
-        await target.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+        # Message uchun - media bilan yuborish
+        if media_file_id and media_type:
+            if media_type == 'photo':
+                await target.answer_photo(
+                    photo=media_file_id,
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
+            elif media_type == 'video':
+                await target.answer_video(
+                    video=media_file_id,
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
+            else:
+                await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+        else:
+            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
 
 
 @router.callback_query(F.data.startswith("client_orders_prev_"))
@@ -165,7 +190,12 @@ async def prev_order_handler(callback: CallbackQuery, state: FSMContext):
     idx = int(callback.data.replace("client_orders_prev_", "")) - 1
     if 0 <= idx < len(orders):
         await state.update_data(idx=idx)
-        await render_order_card(callback, orders, idx, data.get("lang", "uz"))
+        # Eski xabarni o'chirish
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await render_order_card(callback.message, orders, idx, data.get("lang", "uz"))
 
 
 @router.callback_query(F.data.startswith("client_orders_next_"))
@@ -176,7 +206,12 @@ async def next_order_handler(callback: CallbackQuery, state: FSMContext):
     idx = int(callback.data.replace("client_orders_next_", "")) + 1
     if 0 <= idx < len(orders):
         await state.update_data(idx=idx)
-        await render_order_card(callback, orders, idx, data.get("lang", "uz"))
+        # Eski xabarni o'chirish
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await render_order_card(callback.message, orders, idx, data.get("lang", "uz"))
 
 
 # === EDIT NAME ===
@@ -184,7 +219,7 @@ async def next_order_handler(callback: CallbackQuery, state: FSMContext):
 async def edit_name_handler(message: Message, state: FSMContext):
     user_lang = await get_user_language(message.from_user.id)
     telegram_id = message.from_user.id
-    user_info = await find_user_by_telegram_id(telegram_id)
+    user_info = await get_user_by_telegram_id(telegram_id)
 
     if not user_info:
         text = "❌ Foydalanuvchi topilmadi." if user_lang == "uz" else "❌ Пользователь не найден."
