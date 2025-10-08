@@ -80,14 +80,14 @@ async def _get_technician_akt_data(conn, request_id: int) -> Optional[Dict[str, 
     row = await conn.fetchrow(
         """
         SELECT 
-            to.id,
-            to.application_number,
-            to.address,
-            to.region,
-            to.description,
-            to.description_ish AS diagnostics,
-            to.created_at,
-            to.updated_at,
+            t.id,
+            t.application_number,
+            t.address,
+            t.region,
+            t.description,
+            t.description_ish AS diagnostics,
+            t.created_at,
+            t.updated_at,
             
             -- Client ma'lumotlari
             u.full_name AS client_name,
@@ -98,18 +98,18 @@ async def _get_technician_akt_data(conn, request_id: int) -> Optional[Dict[str, 
             -- Texnik ma'lumotlari
             tech.full_name AS technician_name
             
-        FROM technician_orders to
-        LEFT JOIN users u ON u.id = to.user_id
+        FROM technician_orders t
+        LEFT JOIN users u ON u.id = t.user_id
         LEFT JOIN users tech ON tech.id = (
             SELECT c.recipient_id 
             FROM connections c 
-            WHERE c.technician_id = to.id 
+            WHERE c.technician_id = t.id 
             AND c.recipient_id IN (
                 SELECT id FROM users WHERE role = 'technician'
             )
             LIMIT 1
         )
-        WHERE to.id = $1 AND to.is_active = TRUE
+        WHERE t.id = $1 AND t.is_active = TRUE
         """,
         request_id
     )

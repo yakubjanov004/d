@@ -86,7 +86,7 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
         async with conn.transaction():
             # JM mavjudmi? + uning ma'lumotlarini olamiz
             jm_info = await conn.fetchrow(
-                "SELECT id, telegram_id, language FROM users WHERE id = $1 AND role = 'junior_manager'",
+                "SELECT id, telegram_id, language, full_name FROM users WHERE id = $1 AND role = 'junior_manager'",
                 jm_id,
             )
             if not jm_info:
@@ -177,7 +177,8 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
                 "telegram_id": jm_info["telegram_id"],
                 "language": jm_info["language"] or "uz",
                 "application_number": app_number,
-                "current_load": current_load or 0
+                "current_load": current_load or 0,
+                "jm_name": jm_info["full_name"] or "Noma'lum"
             }
     finally:
         await conn.close()

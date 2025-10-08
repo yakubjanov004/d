@@ -50,6 +50,21 @@ def esc(v) -> str:
     """Escape HTML and handle None values"""
     return "-" if v is None else html.escape(str(v), quote=False)
 
+def _get_source_indicator(material: dict) -> str:
+    """Get source indicator for material display"""
+    source_type = material.get('source_type', 'warehouse')
+    warehouse_approved = material.get('warehouse_approved', False)
+    
+    if source_type == 'technician_stock':
+        return "✅ [Texnik o'zida - tasdiqlash shart emas]"
+    elif source_type == 'warehouse':
+        if warehouse_approved:
+            return "✅ [Ombordan - tasdiqlangan]"
+        else:
+            return "🏢 [Ombordan - tasdiqlash kerak]"
+    else:
+        return "❓ [Noma'lum manba]"
+
 def format_connection_order(order: dict, index: int, total: int) -> str:
     """Format connection order for display"""
     # Fallbacks for client fields in case LEFT JOIN returns NULL or different key names are used
@@ -182,7 +197,7 @@ async def show_connection_orders(callback: CallbackQuery, state: FSMContext):
     
     order = orders[0]
     mats = await fetch_materials_for_connection_order(order.get('id'))
-    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona" for m in mats]) if mats else "—"
+    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
     text = format_connection_order(order, 0, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
     keyboard = get_connection_inbox_controls(0, total_count, order.get('id'))
     
@@ -252,7 +267,7 @@ async def navigate_prev(callback: CallbackQuery, state: FSMContext):
         total_count = await count_warehouse_connection_orders_with_materials()
         if orders:
             mats = await fetch_materials_for_connection_order(orders[0].get('id'))
-            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona" for m in mats]) if mats else "—"
+            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
             text = format_connection_order(orders[0], new_index, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
             keyboard = get_technician_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "technician":
@@ -290,7 +305,7 @@ async def navigate_next(callback: CallbackQuery, state: FSMContext):
         total_count = await count_warehouse_connection_orders_with_materials()
         if orders:
             mats = await fetch_materials_for_connection_order(orders[0].get('id'))
-            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona" for m in mats]) if mats else "—"
+            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
             text = format_connection_order(orders[0], new_index, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "technician":
@@ -368,7 +383,7 @@ async def confirm_connection_materials(callback: CallbackQuery, state: FSMContex
 
     order = orders[0]
     mats = await fetch_materials_for_connection_order(order.get('id'))
-    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona" for m in mats]) if mats else "—"
+    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
     text = format_connection_order(order, idx, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
     keyboard = get_staff_inbox_controls(idx, total_count, order.get('id'))
     try:

@@ -17,7 +17,7 @@ DB_CONFIG = {
     'host': os.getenv('PGHOST', 'localhost'),
     'port': int(os.getenv('PGPORT', '5432')),
     'user': os.getenv('PGUSER', 'postgres'),
-    'password': os.getenv('PGPASSWORD', '1'),
+    'password': os.getenv('PGPASSWORD', 'ulugbek202'),
     'database': os.getenv('PGDATABASE', 'aldb1'),
 }
 

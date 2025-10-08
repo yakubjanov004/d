@@ -37,6 +37,36 @@ async def get_current_status(application_id: int, mode: str = "connection") -> s
         if conn:
             await conn.close()
 
+async def get_application_number(application_id: int, mode: str = "connection") -> str:
+    """Get application_number from database"""
+    from database.technician.materials import _conn
+    conn = None
+    try:
+        conn = await _conn()
+        if mode == "technician":
+            query = """
+                SELECT application_number FROM technician_orders 
+                WHERE id = $1
+            """
+        elif mode == "staff":
+            query = """
+                SELECT application_number FROM staff_orders 
+                WHERE id = $1
+            """
+        else:  # connection mode
+            query = """
+                SELECT application_number FROM connection_orders 
+                WHERE id = $1
+            """
+        result = await conn.fetchval(query, application_id)
+        return result or str(application_id)
+    except Exception as e:
+        print(f"Error getting application_number: {e}")
+        return str(application_id)
+    finally:
+        if conn:
+            await conn.close()
+
 from datetime import datetime
 import html
 
@@ -331,7 +361,6 @@ def short_view_text(item: dict, idx: int, total: int, lang: str = "uz", mode: st
     base = (
         f"{t('title_inbox', lang)}\n"
         f"{t('id', lang)} {esc(item.get('application_number') or item.get('id'))}\n"
-        f"{status_emoji(item.get('status',''))} {t('status', lang)} {esc(item.get('status'))}\n"
         f"{t('client', lang)} {esc(item.get('client_name'))}\n"
         f"{t('phone', lang)} {esc(item.get('client_phone'))}\n"
         f"{t('address', lang)} {esc(item.get('address'))}\n"
@@ -1036,8 +1065,11 @@ async def tech_start(cb: CallbackQuery, state: FSMContext):
         await cb.answer(t("ok_started", lang))
         return
 
+    # Application number ni olish
+    app_number = await get_application_number(req_id, mode)
+    
     mats = await fetch_technician_materials()
-    header_text = t("store_header", lang, id=req_id)
+    header_text = t("store_header", lang, id=app_number)
     await cb.message.answer(header_text, reply_markup=materials_keyboard(mats, applications_id=req_id, lang=lang), parse_mode="HTML")
 
 # ====== DIAGNOSTIKA ======
@@ -1050,6 +1082,13 @@ async def tech_diag_begin(cb: CallbackQuery, state: FSMContext):
     except Exception:
         return
     await state.update_data(diag_req_id=req_id, lang=lang)
+    
+    # Avvalgi xabardagi inline keyboard'ni tozalash
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass  # Agar edit qila olmasa, davom etamiz
+    
     await cb.message.answer(t("diag_begin_prompt", lang), parse_mode="HTML")
     await state.set_state(DiagStates.waiting_text)
 
@@ -1076,15 +1115,27 @@ async def tech_diag_text(msg: Message, state: FSMContext):
         await _preserve_mode_clear(state)
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
+    # Mode ni olish
+    mode = st.get("tech_mode", "connection")
+    
     await _preserve_mode_clear(state)
+
+    # Diagnostika xabarini o'chirish
+    try:
+        await msg.delete()
+    except Exception:
+        pass  # Agar o'chirishda xatolik bo'lsa, davom etamiz
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t("yes", lang),  callback_data=f"tech_diag_go_store_{req_id}")],
         [InlineKeyboardButton(text=t("no", lang), callback_data=f"tech_diag_cancel_{req_id}")],
     ])
+    # Application number ni olish
+    app_number = await get_application_number(req_id, mode)
+    
     await msg.answer(
         f"{t('diag_saved', lang)}\n\n"
-        f"{t('order_id', lang)} {esc(req_id)}\n"
+        f"{t('order_id', lang)} {esc(app_number)}\n"
         f"{t('diag_text', lang)}\n<code>{html.escape(text, quote=False)}</code>\n\n"
         f"{t('go_store_q', lang)}",
         reply_markup=kb,
@@ -1103,8 +1154,18 @@ async def tech_diag_go_store(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Inline keyboard'ni tozalash
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass  # Agar tozalashda xatolik bo'lsa, davom etamiz
+
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     mats = await fetch_technician_materials()
-    header_text = t("store_header", lang, id=req_id)
+    header_text = t("store_header", lang, id=app_number)
     await cb.message.answer(header_text, reply_markup=materials_keyboard(mats, applications_id=req_id, lang=lang), parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("tech_diag_cancel_"))
@@ -1118,6 +1179,12 @@ async def tech_diag_cancel(cb: CallbackQuery, state: FSMContext):
         await _preserve_mode_clear(state)
         await cb.message.answer(t("diag_cancelled", lang))
         return
+    
+    # Inline keyboard'ni tozalash
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass  # Agar tozalashda xatolik bo'lsa, davom etamiz
     
     # Continue button qo'shamiz
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1151,9 +1218,22 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
     assigned_left = await fetch_assigned_qty(user["id"], material_id)
     assigned_left = int(assigned_left or 0)
 
+    # Source type ni aniqlash - texnikda bor yoki ombordan so'rash
+    source_type = "technician_stock" if assigned_left > 0 else "warehouse"
+
+    # Avvalgi xabardagi inline keyboard'ni tozalash
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass  # Agar edit qila olmasa, davom etamiz
+
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     text = (
         f"{t('enter_qty', lang)}\n\n"
-        f"{t('order_id', lang)} {req_id}\n"
+        f"{t('order_id', lang)} {esc(app_number)}\n"
         f"{t('chosen_prod', lang)} {esc(mat['name'])}\n"
         f"{t('price', lang)} {_fmt_price_uzs(mat['price'])} {'so\'m' if lang=='uz' else 'сум'}\n"
         f"{t('assigned_left', lang)} {assigned_left} {'dona' if lang=='uz' else 'шт'}\n\n"
@@ -1171,10 +1251,27 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
             "price": mat["price"],
             "max_qty": assigned_left,
             "lang": lang,
+            "qty_message_id": None,  # Miqdor xabari ID'si
+            "source_type": source_type,  # Material manbai
         }
     )
 
-    await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    qty_message = await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    
+    # Miqdor xabari ID'sini saqlash
+    await state.update_data(
+        qty_ctx={
+            "applications_id": req_id,
+            "material_id": material_id,
+            "material_name": mat["name"],
+            "price": mat["price"],
+            "max_qty": assigned_left,
+            "lang": lang,
+            "qty_message_id": qty_message.message_id,
+            "source_type": source_type,  # Material manbai
+        }
+    )
+    
     await state.set_state(QtyStates.waiting_qty)
     await cb.answer()
 
@@ -1190,8 +1287,12 @@ async def tech_qty_cancel(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     mats = await fetch_technician_materials()
-    header_text = t("store_header", lang, id=req_id)
+    header_text = t("store_header", lang, id=app_number)
     await cb.message.answer(header_text, reply_markup=materials_keyboard(mats, applications_id=req_id, lang=lang), parse_mode="HTML")
     await _preserve_mode_clear(state)
     await cb.answer(t("state_cleared", lang))
@@ -1207,6 +1308,8 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     req_id = int(ctx.get("applications_id", 0))
     material_id = int(ctx.get("material_id", 0))
     max_qty = int(ctx.get("max_qty", 0))
+    qty_message_id = ctx.get("qty_message_id")
+    source_type = ctx.get("source_type", "warehouse")
 
     try:
         qty = int((msg.text or "").strip())
@@ -1218,22 +1321,40 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     if qty > max_qty:
         return await msg.answer(t("max_exceeded", lang, max=max_qty))
 
+    # Miqdor xabari inline keyboard'ni tozalash
+    if qty_message_id:
+        try:
+            await msg.bot.edit_message_reply_markup(
+                chat_id=msg.chat.id,
+                message_id=qty_message_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass  # Agar edit qila olmasa, davom etamiz
+
     # Faqat tanlov saqlansin, material_requests ga yozilmasin
     # Yakunlashda barcha tanlangan materiallar yoziladi
     try:
+        mode = st.get("tech_mode", "connection")
         await upsert_material_selection(
             user_id=user["id"],
             applications_id=req_id,
             material_id=material_id,
-            qty=qty
+            qty=qty,
+            request_type=mode,
+            source_type=source_type
         )
     except ValueError as ve:
         return await msg.answer(f"❌ {ve}")
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
-    lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {req_id}", t("selected_products", lang)]
+    lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("selected_products", lang)]
     for it in selected:
         qty_txt = f"{_qty_of(it)} {'dona' if lang=='uz' else 'шт'}"
         price_txt = f"{_fmt_price_uzs(it['price'])} {'so\'m' if lang=='uz' else 'сум'}"
@@ -1257,8 +1378,12 @@ async def tech_back_to_materials(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     mats = await fetch_technician_materials()
-    header_text = t("store_header", lang, id=req_id)
+    header_text = t("store_header", lang, id=app_number)
     await cb.message.answer(header_text, reply_markup=materials_keyboard(mats, applications_id=req_id, lang=lang), parse_mode="HTML")
     await cb.answer()
 
@@ -1277,6 +1402,14 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
     mode = st.get("tech_mode", "connection")
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
 
+    # Request type ni avval aniqlash
+    if mode == "technician":
+        request_type = "technician"
+    elif mode == "staff":
+        request_type = "staff"
+    else:
+        request_type = "connection"
+
     # Yakunlashda barcha tanlangan materiallarni material_requests ga yozish va omborga yuborish
     if selected:
         try:
@@ -1286,7 +1419,8 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
                     user_id=user["id"],
                     applications_id=req_id,
                     material_id=material['material_id'],
-                    add_qty=material['qty']
+                    add_qty=material['qty'],
+                    request_type=request_type
                 )
             
             # Keyin omborga yuborish
@@ -1298,24 +1432,22 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
             )
         except Exception as e:
             logger.error(f"Error creating material requests or sending to warehouse: {e}")
-            # Material requests xatosi asosiy jarayonni to'xtatmaydi
 
     try:
         if mode == "technician":
             ok = await finish_technician_work_for_tech(applications_id=req_id, technician_id=user["id"])
-            request_type = "technician"
         elif mode == "staff":
             ok = await finish_technician_work_for_staff(applications_id=req_id, technician_id=user["id"])
-            request_type = "staff"
         else:
             ok = await finish_technician_work(applications_id=req_id, technician_id=user["id"])
-            request_type = "connection"
         if not ok:
             return await cb.answer(t("status_mismatch_finish", lang), show_alert=True)
     except Exception as e:
         return await cb.answer(f"{t('x_error', lang)} {e}", show_alert=True)
 
-    lines = [t("work_finished", lang) + "\n", f"{t('order_id', lang)} {req_id}", t("used_materials", lang)]
+    # Application number ni olish
+    app_number = await get_application_number(req_id, mode)
+    lines = [t("work_finished", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("used_materials", lang)]
     if selected:
         for it in selected:
             qty_txt = f"{_qty_of(it)} {'dona' if lang=='uz' else 'шт'}"
@@ -1342,8 +1474,12 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     mats = await fetch_technician_materials()
-    header_text = t("store_header", lang, id=req_id)
+    header_text = t("store_header", lang, id=app_number)
     await cb.message.answer(header_text, reply_markup=materials_keyboard(mats, applications_id=req_id, lang=lang), parse_mode="HTML")
     await cb.answer()
 
@@ -1355,13 +1491,30 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
+    # Material_issued ga yozish
+    try:
+        from database.technician.materials import create_material_issued_from_review
+        await create_material_issued_from_review(user["id"], req_id, mode)
+    except Exception as e:
+        logger.error(f"Error creating material_issued: {e}")
+    
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
-    lines = [t("final_view", lang) + "\n", f"{t('order_id', lang)} {req_id}", (t("used_materials", lang) if lang=='ru' else "📦 <b>Ishlatiladigan mahsulotlar:</b>")]
+    lines = [t("final_view", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", (t("used_materials", lang) if lang=='ru' else "📦 <b>Ishlatiladigan mahsulotlar:</b>")]
     if selected:
         for it in selected:
             qty_txt = f"{_qty_of(it)} {'dona' if lang=='uz' else 'шт'}"
             price_txt = f"{_fmt_price_uzs(it['price'])} {'so\'m' if lang=='uz' else 'сум'}"
-            lines.append(f"• {esc(it['name'])} — {qty_txt} (💰 {price_txt})")
+            # Source indicator
+            source_indicator = ""
+            if it.get('source_type') == 'technician_stock':
+                source_indicator = " [🧑‍🔧 O'zimda]" if lang == 'uz' else " [🧑‍🔧 У меня]"
+            elif it.get('source_type') == 'warehouse':
+                source_indicator = " [🏢 Ombordan]" if lang == 'uz' else " [🏢 Со склада]"
+            lines.append(f"• {esc(it['name'])} — {qty_txt} (💰 {price_txt}){source_indicator}")
     else:
         lines.append("• (tanlanmagan)" if lang == "uz" else "• (не выбрано)")
 
@@ -1395,10 +1548,14 @@ async def tech_mat_custom(cb: CallbackQuery, state: FSMContext):
             ])
         )
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     header_text = ("📦 <b>Texnikka biriktirilmagan materiallar</b>\n🆔 <b>Ariza ID:</b> {id}\nKerakli materialni tanlang:" if lang == "uz" else "📦 <b>Непривязанные материалы</b>\n🆔 <b>ID заявки:</b> {id}\nВыберите нужный материал:")
     
     await cb.message.answer(
-        header_text.format(id=req_id), 
+        header_text.format(id=app_number), 
         reply_markup=unassigned_materials_keyboard(mats, applications_id=req_id, lang=lang), 
         parse_mode="HTML"
     )
@@ -1419,10 +1576,13 @@ async def tech_unassigned_select(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(t("not_found_mat", lang), show_alert=True)
 
     # Material ma'lumotlarini ko'rsatish va tasdiqlash so'rash
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     text = (
         f"📦 <b>{t('product', lang)}:</b> {esc(mat['name'])}\n"
         f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n"
-        f"🆔 <b>{t('order', lang)}:</b> {req_id}\n\n"
+        f"🆔 <b>{t('order', lang)}:</b> {esc(app_number)}\n\n"
         f"{'Bu materialni omborga so\'ramoqchimisiz?' if lang=='uz' else 'Хотите запросить этот материал на склад?'}"
     )
     
@@ -1456,10 +1616,13 @@ async def tech_custom_select(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(t("not_found_mat", lang), show_alert=True)
 
     # Material ma'lumotlarini ko'rsatish va tasdiqlash so'rash
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     text = (
         f"📦 <b>{t('product', lang)}:</b> {esc(mat['name'])}\n"
         f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n"
-        f"🆔 <b>{t('order', lang)}:</b> {req_id}\n\n"
+        f"🆔 <b>{t('order', lang)}:</b> {esc(app_number)}\n\n"
         f"{'Bu materialni tanlamoqchimisiz?' if lang=='uz' else 'Хотите выбрать этот материал?'}"
     )
     
@@ -1506,9 +1669,13 @@ async def tech_confirm_unassigned(cb: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_back_to_materials_{req_id}")]
     ])
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     await cb.message.answer(
         f"{t('qty_title', lang)}\n\n"
-        f"{t('order', lang)} {req_id}\n"
+        f"{t('order', lang)} {esc(app_number)}\n"
         f"{t('product', lang)} {esc(mat['name'])}\n"
         f"{t('price_line', lang)} {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n\n"
         f"{'Miqdorni kiriting (faqat raqam):' if lang=='uz' else 'Введите количество (только число):'}\n\n"
@@ -1546,9 +1713,13 @@ async def tech_confirm_custom(cb: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_back_to_materials_{req_id}")]
     ])
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     await cb.message.answer(
         f"{t('qty_title', lang)}\n\n"
-        f"{t('order', lang)} {req_id}\n"
+        f"{t('order', lang)} {esc(app_number)}\n"
         f"{t('product', lang)} {esc(mat['name'])}\n"
         f"{t('price_line', lang)} {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n\n"
         f"{t('only_int', lang)}",
@@ -1580,21 +1751,28 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
 
         # Texnikka biriktirilmagan material uchun faqat tanlov saqlash
         try:
+            mode = st.get("tech_mode", "connection")
             await upsert_material_selection(
                 user_id=user["id"],
                 applications_id=req_id,
                 material_id=material_id,
-                qty=qty
+                qty=qty,
+                request_type=mode,
+                source_type="warehouse"  # Unassigned materials are from warehouse
             )
         except Exception as e:
             return await msg.answer(f"{t('x_error', lang)} {e}")
 
+        # Application number ni olish
+        mode = st.get("tech_mode", "connection")
+        app_number = await get_application_number(req_id, mode)
+        
         # Xabar yuborish
         await msg.answer(
             f"✅ <b>Material omborga so'rov yuborildi</b>\n\n"
             f"📦 <b>Material:</b> {esc(material_name)}\n"
             f"📊 <b>Miqdor:</b> {qty} {'dona' if lang=='uz' else 'шт'}\n"
-            f"🆔 <b>Ariza ID:</b> {req_id}\n\n"
+            f"🆔 <b>Ariza ID:</b> {esc(app_number)}\n\n"
             f"{'Omborchi tasdiqlagandan so\'ng material texnikka biriktiriladi' if lang=='uz' else 'После подтверждения склада материал будет привязан к технику'}\n\n"
             f"{'Yana material qo\'shish uchun \"Ombor\" tugmasini bosing' if lang=='uz' else 'Для добавления ещё материалов нажмите кнопку \"Склад\"'}",
             parse_mode="HTML"
@@ -1624,18 +1802,25 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
     # Faqat tanlov saqlansin, omborga yuborilmasin
     # Yakunlashda barcha materiallar omborga yuboriladi
     try:
+        mode = st.get("tech_mode", "connection")
         await upsert_material_selection(
             user_id=user["id"],
             applications_id=req_id,
             material_id=material_id,
-            qty=qty
+            qty=qty,
+            request_type=mode,
+            source_type="warehouse"  # Custom materials are from warehouse
         )
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
     # Tanlangan materiallarni ko'rsatish
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
-    lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {req_id}", t("selected_products", lang)]
+    lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("selected_products", lang)]
     for it in selected:
         qty_txt = f"{_qty_of(it)} {'dona' if lang=='uz' else 'шт'}"
         price_txt = f"{_fmt_price_uzs(it['price'])} {'so\'m' if lang=='uz' else 'сум'}"

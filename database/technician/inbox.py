@@ -45,6 +45,7 @@ async def fetch_technician_inbox(
             )
             SELECT
                 co.id,
+                co.application_number,
                 co.address,
                 co.region,
                 co.status,
@@ -164,6 +165,7 @@ async def fetch_technician_inbox_tech(
             )
             SELECT
                 to2.id,
+                to2.application_number,
                 to2.address,
                 to2.region,
                 to2.status,
@@ -238,6 +240,7 @@ async def fetch_technician_inbox_staff(
             )
             SELECT 
                 so.id,
+                so.application_number,
                 so.phone,
                 so.region,
                 so.abonent_id,

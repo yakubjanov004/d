@@ -74,7 +74,7 @@ T = {
     "sum_total_time": {"uz": "• <b>Umumiy vaqt:</b>", "ru": "• <b>Общее время:</b>"},
 
     # Tarix (history)
-    "hist_title": {"uz": "📊 <b>Workflow tarix</b> #{id}", "ru": "📊 <b>История процесса</b> #{id}"},
+    "hist_title": {"uz": "📊 <b>Workflow tarix</b> {id}", "ru": "📊 <b>История процесса</b> {id}"},
     "hist_client": {"uz": "👤 <b>Mijoz:</b>", "ru": "👤 <b>Клиент:</b>"},
     "hist_steps": {"uz": "📋 <b>Qadamlar:</b>", "ru": "📋 <b>Шаги:</b>"},
     "hist_no_steps": {"uz": "Hech qanday harakat topilmadi.", "ru": "Действия не найдены."},
@@ -216,8 +216,8 @@ def _fmt_card(lang: str, rec: dict) -> str:
         f"{t(lang,'sum_total_time')} {total_dur}\n"
     )
 
-def _fmt_history(lang: str, title_name: str, order_id: int, steps: list, created_at) -> str:
-    header = f"{t(lang,'hist_title', id=order_id)}\n\n" \
+def _fmt_history(lang: str, title_name: str, application_number: str, steps: list, created_at) -> str:
+    header = f"{t(lang,'hist_title', id=application_number)}\n\n" \
              f"{t(lang,'hist_client')} {html.escape(title_name, quote=False)}\n"
     lines = [header, t(lang, "hist_steps")]
     if not steps:
@@ -345,7 +345,7 @@ async def rtm_show_history(cb: CallbackQuery, state: FSMContext):
         await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order["id"], history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
     await state.update_data(view="history")
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
@@ -360,7 +360,7 @@ async def rtm_prev_hist(cb: CallbackQuery, state: FSMContext):
     await state.update_data(idx=idx, view="history")
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order["id"], history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_next_hist")
@@ -374,7 +374,7 @@ async def rtm_next_hist(cb: CallbackQuery, state: FSMContext):
     await state.update_data(idx=idx, view="history")
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order["id"], history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_back_card")

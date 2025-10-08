@@ -1,6 +1,7 @@
 # handlers/junior_manager/client_search.py
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import StatesGroup, State
@@ -16,10 +17,12 @@ from database.junior_manager.orders import (
 
 router = Router()
 router.message.filter(RoleFilter("junior_manager"))
+router.callback_query.filter(RoleFilter("junior_manager"))
 
 # --- State ---
 class JMClientSearchStates(StatesGroup):
     waiting_client_phone = State()
+    viewing_history = State()
 
 # --- i18n helpers ---
 def _norm_lang(v: str | None) -> str:
@@ -82,6 +85,82 @@ _PHONE_RE = re.compile(
 def _looks_like_phone(raw: str) -> bool:
     return bool(_PHONE_RE.match((raw or "").strip()))
 
+def _create_history_keyboard(current_page: int, total_pages: int, lang: str) -> InlineKeyboardMarkup:
+    """Ariza tarixi uchun paginatsiya tugmalari"""
+    kb = InlineKeyboardBuilder()
+    
+    if total_pages > 1:
+        if current_page > 0:
+            kb.button(text="⬅️ Oldingi", callback_data=f"history_prev:{current_page}")
+        kb.button(text=f"{current_page + 1}/{total_pages}", callback_data="noop")
+        if current_page < total_pages - 1:
+            kb.button(text="Keyingi ➡️", callback_data=f"history_next:{current_page}")
+        kb.adjust(3)
+    
+    return kb.as_markup()
+
+async def _show_history_page(message: Message, history: list, page: int, lang: str, user_info: dict = None, order_count: dict = None):
+    """Ariza tarixi sahifasini ko'rsatish"""
+    ITEMS_PER_PAGE = 5
+    total_pages = (len(history) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    
+    start_idx = page * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_history = history[start_idx:end_idx]
+    
+    # Mijoz ma'lumotlari va statistika
+    text = ""
+    if user_info and order_count:
+        text += f"{t(lang,'found_title')}\n"
+        text += f"{'=' * 40}\n\n"
+        text += f"{t(lang,'id')}: <b>{_esc(user_info.get('id'))}</b>\n"
+        text += f"{t(lang,'fio')}: <b>{_esc(user_info.get('full_name'))}</b>\n"
+        text += f"{t(lang,'phone')}: <b>{_esc(user_info.get('phone'))}</b>\n"
+        text += f"{t(lang,'username')}: <b>@{_esc(user_info.get('username'))}</b>\n"
+        text += f"{t(lang,'region')}: <b>{_esc(user_info.get('region'))}</b>\n"
+        text += f"{t(lang,'address')}: <b>{_esc(user_info.get('address'))}</b>\n"
+        text += f"{t(lang,'abonent')}: <b>{_esc(user_info.get('abonent_id'))}</b>\n\n"
+        text += f"<b>{t(lang,'order_stats')}</b>\n"
+        text += f"• {t(lang,'total_orders')}: <b>{order_count['total_orders']}</b>\n"
+        text += f"• {t(lang,'connection_orders')}: <b>{order_count['connection_orders']}</b>\n"
+        text += f"• {t(lang,'tech_connection_orders')}: <b>{order_count['technician_orders']}</b>\n"
+        text += f"• {t(lang,'smartservice_orders')}: <b>{order_count['smartservice_orders']}</b>\n\n"
+    
+    text += f"<b>{t(lang,'order_history')}</b>\n"
+    text += f"{'=' * 30}\n\n"
+    
+    for order in page_history:
+        order_id = _esc(order.get("application_number") or f"#{order.get('id')}")
+        status = _esc(order.get("status") or "—")
+        order_type_raw = order.get("order_type")
+        
+        # Ariza turini aniqlash
+        if order_type_raw == "connection":
+            order_type = t(lang, "connection_type")
+        elif order_type_raw == "staff":
+            order_type = t(lang, "staff_type")
+        elif order_type_raw == "technician":
+            order_type = t(lang, "tech_connection_type")
+        elif order_type_raw == "smartservice":
+            order_type = t(lang, "smartservice_type")
+        else:
+            order_type = order_type_raw or "—"
+        
+        created_at = order.get("created_at")
+        
+        if created_at and hasattr(created_at, 'strftime'):
+            date_str = created_at.strftime("%d.%m.%Y %H:%M")
+        else:
+            date_str = str(created_at or "—")
+        
+        text += f"<b>{t(lang,'order_id')} {order_id}</b>\n"
+        text += f"• {t(lang,'order_type')}: {order_type}\n"
+        text += f"• {t(lang,'order_status')}: {status}\n"
+        text += f"• {t(lang,'order_date')}: {date_str}\n\n"
+    
+    keyboard = _create_history_keyboard(page, total_pages, lang)
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
 # ===================== ENTRY (reply button) =====================
 @router.message(F.text.in_(["🔍 Mijoz qidiruv", "🔍 Поиск клиентов"]))
 async def jm_client_search_start(message: Message, state: FSMContext):
@@ -126,7 +205,7 @@ async def jm_client_search_process_phone(message: Message, state: FSMContext):
         f"<b>{t(lang,'order_stats')}</b>\n"
         f"• {t(lang,'total_orders')}: <b>{order_count['total_orders']}</b>\n"
         f"• {t(lang,'connection_orders')}: <b>{order_count['connection_orders']}</b>\n"
-        f"• {t(lang,'staff_orders')}: <b>{order_count['staff_orders']}</b>\n"
+        f"• {t(lang,'tech_connection_orders')}: <b>{order_count['technician_orders']}</b>\n"
         f"• {t(lang,'smartservice_orders')}: <b>{order_count['smartservice_orders']}</b>\n\n"
     )
     
@@ -134,43 +213,68 @@ async def jm_client_search_process_phone(message: Message, state: FSMContext):
     history = await get_client_order_history(user["id"])
     
     if history:
-        text += f"<b>{t(lang,'order_history')}</b>\n"
-        text += f"{'=' * 30}\n\n"
+        # Paginatsiya ma'lumotlarini saqlash
+        await state.update_data(
+            client_history=history,
+            current_page=0,
+            client_user_id=user["id"],
+            client_user_info=user,
+            client_order_count=order_count
+        )
+        await state.set_state(JMClientSearchStates.viewing_history)
         
-        for order in history[:7]:  # Oxirgi 7 ta arizani ko'rsatamiz
-            order_id = _esc(order.get("application_number") or f"#{order.get('id')}")
-            status = _esc(order.get("status") or "—")
-            order_type_raw = order.get("order_type")
-            
-            # Ariza turini aniqlash
-            if order_type_raw == "connection":
-                order_type = t(lang, "connection_type")
-            elif order_type_raw == "staff":
-                order_type = t(lang, "staff_type")
-            elif order_type_raw == "smartservice":
-                order_type = t(lang, "smartservice_type")
-            else:
-                order_type = order_type_raw or "—"
-            
-            created_at = order.get("created_at")
-            
-            if created_at and hasattr(created_at, 'strftime'):
-                date_str = created_at.strftime("%d.%m.%Y %H:%M")
-            else:
-                date_str = str(created_at or "—")
-            
-            text += f"<b>{t(lang,'order_id')} {order_id}</b>\n"
-            text += f"• {t(lang,'order_type')}: {order_type}\n"
-            text += f"• {t(lang,'order_status')}: {status}\n"
-            text += f"• {t(lang,'order_date')}: {date_str}\n\n"
-        
-        if len(history) > 7:
-            text += f"... va yana {len(history) - 7} ta ariza"
+        # Birinchi sahifani ko'rsatish
+        await _show_history_page(message, history, 0, lang, user, order_count)
     else:
         text += f"<i>{t(lang,'no_history')}</i>"
-    
-    await message.answer(text, parse_mode="HTML")
+        await message.answer(text, parse_mode="HTML")
+        await state.clear()
 
-    # Istasangiz state'ni ochiq qoldirib, "yana raqam yuboring" rejimini qo'yishingiz mumkin.
-    # Hozircha tozalaymiz:
-    await state.clear()
+# ===================== Paginatsiya handlers =====================
+@router.callback_query(F.data.startswith("history_prev:"))
+async def history_prev(callback: CallbackQuery, state: FSMContext):
+    """Oldingi sahifaga o'tish"""
+    u = await get_user_by_telegram_id(callback.from_user.id)
+    lang = _norm_lang(u.get("language") if u else "uz")
+    
+    data = await state.get_data()
+    history = data.get("client_history", [])
+    user_info = data.get("client_user_info", {})
+    order_count = data.get("client_order_count", {})
+    current_page = int(callback.data.split(":")[1])
+    
+    if current_page > 0:
+        new_page = current_page - 1
+        await state.update_data(current_page=new_page)
+        await callback.message.delete()
+        await _show_history_page(callback.message, history, new_page, lang, user_info, order_count)
+    
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("history_next:"))
+async def history_next(callback: CallbackQuery, state: FSMContext):
+    """Keyingi sahifaga o'tish"""
+    u = await get_user_by_telegram_id(callback.from_user.id)
+    lang = _norm_lang(u.get("language") if u else "uz")
+    
+    data = await state.get_data()
+    history = data.get("client_history", [])
+    user_info = data.get("client_user_info", {})
+    order_count = data.get("client_order_count", {})
+    current_page = int(callback.data.split(":")[1])
+    
+    ITEMS_PER_PAGE = 5
+    total_pages = (len(history) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    
+    if current_page < total_pages - 1:
+        new_page = current_page + 1
+        await state.update_data(current_page=new_page)
+        await callback.message.delete()
+        await _show_history_page(callback.message, history, new_page, lang, user_info, order_count)
+    
+    await callback.answer()
+
+@router.callback_query(F.data == "noop")
+async def noop_handler(callback: CallbackQuery):
+    """Bo'sh callback"""
+    await callback.answer()

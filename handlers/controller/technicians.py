@@ -73,7 +73,7 @@ def _build_report(lang: str, items: list[dict]) -> str:
         role = _t(lang, "role_technician")
         conn_c = int(it.get("conn_count", 0) or 0)
         tech_c = int(it.get("tech_count", 0) or 0)
-        active_c = int(it.get("active_count", 0) or (conn_c + tech_c))
+        active_c = int(it.get("in_progress_orders", 0) or 0)
 
         head = f"{i+1}. {_medal(i)} {name} ({role})"
         lines.append(head)

@@ -154,7 +154,9 @@ async def fetch_materials_for_connection_order(connection_order_id: int) -> List
                 m.name as material_name,
                 mr.quantity,
                 COALESCE(m.price, 0) as price,
-                mr.total_price
+                mr.total_price,
+                mr.source_type,
+                mr.warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.applications_id = $1
@@ -302,6 +304,7 @@ async def fetch_warehouse_staff_orders(
             """
             SELECT
                 so.id,
+                so.application_number,
                 so.address,
                 so.region,
                 so.status,
@@ -339,6 +342,7 @@ async def fetch_warehouse_staff_orders_with_materials(
             """
             SELECT DISTINCT
                 so.id,
+                so.application_number,
                 so.address,
                 so.region,
                 so.status,
@@ -356,7 +360,7 @@ async def fetch_warehouse_staff_orders_with_materials(
             LEFT JOIN material_requests mr ON mr.applications_id = so.id
             WHERE so.status = 'in_warehouse'
               AND so.is_active = TRUE
-            GROUP BY so.id, so.address, so.region, so.status, so.created_at, so.updated_at, 
+            GROUP BY so.id, so.application_number, so.address, so.region, so.status, so.created_at, so.updated_at, 
                      so.description, so.phone, so.abonent_id, u.full_name, u.phone, u.telegram_id
             ORDER BY so.created_at DESC
             LIMIT $1 OFFSET $2
@@ -654,7 +658,7 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
         # Material requests dan materiallarni olish
         material_requests = await conn.fetch(
             """
-            SELECT mr.material_id, mr.quantity, mr.applications_id
+            SELECT mr.material_id, mr.quantity, mr.applications_id, mr.source_type
             FROM material_requests mr
             WHERE mr.applications_id = $1
             """,
@@ -669,16 +673,39 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
         for mr in material_requests:
             material_id = mr['material_id']
             quantity = mr['quantity']
+            source_type = mr.get('source_type', 'warehouse')
             
-            # UPSERT - agar mavjud bo'lsa quantity ni qo'shish, yo'q bo'lsa yangi yaratish
+            # Faqat ombordan so'ralgan materiallarni texnikka qo'shish va ombor zaxirasini kamaytirish
+            if source_type == 'warehouse':
+                # UPSERT - agar mavjud bo'lsa quantity ni qo'shish, yo'q bo'lsa yangi yaratish
+                await conn.execute(
+                    """
+                    INSERT INTO material_and_technician (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) 
+                    DO UPDATE SET quantity = material_and_technician.quantity + $3
+                    """,
+                    technician_id, material_id, quantity
+                )
+                
+                # Ombor zaxirasini kamaytirish
+                await conn.execute(
+                    """
+                    UPDATE materials 
+                    SET quantity = GREATEST(0, quantity - $1)
+                    WHERE id = $2
+                    """,
+                    quantity, material_id
+                )
+            
+            # warehouse_approved ni TRUE qilish
             await conn.execute(
                 """
-                INSERT INTO material_and_technician (user_id, material_id, quantity)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id, material_id) 
-                DO UPDATE SET quantity = material_and_technician.quantity + $3
+                UPDATE material_requests 
+                SET warehouse_approved = TRUE
+                WHERE applications_id = $1 AND material_id = $2
                 """,
-                technician_id, material_id, quantity
+                order_id, material_id
             )
         
         return True

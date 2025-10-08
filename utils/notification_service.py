@@ -269,25 +269,49 @@ async def get_recipient_load(
                     recipient_id
                 )
             elif role == "technician":
-                # Technician uchun ham staff_orders hisoblaymiz
+                # Technician uchun barcha turdagi arizalarni hisoblaymiz
                 count = await conn.fetchval(
                     """
-                    WITH last_assign AS (
-                        SELECT DISTINCT ON (c.staff_id)
-                               c.staff_id,
-                               c.recipient_id,
-                               c.recipient_status
-                        FROM connections c
-                        WHERE c.staff_id IS NOT NULL
-                        ORDER BY c.staff_id, c.created_at DESC
+                    WITH connection_loads AS (
+                        SELECT COUNT(*) AS cnt
+                        FROM connection_orders co
+                        WHERE co.status IN ('between_controller_technician', 'in_technician')
+                          AND co.is_active = TRUE
+                          AND EXISTS (
+                              SELECT 1 FROM connections c
+                              WHERE c.connection_id = co.id
+                                AND c.recipient_id = $1
+                                AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                          )
+                    ),
+                    technician_loads AS (
+                        SELECT COUNT(*) AS cnt
+                        FROM technician_orders to_orders
+                        WHERE to_orders.status IN ('between_controller_technician', 'in_technician')
+                          AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                          AND EXISTS (
+                              SELECT 1 FROM connections c
+                              WHERE c.technician_id = to_orders.id
+                                AND c.recipient_id = $1
+                                AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                          )
+                    ),
+                    staff_loads AS (
+                        SELECT COUNT(*) AS cnt
+                        FROM staff_orders so
+                        WHERE so.status IN ('between_controller_technician', 'in_technician')
+                          AND COALESCE(so.is_active, TRUE) = TRUE
+                          AND EXISTS (
+                              SELECT 1 FROM connections c
+                              WHERE c.staff_id = so.id
+                                AND c.recipient_id = $1
+                                AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                          )
                     )
-                    SELECT COUNT(*)
-                    FROM last_assign la
-                    JOIN staff_orders so ON so.id = la.staff_id
-                    WHERE la.recipient_id = $1
-                      AND COALESCE(so.is_active, TRUE) = TRUE
-                      AND so.status IN ('between_controller_technician', 'in_technician')
-                      AND la.recipient_status IN ('between_controller_technician', 'in_technician')
+                    SELECT 
+                        COALESCE((SELECT cnt FROM connection_loads), 0) +
+                        COALESCE((SELECT cnt FROM technician_loads), 0) +
+                        COALESCE((SELECT cnt FROM staff_loads), 0) AS total_load
                     """,
                     recipient_id
                 )

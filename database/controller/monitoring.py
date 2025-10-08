@@ -188,43 +188,83 @@ async def get_controller_workflow_history(order_id: int) -> Dict[str, Any]:
 async def get_controller_technician_load() -> List[Dict[str, Any]]:
     """
     Controller uchun technician load monitoring.
+    Counts ALL order types: connection_orders, technician_orders, and staff_orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
-                       c.recipient_id,
-                       c.recipient_status
+            WITH connection_loads AS (
+                -- Connection orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
+                    COUNT(*) AS active_orders,
+                    COUNT(CASE WHEN co.status = 'between_controller_technician' THEN 1 END) as pending_orders,
+                    COUNT(CASE WHEN co.status = 'in_technician' THEN 1 END) as in_progress_orders
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                JOIN connection_orders co ON co.id = c.connection_id
+                WHERE c.recipient_id IS NOT NULL
+                  AND co.status IN ('between_controller_technician', 'in_technician')
+                  AND co.is_active = TRUE
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                GROUP BY c.recipient_id
             ),
             technician_loads AS (
-                SELECT
-                    la.recipient_id AS technician_id,
+                -- Technician orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
+                    COUNT(*) AS active_orders,
+                    COUNT(CASE WHEN to_orders.status = 'between_controller_technician' THEN 1 END) as pending_orders,
+                    COUNT(CASE WHEN to_orders.status = 'in_technician' THEN 1 END) as in_progress_orders
+                FROM connections c
+                JOIN technician_orders to_orders ON to_orders.id = c.technician_id
+                WHERE c.recipient_id IS NOT NULL
+                  AND to_orders.status IN ('between_controller_technician', 'in_technician')
+                  AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                GROUP BY c.recipient_id
+            ),
+            staff_loads AS (
+                -- Staff orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
                     COUNT(*) AS active_orders,
                     COUNT(CASE WHEN so.status = 'between_controller_technician' THEN 1 END) as pending_orders,
                     COUNT(CASE WHEN so.status = 'in_technician' THEN 1 END) as in_progress_orders
-                FROM last_assign la
-                JOIN staff_orders so ON so.id = la.staff_id
-                WHERE la.recipient_status IN ('between_controller_technician', 'in_technician')
+                FROM connections c
+                JOIN staff_orders so ON so.id = c.staff_id
+                WHERE c.recipient_id IS NOT NULL
                   AND so.status IN ('between_controller_technician', 'in_technician')
                   AND COALESCE(so.is_active, TRUE) = TRUE
-                GROUP BY la.recipient_id
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                GROUP BY c.recipient_id
+            ),
+            total_loads AS (
+                -- Combine all loads
+                SELECT 
+                    technician_id,
+                    SUM(active_orders) AS total_active_orders,
+                    SUM(pending_orders) AS total_pending_orders,
+                    SUM(in_progress_orders) AS total_in_progress_orders
+                FROM (
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM connection_loads
+                    UNION ALL
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM technician_loads
+                    UNION ALL
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM staff_loads
+                ) combined
+                GROUP BY technician_id
             )
             SELECT 
                 u.id,
                 u.full_name,
                 u.phone,
                 u.telegram_id,
-                COALESCE(tl.active_orders, 0) as active_orders,
-                COALESCE(tl.pending_orders, 0) as pending_orders,
-                COALESCE(tl.in_progress_orders, 0) as in_progress_orders
+                COALESCE(tl.total_active_orders, 0) as active_orders,
+                COALESCE(tl.total_pending_orders, 0) as pending_orders,
+                COALESCE(tl.total_in_progress_orders, 0) as in_progress_orders
             FROM users u
-            LEFT JOIN technician_loads tl ON tl.technician_id = u.id
+            LEFT JOIN total_loads tl ON tl.technician_id = u.id
             WHERE u.role = 'technician'
               AND COALESCE(u.is_blocked, FALSE) = FALSE
             ORDER BY active_orders DESC, u.full_name

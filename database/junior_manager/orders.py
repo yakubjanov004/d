@@ -145,6 +145,34 @@ async def staff_orders_technician_create(
         await conn.close()
 
 # =========================================================
+#  Junior Manager Notes Management
+# =========================================================
+
+async def update_jm_notes(order_id: int, notes: str, order_type: str = "connection") -> bool:
+    """
+    Update jm_notes field for an order.
+    order_type: "connection" or "staff"
+    """
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        if order_type == "connection":
+            await conn.execute(
+                "UPDATE connection_orders SET jm_notes = $1, updated_at = NOW() WHERE id = $2",
+                notes, order_id
+            )
+        else:  # staff
+            await conn.execute(
+                "UPDATE staff_orders SET jm_notes = $1, updated_at = NOW() WHERE id = $2",
+                notes, order_id
+            )
+        return True
+    except Exception as e:
+        print(f"Error updating jm_notes: {e}")
+        return False
+    finally:
+        await conn.close()
+
+# =========================================================
 #  Junior Manager Orders ro'yxatlari
 # =========================================================
 
@@ -158,6 +186,7 @@ async def list_new_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
             """
             SELECT
                 so.id,
+                so.application_number,
                 so.user_id,
                 so.phone,
                 so.abonent_id,
@@ -197,10 +226,12 @@ async def list_inprogress_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, 
             -- Connection Orders (mijozlar arizalari)
             SELECT
                 co.id,
+                co.application_number,
                 co.user_id,
                 co.region,
                 co.address,
                 co.tarif_id,
+                co.jm_notes,
                 NULL as phone,
                 NULL as abonent_id,
                 NULL as description,
@@ -223,10 +254,12 @@ async def list_inprogress_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, 
             -- Staff Orders (xodimlar arizalari)
             SELECT
                 so.id,
+                so.application_number,
                 so.user_id,
                 so.region,
                 so.address,
                 so.tarif_id,
+                so.jm_notes,
                 so.phone,
                 so.abonent_id,
                 so.description,
@@ -264,10 +297,12 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
             -- Connection Orders (mijozlar arizalari) - faqat o'ziga biriktirilganlar
             SELECT
                 co.id,
+                co.application_number,
                 co.user_id,
                 co.region,
                 co.address,
                 co.tarif_id,
+                co.jm_notes,
                 NULL as phone,
                 NULL as abonent_id,
                 NULL as description,
@@ -278,7 +313,9 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
                 u.full_name AS user_name,
                 u.phone AS client_phone,
                 t.name AS tariff_name,
-                'connection' as order_type
+                'connection' as order_type,
+                NULL as client_name,
+                NULL as client_phone_number
             FROM connections c
             JOIN connection_orders co ON co.id = c.connection_id
             LEFT JOIN users u ON u.id = co.user_id
@@ -286,17 +323,19 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
             WHERE c.recipient_id = $1
               AND c.connection_id IS NOT NULL
               AND co.is_active = TRUE
-              AND co.status IN ('in_junior_manager', 'in_controller', 'in_technician', 'in_technician_work', 'in_manager')
+              AND c.recipient_status = 'in_junior_manager'
             
             UNION ALL
             
             -- Staff Orders (xodimlar arizalari) - faqat o'ziga biriktirilganlar
             SELECT
                 so.id,
+                so.application_number,
                 so.user_id,
                 so.region,
                 so.address,
                 so.tarif_id,
+                so.jm_notes,
                 so.phone,
                 so.abonent_id,
                 so.description,
@@ -307,15 +346,18 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
                 u.full_name AS user_name,
                 u.phone AS client_phone,
                 t.name AS tariff_name,
-                'staff' as order_type
+                'staff' as order_type,
+                client_u.full_name AS client_name,
+                client_u.phone AS client_phone_number
             FROM connections c
             JOIN staff_orders so ON so.id = c.staff_id
             LEFT JOIN users u ON u.id = so.user_id
+            LEFT JOIN users client_u ON client_u.id = so.abonent_id::bigint
             LEFT JOIN tarif t ON t.id = so.tarif_id
             WHERE c.recipient_id = $1
               AND c.staff_id IS NOT NULL
               AND so.is_active = TRUE
-              AND so.status IN ('in_junior_manager', 'in_progress', 'assigned_to_technician', 'in_manager', 'in_controller')
+              AND c.recipient_status = 'in_junior_manager'
             
             ORDER BY updated_at DESC
             LIMIT $2
@@ -337,10 +379,12 @@ async def list_completed_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, A
             -- Connection Orders (mijozlar arizalari)
             SELECT
                 co.id,
+                co.application_number,
                 co.user_id,
                 co.region,
                 co.address,
                 co.tarif_id,
+                co.jm_notes,
                 NULL as phone,
                 NULL as abonent_id,
                 NULL as description,
@@ -363,10 +407,12 @@ async def list_completed_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, A
             -- Staff Orders (xodimlar arizalari)
             SELECT
                 so.id,
+                so.application_number,
                 so.user_id,
                 so.region,
                 so.address,
                 so.tarif_id,
+                so.jm_notes,
                 so.phone,
                 so.abonent_id,
                 so.description,
@@ -583,6 +629,24 @@ async def get_client_order_history(user_id: int) -> List[Dict[str, Any]]:
             
             UNION ALL
             
+            -- Technician Orders (texnik xizmat arizalari)
+            SELECT
+                tech_ord.id,
+                tech_ord.application_number,
+                tech_ord.status::text,
+                tech_ord.created_at,
+                tech_ord.updated_at,
+                'technician' as order_type,
+                NULL AS tariff_name,
+                tech_ord.address,
+                tech_ord.region,
+                tech_ord.business_type
+            FROM technician_orders tech_ord
+            WHERE tech_ord.user_id = $1
+              AND tech_ord.is_active = TRUE
+            
+            UNION ALL
+            
             -- SmartService arizalari
             SELECT
                 ss.id,
@@ -620,12 +684,15 @@ async def get_client_order_count(user_id: int) -> Dict[str, int]:
             SELECT
                 COUNT(*) FILTER (WHERE order_type = 'connection') AS connection_orders,
                 COUNT(*) FILTER (WHERE order_type = 'staff') AS staff_orders,
+                COUNT(*) FILTER (WHERE order_type = 'technician') AS technician_orders,
                 COUNT(*) FILTER (WHERE order_type = 'smartservice') AS smartservice_orders,
                 COUNT(*) AS total_orders
             FROM (
                 SELECT 'connection' as order_type FROM connection_orders WHERE user_id = $1 AND is_active = TRUE
                 UNION ALL
                 SELECT 'staff' as order_type FROM staff_orders WHERE user_id = $1 AND is_active = TRUE
+                UNION ALL
+                SELECT 'technician' as order_type FROM technician_orders WHERE user_id = $1 AND is_active = TRUE
                 UNION ALL
                 SELECT 'smartservice' as order_type FROM smart_service_orders WHERE user_id = $1 AND is_active = TRUE
             ) t
@@ -636,6 +703,7 @@ async def get_client_order_count(user_id: int) -> Dict[str, int]:
         return {
             "connection_orders": int(row["connection_orders"] or 0),
             "staff_orders": int(row["staff_orders"] or 0),
+            "technician_orders": int(row["technician_orders"] or 0),
             "smartservice_orders": int(row["smartservice_orders"] or 0),
             "total_orders": int(row["total_orders"] or 0)
         }

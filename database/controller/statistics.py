@@ -168,14 +168,15 @@ async def get_controller_order_types_statistics() -> Dict[str, Any]:
 async def ctrl_total_tech_orders_count() -> int:
     """
     Controller uchun jami texnik buyurtmalar soni.
-    Faqat technician_orders hisoblanadi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
             """
-            SELECT COUNT(*) FROM technician_orders 
-            WHERE COALESCE(is_active, TRUE) = TRUE
+            SELECT 
+                (SELECT COUNT(*) FROM technician_orders WHERE COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM staff_orders WHERE type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -185,14 +186,15 @@ async def ctrl_total_tech_orders_count() -> int:
 async def ctrl_new_in_controller_count() -> int:
     """
     Controller uchun yangi kelgan buyurtmalar soni.
-    Faqat technician_orders hisoblanadi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
             """
-            SELECT COUNT(*) FROM technician_orders 
-            WHERE status = 'in_controller' AND COALESCE(is_active, TRUE) = TRUE
+            SELECT 
+                (SELECT COUNT(*) FROM technician_orders WHERE status = 'in_controller' AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM staff_orders WHERE status = 'in_controller' AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -202,15 +204,16 @@ async def ctrl_new_in_controller_count() -> int:
 async def ctrl_in_progress_count() -> int:
     """
     Controller uchun jarayondagi buyurtmalar soni.
-    Faqat technician_orders hisoblanadi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Excludes completed and cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
             """
-            SELECT COUNT(*) FROM technician_orders 
-            WHERE status IN ('between_controller_technician', 'in_technician') 
-            AND COALESCE(is_active, TRUE) = TRUE
+            SELECT 
+                (SELECT COUNT(*) FROM technician_orders WHERE status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM staff_orders WHERE status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -220,16 +223,16 @@ async def ctrl_in_progress_count() -> int:
 async def ctrl_completed_today_count() -> int:
     """
     Controller uchun bugun bajarilgan buyurtmalar soni.
-    Faqat technician_orders hisoblanadi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Only orders completed today, excludes cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
             """
-            SELECT COUNT(*) FROM technician_orders 
-            WHERE status = 'completed' 
-            AND DATE(updated_at) = CURRENT_DATE 
-            AND COALESCE(is_active, TRUE) = TRUE
+            SELECT 
+                (SELECT COUNT(*) FROM technician_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM staff_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -251,12 +254,13 @@ async def ctrl_cancelled_count() -> int:
 async def ctrl_get_new_orders(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Controller uchun yangi kelgan buyurtmalar ro'yxati.
-    Faqat technician_orders ko'rsatiladi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
+            -- Client yaratgan technician orders
             SELECT 
                 to_orders.id,
                 to_orders.application_number,
@@ -273,12 +277,44 @@ async def ctrl_get_new_orders(limit: int = 20) -> List[Dict[str, Any]]:
                 to_orders.updated_at,
                 u.full_name as client_name,
                 u.phone as client_phone,
-                NULL as tariff
+                NULL as tariff,
+                NULL as media_file_id,
+                NULL as media_type
             FROM technician_orders to_orders
             LEFT JOIN users u ON u.id = to_orders.user_id
             WHERE to_orders.status::text = 'in_controller'
               AND COALESCE(to_orders.is_active, TRUE) = TRUE
-            ORDER BY to_orders.created_at DESC
+            
+            UNION ALL
+            
+            -- Staff yaratgan technician orders (staff_orders with type_of_zayavka='technician')
+            SELECT 
+                so.id,
+                so.application_number,
+                so.user_id,
+                so.abonent_id,
+                so.region,
+                so.address,
+                so.tarif_id,
+                so.description,
+                so.business_type,
+                so.type_of_zayavka,
+                so.status::text,
+                so.created_at,
+                so.updated_at,
+                COALESCE(client_user.full_name, 'Mijoz') as client_name,
+                COALESCE(client_user.phone, so.phone) as client_phone,
+                t.name as tariff,
+                NULL as media_file_id,
+                NULL as media_type
+            FROM staff_orders so
+            LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+            LEFT JOIN tarif t ON t.id = so.tarif_id
+            WHERE so.status::text = 'in_controller'
+              AND so.type_of_zayavka = 'technician'
+              AND COALESCE(so.is_active, TRUE) = TRUE
+            
+            ORDER BY created_at DESC
             LIMIT $1
             """,
             limit
@@ -290,12 +326,14 @@ async def ctrl_get_new_orders(limit: int = 20) -> List[Dict[str, Any]]:
 async def ctrl_get_in_progress_orders(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Controller uchun jarayondagi buyurtmalar ro'yxati.
-    Faqat technician_orders ko'rsatiladi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Excludes completed and cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
+            -- Client yaratgan technician orders
             SELECT 
                 to_orders.id,
                 to_orders.application_number,
@@ -314,12 +352,46 @@ async def ctrl_get_in_progress_orders(limit: int = 20) -> List[Dict[str, Any]]:
                 u.phone as client_phone,
                 NULL as tariff,
                 NULL as technician_name,
-                NULL as technician_phone
+                NULL as technician_phone,
+                NULL as media_file_id,
+                NULL as media_type
             FROM technician_orders to_orders
             LEFT JOIN users u ON u.id = to_orders.user_id
-            WHERE to_orders.status::text IN ('between_controller_technician', 'in_technician')
+            WHERE to_orders.status::text IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse')
               AND COALESCE(to_orders.is_active, TRUE) = TRUE
-            ORDER BY to_orders.created_at DESC
+            
+            UNION ALL
+            
+            -- Staff yaratgan technician orders (staff_orders with type_of_zayavka='technician')
+            SELECT 
+                so.id,
+                so.application_number,
+                so.user_id,
+                so.abonent_id,
+                so.region,
+                so.address,
+                so.tarif_id,
+                so.description,
+                so.business_type,
+                so.type_of_zayavka,
+                so.status::text,
+                so.created_at,
+                so.updated_at,
+                COALESCE(client_user.full_name, 'Mijoz') as client_name,
+                COALESCE(client_user.phone, so.phone) as client_phone,
+                t.name as tariff,
+                NULL as technician_name,
+                NULL as technician_phone,
+                NULL as media_file_id,
+                NULL as media_type
+            FROM staff_orders so
+            LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+            LEFT JOIN tarif t ON t.id = so.tarif_id
+            WHERE so.status::text IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse')
+              AND so.type_of_zayavka = 'technician'
+              AND COALESCE(so.is_active, TRUE) = TRUE
+            
+            ORDER BY created_at DESC
             LIMIT $1
             """,
             limit
@@ -331,12 +403,14 @@ async def ctrl_get_in_progress_orders(limit: int = 20) -> List[Dict[str, Any]]:
 async def ctrl_get_completed_today_orders(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Controller uchun bugun bajarilgan buyurtmalar ro'yxati.
-    Faqat technician_orders ko'rsatiladi.
+    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Only orders completed today, excludes cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
+            -- Client yaratgan technician orders
             SELECT 
                 to_orders.id,
                 to_orders.application_number,
@@ -355,13 +429,48 @@ async def ctrl_get_completed_today_orders(limit: int = 20) -> List[Dict[str, Any
                 u.phone as client_phone,
                 NULL as tariff,
                 NULL as technician_name,
-                NULL as technician_phone
+                NULL as technician_phone,
+                NULL as media_file_id,
+                NULL as media_type
             FROM technician_orders to_orders
             LEFT JOIN users u ON u.id = to_orders.user_id
             WHERE to_orders.status::text = 'completed'
               AND DATE(to_orders.updated_at) = CURRENT_DATE
               AND COALESCE(to_orders.is_active, TRUE) = TRUE
-            ORDER BY to_orders.updated_at DESC
+            
+            UNION ALL
+            
+            -- Staff yaratgan technician orders (staff_orders with type_of_zayavka='technician')
+            SELECT 
+                so.id,
+                so.application_number,
+                so.user_id,
+                so.abonent_id,
+                so.region,
+                so.address,
+                so.tarif_id,
+                so.description,
+                so.business_type,
+                so.type_of_zayavka,
+                so.status::text,
+                so.created_at,
+                so.updated_at,
+                COALESCE(client_user.full_name, 'Mijoz') as client_name,
+                COALESCE(client_user.phone, so.phone) as client_phone,
+                t.name as tariff,
+                NULL as technician_name,
+                NULL as technician_phone,
+                NULL as media_file_id,
+                NULL as media_type
+            FROM staff_orders so
+            LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+            LEFT JOIN tarif t ON t.id = so.tarif_id
+            WHERE so.status::text = 'completed'
+              AND DATE(so.updated_at) = CURRENT_DATE
+              AND so.type_of_zayavka = 'technician'
+              AND COALESCE(so.is_active, TRUE) = TRUE
+            
+            ORDER BY updated_at DESC
             LIMIT $1
             """,
             limit

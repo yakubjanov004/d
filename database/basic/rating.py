@@ -19,15 +19,34 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        await conn.execute(
+        # Check if rating already exists
+        existing = await conn.fetchrow(
             """
-            INSERT INTO akt_ratings (request_id, request_type, rating, comment)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (request_id, request_type) 
-            DO UPDATE SET rating = $3, comment = $4, created_at = NOW()
+            SELECT id FROM akt_ratings 
+            WHERE request_id = $1 AND request_type = $2
             """,
-            request_id, request_type, rating, comment
+            request_id, request_type
         )
+        
+        if existing:
+            # Update existing rating
+            await conn.execute(
+                """
+                UPDATE akt_ratings 
+                SET rating = $3, comment = $4, created_at = NOW()
+                WHERE id = $5
+                """,
+                rating, comment, existing['id']
+            )
+        else:
+            # Insert new rating
+            await conn.execute(
+                """
+                INSERT INTO akt_ratings (request_id, request_type, rating, comment)
+                VALUES ($1, $2, $3, $4)
+                """,
+                request_id, request_type, rating, comment
+            )
         return True
     except Exception as e:
         print(f"Error saving rating: {e}")

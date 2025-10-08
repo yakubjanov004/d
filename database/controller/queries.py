@@ -255,33 +255,65 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
 
 async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
     """
-    Technicianlarni hozirgi yuklamasi (ochiq staff arizalar soni) bilan olish.
+    Technicianlarni hozirgi yuklamasi (barcha turdagi arizalar soni) bilan olish.
+    Counts ALL order types: connection_orders, technician_orders, and staff_orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
-                       c.recipient_id,
-                       c.recipient_status,
-                       c.created_at
-                FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
-            ),
-            workloads AS (
-                SELECT
-                    la.recipient_id AS technician_id,
+            WITH connection_loads AS (
+                -- Connection orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
                     COUNT(*) AS cnt
-                FROM last_assign la
-                JOIN staff_orders so
-                  ON so.id = la.staff_id
-                WHERE COALESCE(so.is_active, TRUE) = TRUE
-                  AND so.status IN ('between_controller_technician', 'in_technician')
-                  AND la.recipient_status IN ('between_controller_technician', 'in_technician')
-                GROUP BY la.recipient_id
+                FROM connections c
+                JOIN connection_orders co ON co.id = c.connection_id
+                WHERE c.recipient_id IS NOT NULL
+                  AND co.status = 'in_technician'
+                  AND co.is_active = TRUE
+                  AND c.recipient_status = 'in_technician'
+                GROUP BY c.recipient_id
+            ),
+            technician_loads AS (
+                -- Technician orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
+                    COUNT(*) AS cnt
+                FROM connections c
+                JOIN technician_orders to_orders ON to_orders.id = c.technician_id
+                WHERE c.recipient_id IS NOT NULL
+                  AND to_orders.status = 'in_technician'
+                  AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                  AND c.recipient_status = 'in_technician'
+                GROUP BY c.recipient_id
+            ),
+            staff_loads AS (
+                -- Staff orders assigned to technician
+                SELECT 
+                    c.recipient_id AS technician_id,
+                    COUNT(*) AS cnt
+                FROM connections c
+                JOIN staff_orders so ON so.id = c.staff_id
+                WHERE c.recipient_id IS NOT NULL
+                  AND so.status = 'in_technician'
+                  AND COALESCE(so.is_active, TRUE) = TRUE
+                  AND c.recipient_status = 'in_technician'
+                GROUP BY c.recipient_id
+            ),
+            total_loads AS (
+                -- Combine all loads
+                SELECT 
+                    technician_id,
+                    SUM(cnt) AS total_count
+                FROM (
+                    SELECT technician_id, cnt FROM connection_loads
+                    UNION ALL
+                    SELECT technician_id, cnt FROM technician_loads
+                    UNION ALL
+                    SELECT technician_id, cnt FROM staff_loads
+                ) combined
+                GROUP BY technician_id
             )
             SELECT 
                 u.id,
@@ -289,9 +321,9 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                 u.username,
                 u.phone,
                 u.telegram_id,
-                COALESCE(w.cnt, 0) AS load_count
+                COALESCE(tl.total_count, 0) AS load_count
             FROM users u
-            LEFT JOIN workloads w ON w.technician_id = u.id
+            LEFT JOIN total_loads tl ON tl.technician_id = u.id
             WHERE u.role = 'technician'
               AND COALESCE(u.is_blocked, FALSE) = FALSE
             ORDER BY u.full_name NULLS LAST, u.id
@@ -464,19 +496,49 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
             tech_id
         )
         
-        # Calculate current load
+        # Calculate current load - ALL order types
         load_count = await conn.fetchval(
             """
-            SELECT COUNT(*)
-            FROM connection_orders co
-            WHERE co.status = 'in_technician'
-              AND co.is_active = TRUE
-              AND EXISTS (
-                  SELECT 1 FROM connections c
-                  WHERE c.connection_id = co.id
-                    AND c.recipient_id = $1
-                    AND c.recipient_status = 'in_technician'
-              )
+            WITH connection_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM connection_orders co
+                WHERE co.status = 'in_technician'
+                  AND co.is_active = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.connection_id = co.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            technician_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM technician_orders to_orders
+                WHERE to_orders.status = 'in_technician'
+                  AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.technician_id = to_orders.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            staff_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM staff_orders so
+                WHERE so.status = 'in_technician'
+                  AND COALESCE(so.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.staff_id = so.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            )
+            SELECT 
+                COALESCE((SELECT cnt FROM connection_loads), 0) +
+                COALESCE((SELECT cnt FROM technician_loads), 0) +
+                COALESCE((SELECT cnt FROM staff_loads), 0) AS total_load
             """,
             tech_id
         ) or 0
@@ -537,19 +599,49 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
             tech_id
         )
         
-        # Calculate current load for technician orders
+        # Calculate current load - ALL order types
         load_count = await conn.fetchval(
             """
-            SELECT COUNT(*)
-            FROM technician_orders tech_ord
-            WHERE tech_ord.status = 'in_technician'
-              AND COALESCE(tech_ord.is_active, TRUE) = TRUE
-              AND EXISTS (
-                  SELECT 1 FROM connections c
-                  WHERE c.technician_id = tech_ord.id
-                    AND c.recipient_id = $1
-                    AND c.recipient_status = 'in_technician'
-              )
+            WITH connection_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM connection_orders co
+                WHERE co.status = 'in_technician'
+                  AND co.is_active = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.connection_id = co.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            technician_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM technician_orders to_orders
+                WHERE to_orders.status = 'in_technician'
+                  AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.technician_id = to_orders.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            staff_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM staff_orders so
+                WHERE so.status = 'in_technician'
+                  AND COALESCE(so.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.staff_id = so.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            )
+            SELECT 
+                COALESCE((SELECT cnt FROM connection_loads), 0) +
+                COALESCE((SELECT cnt FROM technician_loads), 0) +
+                COALESCE((SELECT cnt FROM staff_loads), 0) AS total_load
             """,
             tech_id
         ) or 0
@@ -610,19 +702,49 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
             tech_id
         )
         
-        # Calculate current load for staff orders
+        # Calculate current load - ALL order types
         load_count = await conn.fetchval(
             """
-            SELECT COUNT(*)
-            FROM staff_orders so
-            WHERE so.status = 'in_technician'
-              AND COALESCE(so.is_active, TRUE) = TRUE
-              AND EXISTS (
-                  SELECT 1 FROM connections c
-                  WHERE c.staff_id = so.id
-                    AND c.recipient_id = $1
-                    AND c.recipient_status = 'in_technician'
-              )
+            WITH connection_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM connection_orders co
+                WHERE co.status = 'in_technician'
+                  AND co.is_active = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.connection_id = co.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            technician_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM technician_orders to_orders
+                WHERE to_orders.status = 'in_technician'
+                  AND COALESCE(to_orders.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.technician_id = to_orders.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            ),
+            staff_loads AS (
+                SELECT COUNT(*) AS cnt
+                FROM staff_orders so
+                WHERE so.status = 'in_technician'
+                  AND COALESCE(so.is_active, TRUE) = TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM connections c
+                      WHERE c.staff_id = so.id
+                        AND c.recipient_id = $1
+                        AND c.recipient_status = 'in_technician'
+                  )
+            )
+            SELECT 
+                COALESCE((SELECT cnt FROM connection_loads), 0) +
+                COALESCE((SELECT cnt FROM technician_loads), 0) +
+                COALESCE((SELECT cnt FROM staff_loads), 0) AS total_load
             """,
             tech_id
         ) or 0

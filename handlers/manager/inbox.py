@@ -122,7 +122,7 @@ def short_view_text(item: dict, index: int, total: int, lang: str) -> str:
 
     return base
 
-def nav_keyboard(lang: str, current_idx: int = 0, total: int = 1) -> InlineKeyboardMarkup:
+def nav_keyboard(lang: str, current_idx: int = 0, total: int = 1, mode: str = "connection") -> InlineKeyboardMarkup:
     """Navigation tugmalari."""
     buttons = []
     
@@ -143,17 +143,51 @@ def nav_keyboard(lang: str, current_idx: int = 0, total: int = 1) -> InlineKeybo
     if nav_buttons:
         buttons.append(nav_buttons)
     
-    # Controller'ga yuborish tugmasi
-    if lang == "ru":
-        buttons.append([InlineKeyboardButton(text="🎛️ Отправить контроллеру", callback_data="assign_open")])
-    else:
-        buttons.append([InlineKeyboardButton(text="🎛️ Controller'ga yuborish", callback_data="assign_open")])
+    # Mode'ga qarab turli tugmalar
+    if mode == "connection":
+        # Client arizalari uchun - Junior managerga yuborish
+        if lang == "ru":
+            buttons.append([InlineKeyboardButton(text="🧑‍💼 Отправить младшему менеджеру", callback_data="assign_open")])
+        else:
+            buttons.append([InlineKeyboardButton(text="🧑‍💼 Kichik menejerga yuborish", callback_data="assign_open")])
+    elif mode == "staff":
+        # Staff arizalari uchun - Controllerga yuborish
+        if lang == "ru":
+            buttons.append([InlineKeyboardButton(text="🎛️ Отправить контроллеру", callback_data="assign_controller_open")])
+        else:
+            buttons.append([InlineKeyboardButton(text="🎛️ Controllerga yuborish", callback_data="assign_controller_open")])
     
     # Yopish tugmasi
     if lang == "ru":
         buttons.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="close_inbox")])
     else:
         buttons.append([InlineKeyboardButton(text="❌ Yopish", callback_data="close_inbox")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def controller_list_keyboard(controllers: list, lang: str) -> InlineKeyboardMarkup:
+    """Controllerlar ro'yxati tugmalari."""
+    buttons = []
+    
+    for controller in controllers:
+        name = controller.get("full_name", "Noma'lum")
+        load = controller.get("current_load", 0)
+        
+        if lang == "ru":
+            text = f"{name} ({load}шт)"
+        else:
+            text = f"{name} ({load}ta)"
+        
+        buttons.append([InlineKeyboardButton(
+            text=text,
+            callback_data=f"assign_controller_{controller['id']}"
+        )])
+    
+    # Orqaga tugmasi
+    if lang == "ru":
+        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="assign_back")])
+    else:
+        buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="assign_back")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -258,7 +292,7 @@ async def cat_connection_flow(callback: CallbackQuery, state: FSMContext):
     
     # Birinchi arizani ko'rsatamiz
     text = short_view_text(inbox_items[0], 0, total, lang)
-    await callback.message.answer(text, reply_markup=nav_keyboard(lang, 0, total), parse_mode="HTML")
+    await callback.message.answer(text, reply_markup=nav_keyboard(lang, 0, total, "connection"), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "cat_staff")
@@ -284,7 +318,7 @@ async def cat_staff_flow(callback: CallbackQuery, state: FSMContext):
     
     # Birinchi arizani ko'rsatamiz
     text = short_view_text(inbox_items[0], 0, total, lang)
-    await callback.message.answer(text, reply_markup=nav_keyboard(lang, 0, total), parse_mode="HTML")
+    await callback.message.answer(text, reply_markup=nav_keyboard(lang, 0, total, "staff"), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "prev_item")
@@ -302,7 +336,7 @@ async def prev_item(callback: CallbackQuery, state: FSMContext):
     await state.update_data(idx=new_idx)
     
     text = short_view_text(inbox[new_idx], new_idx, len(inbox), lang)
-    await callback.message.edit_text(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox)), parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox), mode), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "next_item")
@@ -320,7 +354,7 @@ async def next_item(callback: CallbackQuery, state: FSMContext):
     await state.update_data(idx=new_idx)
     
     text = short_view_text(inbox[new_idx], new_idx, len(inbox), lang)
-    await callback.message.edit_text(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox)), parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox), mode), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "assign_open")
@@ -381,6 +415,144 @@ async def assign_open(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer()
 
+@router.callback_query(F.data == "assign_controller_open")
+async def assign_controller_open(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    inbox = data.get("inbox", [])
+    idx = data.get("idx", 0)
+    mode = data.get("mode", "staff")
+    lang = data.get("lang", "uz")
+    
+    if not inbox or idx >= len(inbox):
+        await callback.answer("❌ Нет данных" if lang == "ru" else "❌ Ma'lumot yo'q")
+        return
+    
+    current_item = inbox[idx]
+    
+    # Eski message'ni o'chirib tashlaymiz
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    if mode == "staff":
+        # Staff ariza -> Controller
+        controllers = await get_controllers_with_load_via_history()
+        if not controllers:
+            if lang == "ru":
+                text = "❌ Нет доступных контроллеров"
+            else:
+                text = "❌ Mavjud controller yo'q"
+            await callback.message.answer(text)
+            return
+        
+        if lang == "ru":
+            text = "🎛️ Выберите контроллера:"
+        else:
+            text = "🎛️ Controllerni tanlang:"
+        
+        await callback.message.answer(text, reply_markup=controller_list_keyboard(controllers, lang))
+    
+        await callback.answer()
+
+@router.callback_query(F.data.startswith("assign_controller_"))
+async def assign_controller_pick(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    inbox = data.get("inbox", [])
+    idx = data.get("idx", 0)
+    mode = data.get("mode", "staff")
+    lang = data.get("lang", "uz")
+    
+    if not inbox or idx >= len(inbox):
+        await callback.answer("❌ Нет данных" if lang == "ru" else "❌ Ma'lumot yo'q")
+        return
+    
+    current_item = inbox[idx]
+    controller_id = int(callback.data.split("_")[-1])
+    
+    try:
+        if mode == "staff":
+            # Manager'ning database ID'sini olamiz
+            manager_user = await get_user_by_telegram_id(callback.from_user.id)
+            if not manager_user:
+                await callback.answer("❌ Manager topilmadi!" if lang == "uz" else "❌ Manager не найден!", show_alert=True)
+                return
+            
+            manager_db_id = manager_user["id"]
+            
+            # Staff ariza -> Controller
+            await assign_to_controller_for_staff(current_item["id"], controller_id, manager_db_id)
+            
+            if lang == "ru":
+                text = f"✅ Заявка назначена контроллеру"
+            else:
+                text = f"✅ Ariza controllerga tayinlandi"
+        
+        # Inline klaviatura o'chirib, xabarni edit qilamiz
+        await callback.message.edit_text(text, reply_markup=None)
+        await callback.answer()
+        
+        # Controller'ga notification yuboramiz (state'ga ta'sir qilmaydi)
+        if mode == "staff":
+            try:
+                from loader import bot
+                import asyncpg
+                from config import settings
+                
+                conn = await asyncpg.connect(settings.DB_URL)
+                try:
+                    controller_info = await conn.fetchrow(
+                        "SELECT id, telegram_id, language, full_name FROM users WHERE id = $1 AND role = 'controller'",
+                        controller_id
+                    )
+                    if controller_info:
+                        # Notification xabari
+                        if controller_info.get("language") == "ru":
+                            notification = f"📬 <b>Новая заявка сотрудника</b>\n\n🆔 {current_item.get('application_number', 'N/A')}\n\n📊 У вас теперь новая заявка"
+                        else:
+                            notification = f"📬 <b>Yangi xodim arizasi</b>\n\n🆔 {current_item.get('application_number', 'N/A')}\n\n📊 Sizda yangi ariza bor"
+                        
+                        # Notification yuborish
+                        await bot.send_message(
+                            chat_id=controller_info["telegram_id"],
+                            text=notification,
+                            parse_mode="HTML"
+                        )
+                        logger.info(f"Notification sent to controller {controller_id} for staff order {current_item.get('id')}")
+                finally:
+                    await conn.close()
+            except Exception as notif_error:
+                logger.error(f"Failed to send notification: {notif_error}")
+                # Notification xatosi asosiy jarayonga ta'sir qilmaydi
+        
+        # Inboxni yangilaymiz
+        if mode == "connection":
+            inbox_items = await fetch_manager_inbox()
+        else:
+            inbox_items = await fetch_manager_inbox_staff()
+        
+        if not inbox_items:
+            if lang == "ru":
+                text = "📭 Нет заявок"
+            else:
+                text = "📭 Arizalar yo'q"
+            await callback.message.answer(text)
+            return
+        
+        new_idx = min(idx, len(inbox_items) - 1)
+        await state.update_data(inbox=inbox_items, idx=new_idx)
+        
+        text = short_view_text(inbox_items[new_idx], new_idx, len(inbox_items), lang)
+        await callback.message.answer(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox_items), mode), parse_mode="HTML")
+        
+    except Exception as e:
+        if lang == "ru":
+            text = f"❌ Ошибка: {str(e)}"
+        else:
+            text = f"❌ Xatolik: {str(e)}"
+        await callback.message.answer(text)
+        await callback.answer()
+
 @router.callback_query(F.data == "close_inbox")
 async def close_inbox(callback: CallbackQuery, state: FSMContext):
     """Inbox yopish."""
@@ -422,7 +594,7 @@ async def assign_back(callback: CallbackQuery, state: FSMContext):
     
     # Yangi message yuboramiz
     text = short_view_text(inbox[idx], idx, len(inbox), lang)
-    await callback.message.answer(text, reply_markup=nav_keyboard(lang, idx, len(inbox)), parse_mode="HTML")
+    await callback.message.answer(text, reply_markup=nav_keyboard(lang, idx, len(inbox), mode), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("assign_jm_"))
@@ -453,12 +625,17 @@ async def assign_pick(callback: CallbackQuery, state: FSMContext):
             # Client ariza -> Junior Manager (notification info qaytaradi)
             recipient_info = await assign_to_junior_manager(current_item["id"], jm_id, manager_db_id)
             
+            # Junior manager nomini olamiz
+            jm_name = recipient_info.get("jm_name", "Noma'lum")
+            app_number = recipient_info.get("application_number", "N/A")
+            
             if lang == "ru":
-                text = f"✅ Заявка назначена младшему менеджеру"
+                text = f"✅ Заявка {app_number} назначена младшему менеджеру {jm_name}"
             else:
-                text = f"✅ Ariza junior managerga tayinlandi"
+                text = f"✅ Ariza {app_number} junior manager {jm_name}ga tayinlandi"
         
-        await callback.message.answer(text)
+        # Inline klaviatura o'chirib, xabarni edit qilamiz
+        await callback.message.edit_text(text, reply_markup=None)
         await callback.answer()
         
         # Junior Manager'ga notification yuboramiz (state'ga ta'sir qilmaydi)
@@ -506,7 +683,7 @@ async def assign_pick(callback: CallbackQuery, state: FSMContext):
         await state.update_data(inbox=inbox_items, idx=new_idx)
         
         text = short_view_text(inbox_items[new_idx], new_idx, len(inbox_items), lang)
-        await callback.message.answer(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox_items)), parse_mode="HTML")
+        await callback.message.answer(text, reply_markup=nav_keyboard(lang, new_idx, len(inbox_items), mode), parse_mode="HTML")
         
     except Exception as e:
         if lang == "ru":

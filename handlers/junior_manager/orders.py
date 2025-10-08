@@ -30,6 +30,58 @@ def _norm_lang(s: str | None) -> str:
     s = (s or "uz").lower()
     return "ru" if s.startswith("ru") else "uz"
 
+# ===================== Region mapping =====================
+REGION_CODE_TO_NAME = {
+    "uz": {
+        "1": "Toshkent shahri", "tashkent_city": "Toshkent shahri",
+        "2": "Toshkent viloyati", "tashkent_region": "Toshkent viloyati", 
+        "3": "Andijon", "andijon": "Andijon",
+        "4": "Farg'ona", "fergana": "Farg'ona",
+        "5": "Namangan", "namangan": "Namangan",
+        "6": "Sirdaryo", "sirdaryo": "Sirdaryo",
+        "7": "Jizzax", "jizzax": "Jizzax",
+        "8": "Samarqand", "samarkand": "Samarqand",
+        "9": "Buxoro", "bukhara": "Buxoro",
+        "10": "Navoiy", "navoi": "Navoiy",
+        "11": "Qashqadaryo", "kashkadarya": "Qashqadaryo",
+        "12": "Surxondaryo", "surkhandarya": "Surxondaryo",
+        "13": "Xorazm", "khorezm": "Xorazm",
+        "14": "Qoraqalpog'iston", "karakalpakstan": "Qoraqalpog'iston",
+    },
+    "ru": {
+        "1": "г. Ташкент", "tashkent_city": "г. Ташкент",
+        "2": "Ташкентская область", "tashkent_region": "Ташкентская область",
+        "3": "Андижан", "andijon": "Андижан",
+        "4": "Фергана", "fergana": "Фергана",
+        "5": "Наманган", "namangan": "Наманган",
+        "6": "Сырдарья", "sirdaryo": "Сырдарья",
+        "7": "Джизак", "jizzax": "Джизак",
+        "8": "Самарканд", "samarkand": "Самарканд",
+        "9": "Бухара", "bukhara": "Бухара",
+        "10": "Навои", "navoi": "Навои",
+        "11": "Кашкадарья", "kashkadarya": "Кашкадарья",
+        "12": "Сурхандарья", "surkhandarya": "Сурхандарья",
+        "13": "Хорезм", "khorezm": "Хорезм",
+        "14": "Каракалпакстан", "karakalpakstan": "Каракалпакстан",
+    }
+}
+
+def _get_region_display_name(region: str | None, lang: str) -> str:
+    """Convert region code/ID to display name"""
+    if not region:
+        return "—"
+    
+    region_str = str(region).lower()
+    lang = _norm_lang(lang)
+    
+    # Try to get display name from mapping
+    display_name = REGION_CODE_TO_NAME.get(lang, {}).get(region_str)
+    if display_name:
+        return display_name
+    
+    # If not found, return the original value
+    return str(region)
+
 def _L(lang: str) -> dict:
     lang = _norm_lang(lang)
     if lang == "ru":
@@ -147,72 +199,52 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
     
     # Asosiy ma'lumotlar
     rid = item.get("id")
+    application_number = html.escape(item.get("application_number") or f"#{rid:03d}", quote=False)
     fio = html.escape(item.get("user_name") or "—", quote=False)
     phone = html.escape(item.get("client_phone") or "—", quote=False)
     addr = html.escape(item.get("address") or "—", quote=False)
-    region = html.escape(str(item.get("region") or "—"), quote=False)
-    abonent_id = html.escape(str(item.get("abonent_id") or "—"), quote=False)
-    description = html.escape(str(item.get("description") or "—"), quote=False)
+    region = _get_region_display_name(item.get("region"), lang)
     tariff_name = html.escape(str(item.get("tariff_name") or "—"), quote=False)
-    status = html.escape(item.get("status") or "—", quote=False)
     
     # Order type
     order_type = item.get("order_type", "staff")
     type_icon = "🔗" if order_type == "connection" else "👨‍💼"
     type_text = "Ulanish arizasi" if order_type == "connection" else "Xodim arizasi"
     
-    # Vaqtni formatlash
+    # Vaqtni formatlash - UTC+5 timezone
     created_at = item.get("created_at")
-    updated_at = item.get("updated_at")
     
     if created_at and hasattr(created_at, 'strftime'):
+        # Convert to UTC+5 timezone
+        if created_at.tzinfo is None:
+            # If no timezone info, assume it's UTC and convert to UTC+5
+            utc_plus_5 = timezone(timedelta(hours=5))
+            created_at = created_at.replace(tzinfo=timezone.utc).astimezone(utc_plus_5)
+        else:
+            # If timezone info exists, convert to UTC+5
+            utc_plus_5 = timezone(timedelta(hours=5))
+            created_at = created_at.astimezone(utc_plus_5)
+        
         created_str = created_at.strftime("%d.%m.%Y %H:%M")
     else:
         created_str = str(created_at or "—")
-        
-    if updated_at and hasattr(updated_at, 'strftime'):
-        updated_str = updated_at.strftime("%d.%m.%Y %H:%M")
-    else:
-        updated_str = str(updated_at or "—")
-    
-    # Statusni o'zbek tiliga tarjima qilamiz
-    status_uz = {
-        'in_controller': 'Controllerda',
-        'in_technician': 'Texnikda',
-        'in_manager': 'Menedjerda',
-        'in_junior_manager': 'Kichik menedjerda',
-        'in_progress': 'Jarayonda',
-        'assigned_to_technician': 'Texnikga biriktirilgan',
-        'completed': 'Bajarilgan',
-        'cancelled': 'Bekor qilingan'
-    }.get(status, status)
     
     title = {"new": L["new"], "assigned": L["assigned"], "wip": L["wip"], "done": L["done"]}[kind]
-
-    try:
-        rid_view = f"{int(rid):03d}"
-    except Exception:
-        rid_view = html.escape(str(rid or "—"), quote=False)
     
     text = f"<b>📋 ARIZA BATAFSIL MA'LUMOTLARI</b>\n"
     text += f"{'=' * 40}\n\n"
-    text += f"<b>📄 Ariza raqami:</b> #{rid_view}\n"
+    text += f"<b>🆔 Ariza ID:</b> {application_number}\n"
     text += f"<b>{type_icon} Ariza turi:</b> {type_text}\n"
     text += f"<b>👤 Mijoz:</b> {fio}\n"
     text += f"<b>📞 Telefon:</b> {phone}\n"
     text += f"<b>📍 Manzil:</b> {addr}\n"
     text += f"<b>🌍 Hudud:</b> {region}\n"
-    text += f"<b>🆔 Abonent ID:</b> {abonent_id}\n"
-    text += f"<b>📊 Holat:</b> {status_uz}\n"
-    text += f"<b>📝 Tavsif:</b> {description}\n"
     text += f"<b>💰 Tarif:</b> {tariff_name}\n"
-    text += f"<b>🕐 Yaratilgan:</b> {created_str}\n"
-    text += f"<b>🔄 Yangilangan:</b> {updated_str}\n"
+    text += f"<b>🕐 Yaratilgan:</b> {created_str} UTC+5\n"
     
     return text
 
 
-# ===================== Entry trigger (Reply button) =====================
 # Tugmani O'ZGARTIRMAYMIZ: reply keyboarddagi label'lar bilan to'g'ridan-to'g'ri mos.
 ENTRY_TEXTS = [
     "📋 Arizalarni ko'rish",  # uz
@@ -236,7 +268,12 @@ async def jm_open_list(cb: CallbackQuery, state: FSMContext):
     tg_id = cb.from_user.id
 
     if kind == "assigned":
-        items = await list_assigned_for_jm(tg_id)
+        # Kichik menedjerning user_id ni olish kerak
+        user_data = await get_user_by_telegram_id(tg_id)
+        if not user_data:
+            await _safe_edit(cb, _L(lang)["empty"], _kb_root(lang), lang)
+            return
+        items = await list_assigned_for_jm(user_data["id"])
     elif kind == "wip":
         items = await list_inprogress_for_jm(tg_id)
     else:

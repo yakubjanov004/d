@@ -565,14 +565,25 @@ async def assign_open(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     lang = normalize_lang(data.get("lang"))
     mode = data.get("mode", "connection")
+    items = data.get("inbox", []) or []
+    
+    # Order ID ni olish
+    order_id = int(full_id.split("_")[0]) if "_" in full_id else int(full_id)
+    
+    # Order ma'lumotlarini topish va application_number ni olish
+    application_number = str(order_id)  # Default fallback
+    for item in items:
+        if item.get("id") == order_id:
+            application_number = item.get("application_number", str(order_id))
+            break
     
     # Mode bo'yicha keyboard tanlash
     if mode == "connection":
         kb = await build_assign_keyboard_tech_only(full_id, lang)
-        text = f"{t(lang,'tech_pick_title_only')}\n🆔 {esc(full_id)}"
+        text = f"{t(lang,'tech_pick_title_only')}\n🆔 {esc(application_number)}"
     else:  # tech yoki staff
         kb = await build_assign_keyboard_tech_and_ccs(full_id, lang)
-        text = f"{t(lang,'tech_pick_title')}\n🆔 {esc(full_id)}"
+        text = f"{t(lang,'tech_pick_title')}\n🆔 {esc(application_number)}"
     
     # Eski messageni o'chirish va yangi yuborish
     try:
@@ -589,9 +600,20 @@ async def show_tech_list(cb: CallbackQuery, state: FSMContext):
     full_id = cb.data.replace("ctrl_inbox_to_tech_", "")
     data = await state.get_data()
     lang = normalize_lang(data.get("lang"))
+    items = data.get("inbox", []) or []
+    
+    # Order ID ni olish
+    order_id = int(full_id.split("_")[0]) if "_" in full_id else int(full_id)
+    
+    # Order ma'lumotlarini topish va application_number ni olish
+    application_number = str(order_id)  # Default fallback
+    for item in items:
+        if item.get("id") == order_id:
+            application_number = item.get("application_number", str(order_id))
+            break
     
     kb = await build_tech_list_keyboard(full_id, lang)
-    text = f"{t(lang,'tech_pick_title_only')}\n🆔 {esc(full_id)}"
+    text = f"{t(lang,'tech_pick_title_only')}\n🆔 {esc(application_number)}"
     
     try:
         await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -660,9 +682,23 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
     
     # Confirmation yuborish
     app_num_short = full_id.split("_")[0] if "_" in full_id else full_id
+    
+    # Actual application_number ni olish
+    actual_app_number = app_num_short  # Default fallback
+    if result and result.get("application_number"):
+        actual_app_number = result.get("application_number")
+    else:
+        # Fallback: items dan qidirish
+        items = data.get("inbox", []) or []
+        order_id = int(app_num_short)
+        for item in items:
+            if item.get("id") == order_id:
+                actual_app_number = item.get("application_number", app_num_short)
+                break
+    
     confirmation_text = (
         f"{t(lang,'ok_assigned_title')}\n\n"
-        f"{t(lang,'order_id')} {esc(app_num_short)}\n"
+        f"{t(lang,'order_id')} {esc(actual_app_number)}\n"
         f"{t(lang,'ccs')} {esc(selected_ccs.get('full_name','—'))}\n"
         f"{t(lang,'sent_time')} {fmt_dt(datetime.now())}\n"
         f"{t(lang,'sender')} {esc(user.get('full_name', 'Controller'))}"
@@ -741,9 +777,23 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
     
     # Confirmation yuborish
     app_num_short = full_id.split("_")[0] if "_" in full_id else full_id
+    
+    # Actual application_number ni olish
+    actual_app_number = app_num_short  # Default fallback
+    if result and result.get("application_number"):
+        actual_app_number = result.get("application_number")
+    else:
+        # Fallback: items dan qidirish
+        items = data.get("inbox", []) or []
+        order_id = int(app_num_short)
+        for item in items:
+            if item.get("id") == order_id:
+                actual_app_number = item.get("application_number", app_num_short)
+                break
+    
     confirmation_text = (
         f"{t(lang,'ok_assigned_title')}\n\n"
-        f"{t(lang,'order_id')} {esc(app_num_short)}\n"
+        f"{t(lang,'order_id')} {esc(actual_app_number)}\n"
         f"{t(lang,'tech')} {esc(selected_tech.get('full_name','—'))}\n"
         f"{t(lang,'sent_time')} {fmt_dt(datetime.now())}\n"
         f"{t(lang,'sender')} {esc(user.get('full_name', 'Controller'))}"

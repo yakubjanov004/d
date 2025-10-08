@@ -5,7 +5,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 import html
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, List, Dict, Any
 
 from filters.role_filter import RoleFilter
@@ -26,6 +27,21 @@ from database.manager.orders import (
 router = Router()
 router.message.filter(RoleFilter("manager"))
 router.callback_query.filter(RoleFilter("manager"))
+
+def _safe_tz(key: str):
+    try:
+        return ZoneInfo(key)
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=5))  
+
+TZ = _safe_tz("Asia/Tashkent")
+
+def _to_tz(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ)
 
 T = {
     # Titles
@@ -132,6 +148,9 @@ def _fmt_dt(dt, lang: str = "uz") -> str:
         if not dt:
             return "-"
         
+        # Vaqt zonasi konvertatsiyasi
+        dt_local = _to_tz(dt)
+        
         # Oylar nomlari
         months_uz = {
             1: "yanvar", 2: "fevral", 3: "mart", 4: "aprel", 
@@ -145,18 +164,17 @@ def _fmt_dt(dt, lang: str = "uz") -> str:
         }
         
         if lang == "ru":
-            month_name = months_ru.get(dt.month, str(dt.month))
-            return f"{dt.day} {month_name} {dt.year} {dt.hour:02d}:{dt.minute:02d}"
+            month_name = months_ru.get(dt_local.month, str(dt_local.month))
+            return f"{dt_local.day} {month_name} {dt_local.year} {dt_local.hour:02d}:{dt_local.minute:02d}"
         else:  # uz
-            month_name = months_uz.get(dt.month, str(dt.month))
-            return f"{dt.day} {month_name} {dt.year} {dt.hour:02d}:{dt.minute:02d}"
+            month_name = months_uz.get(dt_local.month, str(dt_local.month))
+            return f"{dt_local.day} {month_name} {dt_local.year} {dt_local.hour:02d}:{dt_local.minute:02d}"
     except Exception:
         return str(dt) if dt else "-"
 
 def _fmt_duration(created_at, lang: str = "uz") -> str:
     """Vaqt davomiyligini o'zbekcha formatda ko'rsatish"""
     try:
-        from datetime import datetime
         if not created_at:
             return "N/A"
         
@@ -165,8 +183,11 @@ def _fmt_duration(created_at, lang: str = "uz") -> str:
         else:
             created_dt = created_at
         
-        now = datetime.now(created_dt.tzinfo) if created_dt.tzinfo else datetime.now()
-        duration = now - created_dt
+        # Vaqt zonasi konvertatsiyasi
+        created_local = _to_tz(created_dt)
+        now_local = datetime.now(TZ)
+        
+        duration = now_local - created_local
         
         total_seconds = int(duration.total_seconds())
         

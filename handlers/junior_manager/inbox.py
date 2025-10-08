@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import html
 import logging
 
@@ -15,6 +15,8 @@ from database.junior_manager.queries import (
     move_order_to_controller,
     set_jm_notes,
 )
+from database.junior_manager.orders import update_jm_notes
+from handlers.junior_manager.orders import _get_region_display_name
 from keyboards.junior_manager_buttons import get_junior_manager_main_menu
 from aiogram.fsm.state import StatesGroup, State
 
@@ -45,8 +47,20 @@ TR = {
         "ru": "📭 Входящие пусты.",
     },
     "contacted_choose": {
-        "uz": "☎️ Mijoz bilan bog‘lanildi.\nQuyidagidan birini tanlang:",
+        "uz": "☎️ Mijoz bilan bog'lanildi.\nQuyidagidan birini tanlang:",
         "ru": "☎️ Связались с клиентом.\nВыберите действие:",
+    },
+    "enter_message_for_client": {
+        "uz": "📝 Qo'shimcha ma'lumot kiriting (izoh qo'shing):",
+        "ru": "📝 Введите дополнительную информацию (добавить комментарий):",
+    },
+    "message_sent_to_client": {
+        "uz": "✅ Izoh qo'shildi va saqlandi.",
+        "ru": "✅ Комментарий добавлен и сохранен.",
+    },
+    "error_occurred": {
+        "uz": "❌ Xatolik yuz berdi.",
+        "ru": "❌ Произошла ошибка.",
     },
     "nav_prev": {
         "uz": "⬅️ Oldingi",
@@ -169,6 +183,9 @@ class JMNoteStates(StatesGroup):
     waiting_text = State()   # matn yuborilishini kutish
     confirming   = State()   # tasdiqlash/tahrirlash
 
+class JMContactStates(StatesGroup):
+    waiting_message = State()
+
 # =========================
 # Utilities
 # =========================
@@ -179,6 +196,16 @@ def _esc(v) -> str:
 
 def _fmt_dt(dt) -> str:
     if isinstance(dt, datetime):
+        # Convert to UTC+5 timezone
+        if dt.tzinfo is None:
+            # If no timezone info, assume it's UTC and convert to UTC+5
+            utc_plus_5 = timezone(timedelta(hours=5))
+            dt = dt.replace(tzinfo=timezone.utc).astimezone(utc_plus_5)
+        else:
+            # If timezone info exists, convert to UTC+5
+            utc_plus_5 = timezone(timedelta(hours=5))
+            dt = dt.astimezone(utc_plus_5)
+        
         return dt.strftime("%d.%m.%Y %H:%M")
     return (str(dt)[:16]) if dt else "—"
 
@@ -208,6 +235,14 @@ async def handle_inbox(msg: Message, state: FSMContext):
 # =========================
 async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, Any]], idx: int, lang: str):
     total = len(items)
+    
+    # Bounds checking to prevent IndexError
+    if not items or idx < 0 or idx >= total:
+        if isinstance(target, Message):
+            return await target.answer(_t(lang, "inbox_empty"), reply_markup=get_junior_manager_main_menu(lang))
+        else:
+            return await target.message.edit_text(_t(lang, "inbox_empty"), reply_markup=get_junior_manager_main_menu(lang))
+    
     it = items[idx]
 
     # Determine which order type we're dealing with
@@ -221,30 +256,36 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     application_number = it.get("application_number") or it.get("staff_application_number")
     
     # Get creation date
-    order_created = _fmt_dt(it.get("order_created_at") or it.get("staff_created_at"))
+    order_created = _fmt_dt(it.get("created_at"))
     
-    # Get client information (prioritize connection order data, fallback to staff order)
-    client_name_raw = it.get("client_full_name") or it.get("staff_client_full_name")
-    client_phone_raw = it.get("client_phone") or it.get("staff_client_phone")
+    # Get client information - handle staff orders differently
+    if is_staff_order:
+        # For staff orders, use the actual client information
+        client_name_raw = it.get("client_name") or f"Client ID: {it.get('abonent_id')}"
+        client_phone_raw = it.get("client_phone_number") or it.get("phone")
+    else:
+        # For connection orders, user_name is the actual client
+        client_name_raw = it.get("user_name")
+        client_phone_raw = it.get("client_phone")
     
     # Get location information
-    region_raw = it.get("order_region") or it.get("staff_region")
-    address_raw = it.get("order_address") or it.get("staff_address")
+    region_raw = it.get("region")
+    address_raw = it.get("address")
     
     # Get notes
-    jm_notes_raw = it.get("order_jm_notes") or it.get("staff_jm_notes") or it.get("jm_notes")
+    jm_notes_raw = it.get("jm_notes")
     
     # Get tariff information
-    tariff_name = it.get("tariff_name") or it.get("staff_tariff_name")
+    tariff_name = it.get("tariff_name")
     
     # Get order type
-    order_type = it.get("staff_type", "connection") if is_staff_order else "connection"
+    order_type = it.get("order_type", "connection")
 
     # Escape all values
     order_id_txt = _esc(application_number) if application_number else _esc(order_id)
     client_name = _esc(client_name_raw)
     client_phone = _esc(client_phone_raw)
-    region = _esc(region_raw)
+    region = _get_region_display_name(region_raw, lang)
     address = _esc(address_raw)
     tariff = _esc(tariff_name)
 
@@ -344,10 +385,72 @@ async def jm_conn_next(cb: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("jm_contact_client:"))
 async def jm_contact_client(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
-    data  = await state.get_data()
-    lang  = data.get("lang", "uz")
-    conn_id = int(cb.data.split(":")[1])
-    await cb.message.answer(_t(lang, "contacted_choose"), reply_markup=_kb_contact(lang, conn_id))
+    order_id = int(cb.data.split(":")[1])
+    
+    # Get user language
+    jm_user = await get_user_by_telegram_id(cb.from_user.id)
+    if not jm_user:
+        return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
+    lang = _norm_lang(jm_user.get("language"))
+    
+    # Set state and ask for message
+    await state.set_state(JMContactStates.waiting_message)
+    await state.update_data(contact_order_id=order_id)
+    
+    # Remove inline keyboard and ask for message
+    await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.message.answer(_t(lang, "enter_message_for_client"))
+
+@router.message(JMContactStates.waiting_message)
+async def jm_contact_message_handler(msg: Message, state: FSMContext):
+    """Handle the note added by junior manager"""
+    data = await state.get_data()
+    order_id = data.get("contact_order_id")
+    lang = data.get("lang", "uz")
+    
+    if not order_id:
+        await state.clear()
+        return await msg.answer(_t(lang, "error_occurred"))
+    
+    # Get the message text
+    message_text = msg.text or ""
+    
+    # Determine order type from current items
+    items = data.get("items", [])
+    idx = data.get("idx", 0)
+    
+    if not items or idx >= len(items):
+        await state.clear()
+        return await msg.answer(_t(lang, "error_occurred"))
+    
+    current_item = items[idx]
+    order_type = "connection" if current_item.get("order_type") == "connection" else "staff"
+    
+    # Save the note to database
+    success = await update_jm_notes(order_id, message_text, order_type)
+    
+    if not success:
+        await msg.answer(_t(lang, "error_occurred"))
+        return
+    
+    # Update the current item with the new note
+    items[idx]["jm_notes"] = message_text
+    items[idx]["order_jm_notes"] = message_text
+    items[idx]["staff_jm_notes"] = message_text
+    
+    # Move to next item
+    if idx < len(items) - 1:
+        idx += 1
+    elif idx >= len(items) - 1:
+        idx = 0  # Loop back to first
+    
+    # Update state
+    await state.update_data(items=items, idx=idx, lang=lang)
+    await state.set_state(None)  # Clear the contact state
+    
+    # Show confirmation and render next card
+    await msg.answer(_t(lang, "message_sent_to_client"))
+    await _render_card(target=msg, items=items, idx=idx, lang=lang)
 
 # =========================
 # Send to controller
@@ -431,16 +534,14 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
         idx = len(items) - 1
 
     await state.update_data(items=items, idx=idx, lang=lang)
+    # Remove inline keyboard and show success message
+    await cb.message.edit_reply_markup(reply_markup=None)
     await cb.message.answer(_t(lang, "send_ok"))
     await _render_card(target=cb, items=items, idx=idx, lang=lang)
 
 # =========================
 # Notes flow
 # =========================
-class JMNoteStates(StatesGroup):
-    waiting_text = State()
-    confirming   = State()
-
 @router.callback_query(F.data.startswith("jm_note_start:"))
 async def jm_note_start(cb: CallbackQuery, state: FSMContext):
     await cb.answer()

@@ -473,7 +473,7 @@ async def get_connection_orders_cancelled_count() -> int:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
-            "SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE AND status = 'cancelled'"
+            "SELECT COUNT(*) FROM connection_orders WHERE is_active = FALSE"
         )
         return int(count or 0)
     finally:
@@ -600,8 +600,7 @@ async def list_connection_orders_cancelled(limit: int = 10) -> List[Dict[str, An
             FROM connection_orders co
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
-            WHERE co.is_active = TRUE
-              AND co.status = 'cancelled'
+            WHERE co.is_active = FALSE
             ORDER BY co.updated_at DESC
             LIMIT $1
             """,
@@ -632,7 +631,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                 MAX(so.created_at) as last_order_date
             FROM users u
             LEFT JOIN staff_orders so ON so.user_id = u.id AND COALESCE(so.is_active, TRUE) = TRUE
-            WHERE u.role IN ('junior_manager', 'manager', 'controller', 'technician')
+            WHERE u.role IN ('junior_manager', 'manager')
             GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ORDER BY total_orders DESC, u.full_name
             """

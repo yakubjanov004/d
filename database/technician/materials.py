@@ -147,15 +147,68 @@ async def _has_column(conn, table: str, column: str) -> bool:
     """
     return await conn.fetchval(sql, table, column)
 
+async def _get_application_number_for_material_issued(conn, applications_id: int, request_type: str) -> str:
+    """Material_issued uchun application_number ni olish"""
+    try:
+        if request_type == "technician":
+            result = await conn.fetchval(
+                "SELECT application_number FROM technician_orders WHERE id = $1",
+                applications_id
+            )
+        elif request_type == "staff":
+            result = await conn.fetchval(
+                "SELECT application_number FROM staff_orders WHERE id = $1",
+                applications_id
+            )
+        else:  # connection
+            result = await conn.fetchval(
+                "SELECT application_number FROM connection_orders WHERE id = $1",
+                applications_id
+            )
+        
+        return result or str(applications_id)  # Fallback to ID if application_number not found
+    except Exception:
+        return str(applications_id)  # Fallback to ID on error
+
+async def _insert_material_issued(
+    conn, 
+    material_id: int, 
+    quantity: int, 
+    price: float, 
+    total_price: float, 
+    issued_by: int, 
+    applications_id: int, 
+    request_type: str, 
+    material_name: str
+) -> None:
+    """Material_issued jadvaliga yozish - soddalashtirilgan versiya"""
+    # Application number ni olish
+    application_number = await _get_application_number_for_material_issued(conn, applications_id, request_type)
+
+    await conn.execute(
+        """
+        INSERT INTO material_issued (
+            material_id, quantity, price, total_price, issued_by, issued_at,
+            material_name, material_unit, is_approved, application_number, request_type
+        ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, 'dona', false, $7, $8)
+        """,
+        material_id, quantity, price, total_price, issued_by,
+        material_name, application_number, request_type
+    )
+
 async def upsert_material_selection(
     user_id: int,
     applications_id: int,
     material_id: int,
     qty: int,
+    request_type: str = "connection",
+    source_type: str = "warehouse"
 ) -> None:
     """
     Tanlangan miqdorni to'g'ridan-to'g'ri o'rnatadi (jamlamaydi).
     material_requests da UNIQUE (user_id, applications_id, material_id) tavsiya etiladi.
+    source_type: 'technician_stock' (texnikda bor) yoki 'warehouse' (ombordan so'rash)
+    Material_issued ga yozmaslik - faqat yakuniy ko'rinishda yoziladi.
     """
     if qty <= 0:
         raise ValueError("Miqdor 0 dan katta bo'lishi kerak")
@@ -163,10 +216,16 @@ async def upsert_material_selection(
     conn = await _conn()
     try:
         async with conn.transaction():
-            price = await conn.fetchval(
-                "SELECT COALESCE(price, 0) FROM materials WHERE id=$1",
+            # Material ma'lumotlarini olish
+            material_info = await conn.fetchrow(
+                "SELECT name, COALESCE(price, 0) as price FROM materials WHERE id=$1",
                 material_id
-            ) or 0
+            )
+            if not material_info:
+                raise ValueError(f"Material {material_id} topilmadi")
+            
+            price = material_info['price']
+            material_name = material_info['name']
             total = price * qty
 
             has_updated_at = await _has_column(conn, "material_requests", "updated_at")
@@ -183,41 +242,79 @@ async def upsert_material_selection(
                     await conn.execute(
                         """
                         UPDATE material_requests 
-                        SET quantity = $1, price = $2, total_price = $3, updated_at = NOW()
-                        WHERE id = $4
+                        SET quantity = $1, price = $2, total_price = $3, source_type = $4, updated_at = NOW()
+                        WHERE id = $5
                         """,
-                        qty, price, total, existing_record['id']
+                        qty, price, total, source_type, existing_record['id']
                     )
                 else:
                     await conn.execute(
                         """
                         UPDATE material_requests 
-                        SET quantity = $1, price = $2, total_price = $3
-                        WHERE id = $4
+                        SET quantity = $1, price = $2, total_price = $3, source_type = $4
+                        WHERE id = $5
                         """,
-                        qty, price, total, existing_record['id']
+                        qty, price, total, source_type, existing_record['id']
                     )
             else:
                 # Insert new record
                 if has_updated_at:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                         """,
-                        user_id, applications_id, material_id, qty, price, total
+                        user_id, applications_id, material_id, qty, price, total, source_type
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price)
-                        VALUES ($1, $2, $3, $4, $5, $6)
+                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         """,
-                        user_id, applications_id, material_id, qty, price, total
+                        user_id, applications_id, material_id, qty, price, total, source_type
                     )
+
+            # Material_issued ga yozmaslik - faqat yakuniy ko'rinishda yoziladi
+
     except Exception as e:
         # Re-raise with more context
         raise Exception(f"Material selection upsert failed: {str(e)}")
+    finally:
+        await conn.close()
+
+
+async def create_material_issued_from_review(
+    user_id: int,
+    applications_id: int,
+    request_type: str
+) -> None:
+    """
+    Yakuniy ko'rinishda (tech_review) barcha tanlangan materiallarni
+    material_issued ga yozish
+    """
+    conn = await _conn()
+    try:
+        # Fetch all selected materials from material_requests
+        selected = await conn.fetch(
+            """
+            SELECT mr.material_id, mr.quantity, mr.price, mr.source_type,
+                   m.name as material_name
+            FROM material_requests mr
+            JOIN materials m ON m.id = mr.material_id
+            WHERE mr.user_id = $1 AND mr.applications_id = $2
+            """,
+            user_id, applications_id
+        )
+        
+        # Insert into material_issued for each material
+        for mat in selected:
+            await _insert_material_issued(
+                conn, mat['material_id'], mat['quantity'],
+                mat['price'], mat['quantity'] * mat['price'],
+                user_id, applications_id, request_type,
+                mat['material_name']
+            )
     finally:
         await conn.close()
 
@@ -228,8 +325,9 @@ async def upsert_material_request_and_decrease_stock(
     applications_id: int,
     material_id: int,
     add_qty: int,
+    request_type: str = "connection"
 ) -> None:
-    await upsert_material_selection(user_id, applications_id, material_id, add_qty)
+    await upsert_material_selection(user_id, applications_id, material_id, add_qty, request_type)
 
 
 async def fetch_selected_materials_for_request(
@@ -251,12 +349,13 @@ async def fetch_selected_materials_for_request(
                 SUM(
                     COALESCE(mr.quantity, 0)
                     + COALESCE(NULLIF(mr.description, '')::int, 0)
-                ) AS qty
+                ) AS qty,
+                mr.source_type
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.user_id = $1
               AND mr.applications_id = $2
-            GROUP BY mr.material_id, m.name, m.price
+            GROUP BY mr.material_id, m.name, m.price, mr.source_type
             ORDER BY m.name
             """,
             user_id, applications_id

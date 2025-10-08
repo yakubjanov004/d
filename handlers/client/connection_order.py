@@ -303,30 +303,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             business_type=business_type
         )
 
-        if settings.ZAYAVKA_GROUP_ID:
-            try:
-                geo_text = ""
-                if geo_data:
-                    geo_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={geo_data.latitude},{geo_data.longitude}'>Google Maps</a>"
-                phone_for_msg = data.get('phone') or user_phone or '-'
-                group_msg = (
-                    f"🔌 <b>YANGI ULANISH ARIZASI</b>\n" 
-                    f"{'='*30}\n"
-                    f"🆔 <b>ID:</b> <code>{request_id}</code>\n"
-                    f"👤 <b>Mijoz:</b> {callback.from_user.full_name}\n"
-                    f"📞 <b>Tel:</b> {phone_for_msg}\n"
-                    f"🏢 <b>Region:</b> {region}\n"
-                    f"💳 <b>Tarif:</b> {tariff_name}\n"
-                    f"📍 <b>Manzil:</b> {data.get('address')}"
-                    f"{geo_text}\n"
-                    f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-                    f"{'='*30}"
-                )
-                await bot.send_message(chat_id=settings.ZAYAVKA_GROUP_ID, text=group_msg, parse_mode='HTML')
-            except Exception:
-                pass
-
-        # Get the full application number from the database
+        # Get the full application number from the database first
         conn = await asyncpg.connect(settings.DB_URL)
         try:
             # Fetch the application number using the request_id
@@ -340,6 +317,29 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             app_number = f"CONN-{request_id:04d}"
         finally:
             await conn.close()
+
+        if settings.ZAYAVKA_GROUP_ID:
+            try:
+                geo_text = ""
+                if geo_data:
+                    geo_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={geo_data.latitude},{geo_data.longitude}'>Google Maps</a>"
+                phone_for_msg = data.get('phone') or user_phone or '-'
+                group_msg = (
+                    f"🔌 <b>YANGI ULANISH ARIZASI</b>\n" 
+                    f"{'='*30}\n"
+                    f"🆔 <b>ID:</b> <code>{app_number}</code>\n"
+                    f"👤 <b>Mijoz:</b> {callback.from_user.full_name}\n"
+                    f"📞 <b>Tel:</b> {phone_for_msg}\n"
+                    f"🏢 <b>Region:</b> {region}\n"
+                    f"💳 <b>Tarif:</b> {tariff_name}\n"
+                    f"📍 <b>Manzil:</b> {data.get('address')}"
+                    f"{geo_text}\n"
+                    f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+                    f"{'='*30}"
+                )
+                await bot.send_message(chat_id=settings.ZAYAVKA_GROUP_ID, text=group_msg, parse_mode='HTML')
+            except Exception:
+                pass
 
         # Yuborish muvaffaqiyatli bo'lsa, foydalanuvchiga xabar bering
         success_msg = (

@@ -30,19 +30,42 @@ async def get_jm_stats_for_telegram(telegram_id: int) -> Dict[str, Any]:
         jm_id = user_row["id"]
         manager_name = user_row["full_name"] or "Noma'lum"
         
-        # Umumiy statistika - faqat o'ziga biriktirilgan arizalar
+        # Umumiy statistika - connection_orders va staff_orders biriktirilgan arizalar
         stats = await conn.fetchrow(
             """
             SELECT
-                COUNT(*) FILTER (WHERE so.status = 'in_junior_manager') AS new_orders,
-                COUNT(*) FILTER (WHERE so.status IN ('in_progress', 'assigned_to_technician', 'in_controller', 'in_technician', 'in_manager', 'in_call_center_operator', 'in_call_center_supervisor', 'in_diagnostics', 'in_repairs', 'in_warehouse', 'in_technician_work', 'between_controller_technician')) AS in_progress_orders,
-                COUNT(*) FILTER (WHERE so.status = 'completed') AS completed_orders,
-                COUNT(*) FILTER (WHERE so.status = 'completed' AND DATE(so.updated_at) = CURRENT_DATE) AS today_completed,
+                COUNT(*) FILTER (WHERE order_type = 'connection' AND status = 'in_junior_manager') AS new_orders,
+                COUNT(*) FILTER (WHERE order_type = 'connection' AND status IN ('in_controller', 'in_technician', 'in_technician_work', 'in_manager', 'between_controller_technician')) AS in_progress_orders,
+                COUNT(*) FILTER (WHERE order_type = 'connection' AND status = 'completed') AS completed_orders,
+                COUNT(*) FILTER (WHERE order_type = 'connection' AND status = 'completed' AND DATE(updated_at) = CURRENT_DATE) AS today_completed,
                 COUNT(*) AS total_orders
-            FROM connections c
-            JOIN staff_orders so ON so.id = c.staff_id
-            WHERE c.recipient_id = $1
-              AND so.is_active = TRUE
+            FROM (
+                -- Connection Orders (mijozlar arizalari)
+                SELECT
+                    'connection' as order_type,
+                    co.status::text as status,
+                    co.updated_at
+                FROM connections c
+                JOIN connection_orders co ON co.id = c.connection_id
+                WHERE c.recipient_id = $1
+                  AND c.connection_id IS NOT NULL
+                  AND co.is_active = TRUE
+                  AND c.recipient_status = 'in_junior_manager'
+                
+                UNION ALL
+                
+                -- Staff Orders (xodimlar arizalari)
+                SELECT
+                    'staff' as order_type,
+                    so.status::text as status,
+                    so.updated_at
+                FROM connections c
+                JOIN staff_orders so ON so.id = c.staff_id
+                WHERE c.recipient_id = $1
+                  AND c.staff_id IS NOT NULL
+                  AND so.is_active = TRUE
+                  AND c.recipient_status = 'in_junior_manager'
+            ) combined_orders
             """,
             jm_id
         )
