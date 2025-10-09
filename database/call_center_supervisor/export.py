@@ -16,16 +16,11 @@ async def get_ccs_connection_orders_for_export() -> List[Dict[str, Any]]:
         query = """
         SELECT 
             co.id,
-            co.user_id,
+            co.application_number,
             co.region,
             co.address,
-            co.longitude,
-            co.latitude,
             co.created_at as connection_date,
-            co.updated_at,
             co.status,
-            co.rating,
-            co.notes as comments,
             co.jm_notes as call_center_comments,
             u.full_name as client_name,
             u.phone as client_phone,
@@ -42,19 +37,13 @@ async def get_ccs_connection_orders_for_export() -> List[Dict[str, Any]]:
         for row in rows:
             result.append({
                 'ID': row['id'],
-                'Buyurtma raqami': str(row['id']),  # Using ID as order number
+                'Ariza raqami': row['application_number'] or '',
                 'Mijoz ismi': row['client_name'] or '',
                 'Telefon': row['client_phone'] or '',
-                'Mijoz abonent ID': str(row['user_id']) if row['user_id'] else '',
                 'Hudud': row['region'] or '',
                 'Manzil': row['address'] or '',
-                'Uzunlik': str(row['longitude']) if row['longitude'] else '',
-                'Kenglik': str(row['latitude']) if row['latitude'] else '',
                 'Ulanish sanasi': row['connection_date'].strftime('%Y-%m-%d %H:%M:%S') if row['connection_date'] else '',
-                'Yangilanish sanasi': row['updated_at'].strftime('%Y-%m-%d %H:%M:%S') if row['updated_at'] else '',
                 'Status': row['status'] or '',
-                'Reyting': str(row['rating']) if row['rating'] else '',
-                'Izohlar': row['comments'] or '',
                 'Call center izohlari': row['call_center_comments'] or '',
                 'Tarif': row['tariff_name'] or ''
             })
@@ -70,19 +59,15 @@ async def get_ccs_operator_orders_for_export() -> List[Dict[str, Any]]:
         query = """
         SELECT 
             so.id,
-            so.user_id,
-            so.phone,
-            so.abonent_id,
+            so.application_number,
             so.region,
             so.address,
             so.description,
             so.type_of_zayavka,
             so.status,
             so.created_at,
-            so.updated_at,
             u.full_name as client_name,
-            u.username,
-            u.telegram_id,
+            u.phone as client_phone,
             t.name as tariff_name
         FROM staff_orders so
         LEFT JOIN users u ON so.user_id = u.id
@@ -96,18 +81,15 @@ async def get_ccs_operator_orders_for_export() -> List[Dict[str, Any]]:
         for row in rows:
             result.append({
                 'ID': row['id'],
+                'Ariza raqami': row['application_number'] or '',
                 'Mijoz ismi': row['client_name'] or '',
-                'Username': row['username'] or '',
-                'Telegram ID': str(row['telegram_id']) if row['telegram_id'] else '',
-                'Telefon': row['phone'] or '',
-                'Abonent ID': row['abonent_id'] or '',
+                'Telefon': row['client_phone'] or '',
                 'Hudud': str(row['region']) if row['region'] else '',
                 'Manzil': row['address'] or '',
                 'Tavsif': row['description'] or '',
                 'Ariza turi': row['type_of_zayavka'] or '',
                 'Status': row['status'] or '',
                 'Yaratilgan sana': row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else '',
-                'Yangilanish sanasi': row['updated_at'].strftime('%Y-%m-%d %H:%M:%S') if row['updated_at'] else '',
                 'Tarif': row['tariff_name'] or ''
             })
         

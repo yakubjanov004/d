@@ -17,8 +17,8 @@ DB_CONFIG = {
     'host': os.getenv('PGHOST', 'localhost'),
     'port': int(os.getenv('PGPORT', '5432')),
     'user': os.getenv('PGUSER', 'postgres'),
-    'password': os.getenv('PGPASSWORD', 'ulugbek202'),
-    'database': os.getenv('PGDATABASE', 'aldb1'),
+    'password': os.getenv('PGPASSWORD', '1'),
+    'database': os.getenv('PGDATABASE', 'aldb2'),
 }
 
 def create_database():
@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS public.connection_orders (
   longitude         DOUBLE PRECISION,
   latitude          DOUBLE PRECISION,
   jm_notes          TEXT,
+  cancellation_note TEXT,  -- Migration 026: Bekor qilish sababi
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   status            public.connection_order_status NOT NULL DEFAULT 'in_manager',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -270,6 +271,8 @@ CREATE TABLE IF NOT EXISTS public.technician_orders (
   description           TEXT,
   description_ish       TEXT,
   description_operator  TEXT,
+  diagnostics           TEXT,  -- Diagnostika ma'lumotlari
+  cancellation_note     TEXT,  -- Migration 026: Bekor qilish sababi
   status                public.technician_order_status NOT NULL DEFAULT 'in_controller',
   is_active             BOOLEAN NOT NULL DEFAULT TRUE,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -296,6 +299,7 @@ CREATE TABLE IF NOT EXISTS public.staff_orders (
   problem_description TEXT,  -- Muammo haqida batafsil (texnik xizmat uchun)
   diagnostics      TEXT,  -- Diagnostika natijalari (texnik xizmat uchun)
   jm_notes         TEXT,  -- Junior manager izohlari
+  cancellation_note TEXT,  -- Migration 026: Bekor qilish sababi
   business_type    public.business_type NOT NULL DEFAULT 'B2C',
   status           public.staff_order_status NOT NULL DEFAULT 'new',
   type_of_zayavka  public.type_of_zayavka NOT NULL DEFAULT 'connection',
@@ -391,13 +395,14 @@ CREATE TABLE IF NOT EXISTS public.material_and_technician (
   material_id BIGINT REFERENCES public.materials(id) ON DELETE SET NULL,
   quantity    INTEGER,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT ux_mat_tech_user_material UNIQUE (user_id, material_id)
 );
 DROP TRIGGER IF EXISTS trg_material_and_technician_updated_at ON public.material_and_technician;
 CREATE TRIGGER trg_material_and_technician_updated_at BEFORE UPDATE ON public.material_and_technician
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- MATERIAL_ISSUED (exact match with Python class - INT order IDs)
+-- MATERIAL_ISSUED (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.material_issued (
   id                    BIGSERIAL PRIMARY KEY,
   material_id           BIGINT NOT NULL REFERENCES public.materials(id) ON DELETE RESTRICT,
@@ -406,13 +411,28 @@ CREATE TABLE IF NOT EXISTS public.material_issued (
   total_price           NUMERIC(10,2) NOT NULL,
   issued_by             BIGINT NOT NULL REFERENCES public.users(id),
   issued_at             TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  notes                 TEXT,
+  connection_order_id   BIGINT REFERENCES public.connection_orders(id),
+  technician_order_id   BIGINT REFERENCES public.technician_orders(id),
+  staff_order_id        BIGINT REFERENCES public.staff_orders(id),
   material_name         TEXT,
   material_unit         TEXT,
   is_approved           BOOLEAN DEFAULT FALSE,
-  application_number    VARCHAR(50),
-  request_type          VARCHAR(20) DEFAULT 'connection',
+  approved_by           BIGINT REFERENCES public.users(id),
+  approved_at           TIMESTAMPTZ,
+  is_returned           BOOLEAN DEFAULT FALSE,
+  returned_quantity     INTEGER DEFAULT 0,
+  returned_at           TIMESTAMPTZ,
+  returned_by           BIGINT REFERENCES public.users(id),
+  return_notes          TEXT,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_one_order_type CHECK (
+    (connection_order_id IS NOT NULL AND technician_order_id IS NULL AND staff_order_id IS NULL) OR
+    (connection_order_id IS NULL AND technician_order_id IS NOT NULL AND staff_order_id IS NULL) OR
+    (connection_order_id IS NULL AND technician_order_id IS NULL AND staff_order_id IS NOT NULL)
+  ),
+  CONSTRAINT chk_return_quantity CHECK (returned_quantity >= 0 AND returned_quantity <= quantity)
 );
 DROP TRIGGER IF EXISTS trg_material_issued_updated_at ON public.material_issued;
 CREATE TRIGGER trg_material_issued_updated_at BEFORE UPDATE ON public.material_issued
@@ -653,7 +673,7 @@ def verify_setup():
         return False
 
 def main():
-    print("🚀 ALFABOT Schema Setup (Python Models Match)")
+    print("ALFABOT Schema Setup (Python Models Match)")
     if not create_database():
         sys.exit(1)
 
@@ -664,15 +684,15 @@ def main():
         run_sql(conn, SCHEMA_SQL)
         conn.commit()
         conn.close()
-        print("✅ Schema applied successfully.")
+        print("Schema applied successfully.")
     except Exception as e:
         print(f"[!] Setup error: {e}")
         sys.exit(1)
 
     if verify_setup():
-        print("🎉 SUCCESS! Database schema now matches Python models exactly!")
+        print("SUCCESS! Database schema now matches Python models exactly!")
     else:
-        print("⚠️ Verification had issues")
+        print("Verification had issues")
 
 if __name__ == '__main__':
     main()

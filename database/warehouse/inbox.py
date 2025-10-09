@@ -51,7 +51,8 @@ async def fetch_warehouse_connection_orders_with_materials(
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Omborda turgan ulanish arizalari materiallar bilan
+    Ombordan material so'ralgan ulanish arizalari
+    YANGI: Status tekshirmaydi, faqat material_requests mavjudligini tekshiradi
     """
     conn = await _conn()
     try:
@@ -59,6 +60,7 @@ async def fetch_warehouse_connection_orders_with_materials(
             """
             SELECT DISTINCT
                 co.id,
+                co.application_number,
                 co.address,
                 co.region,
                 co.status,
@@ -70,13 +72,14 @@ async def fetch_warehouse_connection_orders_with_materials(
                 u.telegram_id AS client_telegram_id,
                 t.name AS tariff_name,
                 COUNT(mr.id) as material_count
-            FROM connection_orders co
+            FROM material_requests mr
+            JOIN connection_orders co ON co.id = mr.applications_id
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
-            LEFT JOIN material_requests mr ON mr.applications_id = co.id
-            WHERE co.status = 'in_warehouse'
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND co.is_active = TRUE
-            GROUP BY co.id, co.address, co.region, co.status, co.created_at, co.updated_at, 
+            GROUP BY co.id, co.application_number, co.address, co.region, co.status, co.created_at, co.updated_at, 
                      co.jm_notes, u.full_name, u.phone, u.telegram_id, t.name
             ORDER BY co.created_at DESC
             LIMIT $1 OFFSET $2
@@ -89,15 +92,18 @@ async def fetch_warehouse_connection_orders_with_materials(
 
 async def count_warehouse_connection_orders_with_materials() -> int:
     """
-    Omborda turgan ulanish arizalari soni
+    Ombordan material so'ralgan ulanish arizalari soni
+    YANGI: Status tekshirmaydi, faqat tasdiqlash kutayotgan materiallar
     """
     conn = await _conn()
     try:
         count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT co.id)
-            FROM connection_orders co
-            WHERE co.status = 'in_warehouse'
+            FROM material_requests mr
+            JOIN connection_orders co ON co.id = mr.applications_id
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND co.is_active = TRUE
             """
         )
@@ -107,15 +113,18 @@ async def count_warehouse_connection_orders_with_materials() -> int:
 
 async def count_warehouse_technician_orders() -> int:
     """
-    Omborda turgan texnik arizalari soni
+    Ombordan material so'ralgan texnik arizalari soni
+    YANGI: Status tekshirmaydi, faqat tasdiqlash kutayotgan materiallar
     """
     conn = await _conn()
     try:
         count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT t_orders.id)
-            FROM technician_orders t_orders
-            WHERE t_orders.status = 'in_warehouse'
+            FROM material_requests mr
+            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND t_orders.is_active = TRUE
             """
         )
@@ -125,15 +134,18 @@ async def count_warehouse_technician_orders() -> int:
 
 async def count_warehouse_staff_orders() -> int:
     """
-    Omborda turgan xodim arizalari soni
+    Ombordan material so'ralgan xodim arizalari soni
+    YANGI: Status tekshirmaydi, faqat tasdiqlash kutayotgan materiallar
     """
     conn = await _conn()
     try:
         count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT so.id)
-            FROM staff_orders so
-            WHERE so.status = 'in_warehouse'
+            FROM material_requests mr
+            JOIN staff_orders so ON so.id = mr.applications_id
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND so.is_active = TRUE
             """
         )
@@ -144,6 +156,7 @@ async def count_warehouse_staff_orders() -> int:
 async def fetch_materials_for_connection_order(connection_order_id: int) -> List[Dict[str, Any]]:
     """
     Ulanish arizasi uchun materiallar ro'yxati
+    YANGI: Faqat source_type='warehouse' bo'lgan materiallarni ko'rsatadi
     """
     conn = await _conn()
     try:
@@ -156,10 +169,11 @@ async def fetch_materials_for_connection_order(connection_order_id: int) -> List
                 COALESCE(m.price, 0) as price,
                 mr.total_price,
                 mr.source_type,
-                mr.warehouse_approved
+                COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.applications_id = $1
+              AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
             connection_order_id
@@ -175,14 +189,16 @@ async def fetch_warehouse_technician_orders(
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Omborda turgan texnik arizalari (technician_orders) - status: 'in_warehouse'
+    Ombordan material so'ralgan texnik arizalari
+    YANGI: Status tekshirmaydi, faqat material_requests mavjudligini tekshiradi
     """
     conn = await _conn()
     try:
         rows = await conn.fetch(
             """
-            SELECT
+            SELECT DISTINCT
                 t_orders.id,
+                t_orders.application_number,
                 t_orders.address,
                 t_orders.region,
                 t_orders.status,
@@ -193,10 +209,15 @@ async def fetch_warehouse_technician_orders(
                 u.full_name AS client_name,
                 u.phone AS client_phone,
                 u.telegram_id AS client_telegram_id
-            FROM technician_orders t_orders
+            FROM material_requests mr
+            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
             LEFT JOIN users u ON u.id = t_orders.user_id
-            WHERE t_orders.status = 'in_warehouse'
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND t_orders.is_active = TRUE
+            GROUP BY t_orders.id, t_orders.application_number, t_orders.address, t_orders.region, t_orders.status,
+                     t_orders.created_at, t_orders.updated_at, t_orders.description, t_orders.media,
+                     u.full_name, u.phone, u.telegram_id
             ORDER BY t_orders.created_at DESC
             LIMIT $1 OFFSET $2
             """,
@@ -248,15 +269,18 @@ async def fetch_warehouse_technician_orders_with_materials(
 
 async def count_warehouse_technician_orders_with_materials() -> int:
     """
-    Omborda turgan texnik arizalari soni
+    Ombordan material so'ralgan texnik arizalari soni
+    YANGI: Status tekshirmaydi, faqat tasdiqlash kutayotgan materiallar
     """
     conn = await _conn()
     try:
         count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT t_orders.id)
-            FROM technician_orders t_orders
-            WHERE t_orders.status = 'in_warehouse'
+            FROM material_requests mr
+            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND t_orders.is_active = TRUE
             """
         )
@@ -267,6 +291,7 @@ async def count_warehouse_technician_orders_with_materials() -> int:
 async def fetch_materials_for_technician_order(technician_order_id: int) -> List[Dict[str, Any]]:
     """
     Texnik arizasi uchun materiallar ro'yxati
+    YANGI: Faqat source_type='warehouse' bo'lgan materiallarni ko'rsatadi
     """
     conn = await _conn()
     try:
@@ -277,10 +302,13 @@ async def fetch_materials_for_technician_order(technician_order_id: int) -> List
                 m.name as material_name,
                 mr.quantity,
                 COALESCE(m.price, 0) as price,
-                mr.total_price
+                mr.total_price,
+                mr.source_type,
+                COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.applications_id = $1
+              AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
             technician_order_id
@@ -296,13 +324,14 @@ async def fetch_warehouse_staff_orders(
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Omborda turgan xodim arizalari (staff_orders) - status: 'in_warehouse'
+    Ombordan material so'ralgan xodim arizalari
+    YANGI: Status tekshirmaydi, faqat material_requests mavjudligini tekshiradi
     """
     conn = await _conn()
     try:
         rows = await conn.fetch(
             """
-            SELECT
+            SELECT DISTINCT
                 so.id,
                 so.application_number,
                 so.address,
@@ -311,15 +340,19 @@ async def fetch_warehouse_staff_orders(
                 so.created_at,
                 so.updated_at,
                 so.description,
-                so.phone,
-                so.abonent_id,
+                so.type_of_zayavka,
                 u.full_name AS client_name,
                 u.phone AS client_phone,
                 u.telegram_id AS client_telegram_id
-            FROM staff_orders so
+            FROM material_requests mr
+            JOIN staff_orders so ON so.id = mr.applications_id
             LEFT JOIN users u ON u.id = so.user_id
-            WHERE so.status = 'in_warehouse'
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND so.is_active = TRUE
+            GROUP BY so.id, so.application_number, so.address, so.region, so.status,
+                     so.created_at, so.updated_at, so.description, so.type_of_zayavka,
+                     u.full_name, u.phone, u.telegram_id
             ORDER BY so.created_at DESC
             LIMIT $1 OFFSET $2
             """,
@@ -373,15 +406,18 @@ async def fetch_warehouse_staff_orders_with_materials(
 
 async def count_warehouse_staff_orders_with_materials() -> int:
     """
-    Omborda turgan xodim arizalari soni
+    Ombordan material so'ralgan xodim arizalari soni
+    YANGI: Status tekshirmaydi, faqat tasdiqlash kutayotgan materiallar
     """
     conn = await _conn()
     try:
         count = await conn.fetchval(
             """
             SELECT COUNT(DISTINCT so.id)
-            FROM staff_orders so
-            WHERE so.status = 'in_warehouse'
+            FROM material_requests mr
+            JOIN staff_orders so ON so.id = mr.applications_id
+            WHERE mr.source_type = 'warehouse'
+              AND COALESCE(mr.warehouse_approved, false) = false
               AND so.is_active = TRUE
             """
         )
@@ -392,6 +428,7 @@ async def count_warehouse_staff_orders_with_materials() -> int:
 async def fetch_materials_for_staff_order(staff_order_id: int) -> List[Dict[str, Any]]:
     """
     Xodim arizasi uchun materiallar ro'yxati
+    YANGI: Faqat source_type='warehouse' bo'lgan materiallarni ko'rsatadi
     """
     conn = await _conn()
     try:
@@ -402,10 +439,13 @@ async def fetch_materials_for_staff_order(staff_order_id: int) -> List[Dict[str,
                 m.name as material_name,
                 mr.quantity,
                 COALESCE(m.price, 0) as price,
-                mr.total_price
+                mr.total_price,
+                mr.source_type,
+                COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.applications_id = $1
+              AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
             staff_order_id
@@ -445,7 +485,7 @@ async def fetch_material_requests_by_connection_orders(
             LEFT JOIN users u ON u.id = co.user_id
             WHERE co.status = 'in_warehouse'
               AND co.is_active = TRUE
-            ORDER BY mr.created_at DESC
+            ORDER BY co.created_at DESC
             LIMIT $1 OFFSET $2
             """,
             limit, offset
@@ -483,7 +523,7 @@ async def fetch_material_requests_by_technician_orders(
             LEFT JOIN users u ON u.id = t_orders.user_id
             WHERE t_orders.status = 'in_warehouse'
               AND t_orders.is_active = TRUE
-            ORDER BY mr.created_at DESC
+            ORDER BY t_orders.created_at DESC
             LIMIT $1 OFFSET $2
             """,
             limit, offset
@@ -521,7 +561,7 @@ async def fetch_material_requests_by_staff_orders(
             LEFT JOIN users u ON u.id = so.user_id
             WHERE so.status = 'in_warehouse'
               AND so.is_active = TRUE
-            ORDER BY mr.created_at DESC
+            ORDER BY so.created_at DESC
             LIMIT $1 OFFSET $2
             """,
             limit, offset
@@ -644,7 +684,7 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
         # Texnik ID ni olish
         technician_id = await conn.fetchval(
             f"""
-            SELECT technician_id 
+            SELECT user_id 
             FROM {table_name} 
             WHERE id = $1
             """,
@@ -719,21 +759,15 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
 
 async def confirm_materials_and_update_status_for_connection(order_id: int, warehouse_user_id: int) -> bool:
     """
-    Ulanish arizasi uchun materiallarni tasdiqlash va statusni yangilash
+    Ulanish arizasi uchun materiallarni tasdiqlash
+    YANGI: Status O'ZGARMAYDI! Faqat materiallarni texnikka berish va ombor zaxirasini kamaytirish
     """
     conn = await _conn()
     try:
-        # Update connection order status to 'in_technician'
-        await conn.execute(
-            """
-            UPDATE connection_orders 
-            SET status = 'in_technician', updated_at = now()
-            WHERE id = $1 AND status = 'in_warehouse'
-            """,
-            order_id
-        )
+        # STATUS O'ZGARMAYDI! Texnik allaqachon in_technician_work da davom etmoqda
+        # Faqat materiallarni texnikka beramiz
         
-        # Material_and_technician jadvaliga yozish
+        # Material_and_technician jadvaliga yozish va ombor zaxirasini kamaytirish
         success = await create_material_and_technician_entry(order_id, "connection")
         if not success:
             print(f"Failed to create material_and_technician entries for connection order {order_id}")
@@ -747,21 +781,15 @@ async def confirm_materials_and_update_status_for_connection(order_id: int, ware
 
 async def confirm_materials_and_update_status_for_technician(order_id: int, warehouse_user_id: int) -> bool:
     """
-    Texnik arizasi uchun materiallarni tasdiqlash va statusni yangilash
+    Texnik arizasi uchun materiallarni tasdiqlash
+    YANGI: Status O'ZGARMAYDI! Faqat materiallarni texnikka berish va ombor zaxirasini kamaytirish
     """
     conn = await _conn()
     try:
-        # Update technician order status to 'in_technician'
-        await conn.execute(
-            """
-            UPDATE technician_orders 
-            SET status = 'in_technician', updated_at = now()
-            WHERE id = $1 AND status = 'in_warehouse'
-            """,
-            order_id
-        )
+        # STATUS O'ZGARMAYDI! Texnik allaqachon in_technician_work da davom etmoqda
+        # Faqat materiallarni texnikka beramiz
         
-        # Material_and_technician jadvaliga yozish
+        # Material_and_technician jadvaliga yozish va ombor zaxirasini kamaytirish
         success = await create_material_and_technician_entry(order_id, "technician")
         if not success:
             print(f"Failed to create material_and_technician entries for technician order {order_id}")
@@ -775,21 +803,15 @@ async def confirm_materials_and_update_status_for_technician(order_id: int, ware
 
 async def confirm_materials_and_update_status_for_staff(order_id: int, warehouse_user_id: int) -> bool:
     """
-    Xodim arizasi uchun materiallarni tasdiqlash va statusni yangilash
+    Xodim arizasi uchun materiallarni tasdiqlash
+    YANGI: Status O'ZGARMAYDI! Faqat materiallarni texnikka berish va ombor zaxirasini kamaytirish
     """
     conn = await _conn()
     try:
-        # Update staff order status to 'in_technician'
-        await conn.execute(
-            """
-            UPDATE staff_orders 
-            SET status = 'in_technician', updated_at = now()
-            WHERE id = $1 AND status = 'in_warehouse'
-            """,
-            order_id
-        )
+        # STATUS O'ZGARMAYDI! Texnik allaqachon in_technician_work da davom etmoqda
+        # Faqat materiallarni texnikka beramiz
         
-        # Material_and_technician jadvaliga yozish
+        # Material_and_technician jadvaliga yozish va ombor zaxirasini kamaytirish
         success = await create_material_and_technician_entry(order_id, "staff")
         if not success:
             print(f"Failed to create material_and_technician entries for staff order {order_id}")

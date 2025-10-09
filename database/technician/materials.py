@@ -208,6 +208,8 @@ async def upsert_material_selection(
     Tanlangan miqdorni to'g'ridan-to'g'ri o'rnatadi (jamlamaydi).
     material_requests da UNIQUE (user_id, applications_id, material_id) tavsiya etiladi.
     source_type: 'technician_stock' (texnikda bor) yoki 'warehouse' (ombordan so'rash)
+    
+    MUHIM: Agar source_type='technician_stock' bo'lsa, DARHOL material_and_technician.quantity kamayadi!
     Material_issued ga yozmaslik - faqat yakuniy ko'rinishda yoziladi.
     """
     if qty <= 0:
@@ -227,6 +229,31 @@ async def upsert_material_selection(
             price = material_info['price']
             material_name = material_info['name']
             total = price * qty
+
+            # Agar texnikda mavjud material bo'lsa, DARHOL kamaytiramiz
+            if source_type == 'technician_stock':
+                # Texnikda yetarli miqdor borligini tekshirish
+                current_qty = await conn.fetchval(
+                    """
+                    SELECT COALESCE(quantity, 0) 
+                    FROM material_and_technician 
+                    WHERE user_id = $1 AND material_id = $2
+                    """,
+                    user_id, material_id
+                )
+                
+                if current_qty is None or current_qty < qty:
+                    raise ValueError(f"Texnikda yetarli material yo'q. Mavjud: {current_qty or 0}, Kerak: {qty}")
+                
+                # DARHOL material_and_technician dan kamaytiramiz
+                await conn.execute(
+                    """
+                    UPDATE material_and_technician 
+                    SET quantity = quantity - $3
+                    WHERE user_id = $1 AND material_id = $2
+                    """,
+                    user_id, material_id, qty
+                )
 
             has_updated_at = await _has_column(conn, "material_requests", "updated_at")
 
@@ -319,6 +346,51 @@ async def create_material_issued_from_review(
         await conn.close()
 
 
+async def restore_technician_materials_on_cancel(user_id: int, applications_id: int) -> None:
+    """
+    Ariza bekor qilinganda texnik o'zidan olgan materiallarni qaytarish.
+    - material_requests dan source_type='technician_stock' bo'lgan materiallarni oladi
+    - Ularni material_and_technician ga qaytaradi
+    - Barcha material_requests yozuvlarini o'chiradi
+    """
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Texnikdan olingan materiallarni topish
+            technician_materials = await conn.fetch(
+                """
+                SELECT material_id, quantity 
+                FROM material_requests
+                WHERE user_id = $1 
+                  AND applications_id = $2 
+                  AND source_type = 'technician_stock'
+                """,
+                user_id, applications_id
+            )
+            
+            # Har bir materialni material_and_technician ga qaytarish
+            for mat in technician_materials:
+                await conn.execute(
+                    """
+                    UPDATE material_and_technician 
+                    SET quantity = quantity + $3
+                    WHERE user_id = $1 AND material_id = $2
+                    """,
+                    user_id, mat['material_id'], mat['quantity']
+                )
+            
+            # Barcha material_requests yozuvlarini o'chirish
+            await conn.execute(
+                """
+                DELETE FROM material_requests 
+                WHERE user_id = $1 AND applications_id = $2
+                """,
+                user_id, applications_id
+            )
+    finally:
+        await conn.close()
+
+
 # Orqa-ward compat: eski nomli funksiya ham shu mantiqqa yo'naltiriladi
 async def upsert_material_request_and_decrease_stock(
     user_id: int,
@@ -397,8 +469,8 @@ async def send_selection_to_warehouse(
 ) -> bool:
     """
     Tanlangan materiallarni omborga jo'natish.
-    - material_requests ga QAYTA insert qilinmaydi (dublikatning ildizi shu edi).
-    - faqat statusni 'in_warehouse' ga o'tkazamiz va connections ga tarix yozamiz (to'g'ri id-ustun bilan).
+    YANGI: Status O'ZGARMAYDI! Faqat connections ga tarix yoziladi.
+    Texnik ishni davom ettiradi, omborchi faqat material yetkazib beradi.
     """
     uid = technician_user_id if technician_user_id is not None else technician_id
     if uid is None:
@@ -407,29 +479,9 @@ async def send_selection_to_warehouse(
     conn = await _conn()
     try:
         async with conn.transaction():
-            # 1) status -> in_warehouse
-            if request_type == "technician":
-                await conn.execute(
-                    "UPDATE technician_orders SET status='in_warehouse', updated_at=NOW() WHERE id=$1",
-                    applications_id
-                )
-            elif request_type == "staff":
-                await conn.execute(
-                    "UPDATE staff_orders SET status='in_warehouse', updated_at=NOW() WHERE id=$1",
-                    applications_id
-                )
-            else:
-                await conn.execute(
-                    """
-                    UPDATE connection_orders
-                       SET status='in_warehouse'::connection_order_status,
-                           updated_at=NOW()
-                     WHERE id=$1
-                    """,
-                    applications_id
-                )
-
-            # 2) connections ga tarix yozish: recipient — omborchi
+            # STATUS O'ZGARMAYDI! Texnik davom ettiradi.
+            # Faqat connections ga tarix yozamiz - omborchi material_requests dan ko'radi
+            
             warehouse_id = await pick_warehouse_user_rr(applications_id)
             if warehouse_id is not None:
                 conn_id  = applications_id if request_type == "connection"  else None
@@ -445,7 +497,7 @@ async def send_selection_to_warehouse(
                         created_at, updated_at
                     )
                     VALUES ($1, $2, $3, $4, $5,
-                            'in_technician_work', 'in_warehouse',
+                            'in_technician_work', 'pending_warehouse',
                             NOW(), NOW())
                     """,
                     uid, warehouse_id, conn_id, tech_oid, staff_oid

@@ -161,6 +161,7 @@ async def _get_staff_akt_data(conn, request_id: int) -> Optional[Dict[str, Any]]
 async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict[str, Any]]:
     """
     AKT uchun ishlatilgan materiallarni olish.
+    material_issued jadvalidan olinadi (yakuniy ishlatilgan materiallar).
     
     Args:
         request_id: Ariza IDsi
@@ -171,56 +172,34 @@ async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        if request_type == 'connection':
-            materials = await conn.fetch(
-                """
-                SELECT 
-                    m.name AS material_name,
-                    mr.quantity,
-                    mr.price,
-                    mr.total_price,
-                    'шт' AS unit
-                FROM material_requests mr
-                JOIN materials m ON m.id = mr.material_id
-                WHERE mr.connection_order_id = $1
-                ORDER BY mr.created_at
-                """,
-                request_id
-            )
-        elif request_type == 'technician':
-            materials = await conn.fetch(
-                """
-                SELECT 
-                    m.name AS material_name,
-                    mr.quantity,
-                    mr.price,
-                    mr.total_price,
-                    'шт' AS unit
-                FROM material_requests mr
-                JOIN materials m ON m.id = mr.material_id
-                WHERE mr.technician_order_id = $1
-                ORDER BY mr.created_at
-                """,
-                request_id
-            )
-        elif request_type == 'staff':
-            materials = await conn.fetch(
-                """
-                SELECT 
-                    m.name AS material_name,
-                    mr.quantity,
-                    mr.price,
-                    mr.total_price,
-                    'шт' AS unit
-                FROM material_requests mr
-                JOIN materials m ON m.id = mr.material_id
-                WHERE mr.staff_order_id = $1
-                ORDER BY mr.created_at
-                """,
-                request_id
-            )
-        else:
-            materials = []
+        # material_issued jadvalidan olish (yakuniy ishlatilgan materiallar)
+        materials = await conn.fetch(
+            """
+            SELECT 
+                material_name,
+                quantity,
+                price,
+                total_price,
+                material_unit AS unit
+            FROM material_issued
+            WHERE request_type = $1 
+              AND application_number = (
+                  SELECT application_number 
+                  FROM technician_orders 
+                  WHERE id = $2
+                  UNION ALL
+                  SELECT application_number 
+                  FROM connection_orders 
+                  WHERE id = $2
+                  UNION ALL
+                  SELECT application_number 
+                  FROM staff_orders 
+                  WHERE id = $2
+              )
+            ORDER BY created_at
+            """,
+            request_type, request_id
+        )
             
         return [dict(m) for m in materials]
     finally:

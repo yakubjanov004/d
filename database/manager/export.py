@@ -20,34 +20,18 @@ async def get_manager_connection_orders_for_export() -> List[Dict[str, Any]]:
         query = """
         SELECT 
             co.id, 
-            co.id as order_number,
+            co.application_number,
             u.full_name as client_name,
             u.phone as phone_number,
-            u.abonent_id as client_abonent_id,
             co.region,
             co.address,
-            co.longitude,
-            co.latitude,
             t.name as plan_name,
-            t.picture as plan_picture,
             co.created_at as connection_date,
-            co.updated_at,
             co.status,
-            co.rating,
-            co.notes,
-            co.jm_notes,
-            co.controller_notes,
-            ad.akt_number,
-            ad.file_path as akt_file_path,
-            ad.created_at as akt_created_at,
-            ad.sent_to_client_at,
-            ar.rating as akt_rating,
-            ar.comment as akt_comment
+            co.jm_notes
         FROM connection_orders co
         LEFT JOIN users u ON co.user_id = u.id
         LEFT JOIN tarif t ON co.tarif_id = t.id
-        LEFT JOIN akt_documents ad ON co.id = ad.request_id AND ad.request_type = 'connection'
-        LEFT JOIN akt_ratings ar ON co.id = ar.request_id AND ar.request_type = 'connection'
         ORDER BY co.created_at DESC
         """
         rows = await conn.fetch(query)

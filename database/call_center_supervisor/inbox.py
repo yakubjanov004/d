@@ -384,6 +384,82 @@ async def ccs_send_staff_to_operator(order_id: int, supervisor_telegram_id: int)
     finally:
         await conn.close()
 
+# ==================== COMPLETE FUNCTIONS ====================
+
+async def ccs_complete_technician_order(order_id: int, supervisor_telegram_id: int) -> bool:
+    """Texnik arizani yakunlash"""
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Get supervisor user ID
+            supervisor = await conn.fetchrow("SELECT id FROM users WHERE telegram_id = $1", supervisor_telegram_id)
+            if not supervisor:
+                return False
+            
+            supervisor_id = supervisor['id']
+            
+            # Update technician order status
+            result = await conn.execute("""
+                UPDATE technician_orders
+                SET status = 'completed',
+                    updated_at = NOW()
+                WHERE id = $1 AND status = 'in_call_center_supervisor'
+            """, order_id)
+            
+            if result == "UPDATE 0":
+                return False
+            
+            # Create connection record for completion
+            await conn.execute("""
+                INSERT INTO connections(
+                    technician_id, sender_id, recipient_id,
+                    sender_status, recipient_status,
+                    created_at, updated_at
+                )
+                VALUES ($1, $2, $3, 'in_call_center_supervisor', 'completed', NOW(), NOW())
+            """, order_id, supervisor_id, supervisor_id)
+            
+            return True
+    finally:
+        await conn.close()
+
+async def ccs_complete_staff_order(order_id: int, supervisor_telegram_id: int) -> bool:
+    """Staff arizani yakunlash"""
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Get supervisor user ID
+            supervisor = await conn.fetchrow("SELECT id FROM users WHERE telegram_id = $1", supervisor_telegram_id)
+            if not supervisor:
+                return False
+            
+            supervisor_id = supervisor['id']
+            
+            # Update staff order status
+            result = await conn.execute("""
+                UPDATE staff_orders
+                SET status = 'completed',
+                    updated_at = NOW()
+                WHERE id = $1 AND status = 'in_call_center_supervisor'
+            """, order_id)
+            
+            if result == "UPDATE 0":
+                return False
+            
+            # Create connection record for completion
+            await conn.execute("""
+                INSERT INTO connections(
+                    staff_id, sender_id, recipient_id,
+                    sender_status, recipient_status,
+                    created_at, updated_at
+                )
+                VALUES ($1, $2, $3, 'in_call_center_supervisor', 'completed', NOW(), NOW())
+            """, order_id, supervisor_id, supervisor_id)
+            
+            return True
+    finally:
+        await conn.close()
+
 # ==================== CANCEL FUNCTIONS ====================
 
 async def ccs_cancel_technician_order(order_id: int) -> bool:

@@ -171,6 +171,7 @@ async def fetch_technician_inbox_tech(
                 to2.status,
                 to2.created_at,
                 to2.description,
+                to2.diagnostics,
                 to2.media AS media_file_id,
                 CASE 
                     WHEN to2.media IS NOT NULL THEN 'photo'
@@ -246,6 +247,7 @@ async def fetch_technician_inbox_staff(
                 so.abonent_id,
                 so.address,
                 so.description,
+                so.diagnostics,
                 so.status,
                 so.created_at,
                 so.type_of_zayavka,

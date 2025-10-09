@@ -32,35 +32,16 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
             SELECT 
                 so.id,
                 so.application_number,
-                so.user_id,
-                so.phone,
-                so.abonent_id,
                 so.region,
                 so.address,
-                so.tarif_id,
                 so.description,
-                so.business_type,
                 so.type_of_zayavka,
                 so.status,
-                so.is_active,
                 so.created_at,
-                so.updated_at,
-                la.assigned_at,
                 u.full_name as client_name,
                 u.phone as client_phone,
                 t.name as tariff,
-                r.name as region_name,
-                creator.full_name as staff_name,
-                creator.phone as staff_phone,
-                creator.role as staff_role,
-                CASE 
-                    WHEN so.status = 'in_controller' THEN 'Controller da'
-                    WHEN so.status = 'between_controller_technician' THEN 'Technician ga yuborilgan'
-                    WHEN so.status = 'in_technician' THEN 'Technician da'
-                    WHEN so.status = 'completed' THEN 'Bajarilgan'
-                    WHEN so.status = 'cancelled' THEN 'Bekor qilingan'
-                    ELSE so.status
-                END as status_text
+                r.name as region_name
             FROM staff_orders so
             JOIN last_assign la ON la.staff_id = so.id
             LEFT JOIN users u ON u.id = so.user_id

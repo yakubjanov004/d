@@ -460,7 +460,7 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
         await conn.execute(
             """
             UPDATE connection_orders
-            SET status = 'in_technician',
+            SET status = 'between_controller_technician',
                 updated_at = NOW()
             WHERE id = $1
             """,
@@ -481,7 +481,7 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
             INSERT INTO connections (
                 connection_id, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
-            ) VALUES ($1, $2, $3, 'in_controller', 'in_technician', NOW())
+            ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
             request_id, actor_id, tech_id
         )
@@ -563,7 +563,7 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
         await conn.execute(
             """
             UPDATE technician_orders
-            SET status = 'in_technician',
+            SET status = 'between_controller_technician',
                 updated_at = NOW()
             WHERE id = $1
             """,
@@ -584,7 +584,7 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
             INSERT INTO connections (
                 technician_id, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
-            ) VALUES ($1, $2, $3, 'in_controller', 'in_technician', NOW())
+            ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
             request_id, actor_id, tech_id
         )
@@ -666,7 +666,7 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
         await conn.execute(
             """
             UPDATE staff_orders
-            SET status = 'in_technician',
+            SET status = 'between_controller_technician',
                 updated_at = NOW()
             WHERE id = $1
             """,
@@ -687,7 +687,7 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
             INSERT INTO connections (
                 staff_id, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
-            ) VALUES ($1, $2, $3, 'in_controller', 'in_technician', NOW())
+            ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
             request_id, actor_id, tech_id
         )
