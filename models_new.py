@@ -22,6 +22,7 @@ class ConnectionOrderStatus(Enum):
     IN_TECHNICIAN_WORK = "in_technician_work"    # Texnik ish bajarayapti
     COMPLETED = "completed"                      # Yakunlangan
     BETWEEN_CONTROLLER_TECHNICIAN = "between_controller_technician"  # Kontroller va texnik o'rtasida
+    CANCELLED = "cancelled"                       # Bekor qilingan
 
 class SmartServiceCategory(Enum):
     """
@@ -72,6 +73,7 @@ class TechnicianOrderStatus(Enum):
     BETWEEN_CONTROLLER_TECHNICIAN = "between_controller_technician"  # Kontroller va texnik o'rtasida
     IN_CALL_CENTER_SUPERVISOR = "in_call_center_supervisor"         # Call center nazoratchisiga tayinlangan
     IN_CALL_CENTER_OPERATOR = "in_call_center_operator"             # Call center operatoriga tayinlangan
+    CANCELLED = "cancelled"                       # Bekor qilingan
 
 class StaffOrderStatus(Enum):
     """
@@ -79,11 +81,13 @@ class StaffOrderStatus(Enum):
     Turli foydalanuvchilar tomonidan yaratilgan va ko'rib chiqiladigan buyurtmalar
     """
     # Yaratish bosqichlari
+    NEW = "new"                                  # Yangi ariza
     IN_CALL_CENTER_OPERATOR = "in_call_center_operator"      # Call center operatoriga tayinlangan
     IN_CALL_CENTER_SUPERVISOR = "in_call_center_supervisor"  # Call center nazoratchisiga tayinlangan
     
     # Ko'rib chiqish va tasdiqlash bosqichlari
     IN_MANAGER = "in_manager"                    # Managerga tayinlangan
+    IN_JUNIOR_MANAGER = "in_junior_manager"      # Kichik managerga tayinlangan
     IN_CONTROLLER = "in_controller"              # Kontrollerga tayinlangan
     
     # Bajarish bosqichlari
@@ -92,6 +96,10 @@ class StaffOrderStatus(Enum):
     IN_REPAIRS = "in_repairs"                    # Ta'mirlashda
     IN_WAREHOUSE = "in_warehouse"                # Omborga tayinlangan
     IN_TECHNICIAN_WORK = "in_technician_work"    # Texnik ish bajarayapti
+    
+    # Qo'shimcha statuslar
+    IN_PROGRESS = "in_progress"                  # Jarayonda
+    ASSIGNED_TO_TECHNICIAN = "assigned_to_technician"  # Texnikaga tayinlangan
     
     # Yakunlash
     COMPLETED = "completed"                      # Yakunlangan
@@ -326,7 +334,7 @@ class StaffOrders(BaseModel, OrderBase):
     problem_description: Optional[str] = None   # Muammo haqida batafsil (texnik xizmat uchun)
     diagnostics: Optional[str] = None           # Diagnostika natijalari (texnik xizmat uchun)
     business_type: BusinessType = BusinessType.B2C  # Business type (B2B/B2C)
-    status: StaffOrderStatus = StaffOrderStatus.IN_CALL_CENTER_OPERATOR  # Boshlang'ich status
+    status: StaffOrderStatus = StaffOrderStatus.NEW  # Boshlang'ich status
     type_of_zayavka: StaffOrderTypeOfZayavka = StaffOrderTypeOfZayavka.CONNECTION  # Ariza turi
     is_active: bool = True                      # Ariza faolmi?
     created_by_role: Optional[UserRole] = None  # Kim tomonidan yaratilgani (qo'shimcha)
@@ -403,6 +411,8 @@ class MaterialRequests(BaseModel):
     quantity: int = 1                           # So'ralgan miqdor
     price: float = 0.0                          # Birlik narxi
     total_price: float = 0.0                    # Umumiy narx
+    source_type: str = "warehouse"              # Manba turi (warehouse, external, etc.)
+    warehouse_approved: bool = False            # Ombor tomonidan tasdiqlanganmi?
 
 @dataclass
 class MaterialAndTechnician(BaseModel):
@@ -429,12 +439,6 @@ class MaterialIssued(BaseModel):
     # Kim tomonidan berilgani
     issued_by: int                            # Kim tomonidan berilgan (FK users.id)
     issued_at: datetime = field(default_factory=datetime.now)  # Qachon berilgan
-    notes: Optional[str] = None               # Qo'shimcha izohlar
-    
-    # Qaysi arizaga tegishli ekanligi (bittasi bo'lishi shart)
-    connection_order_id: Optional[int] = None   # Ulanish arizasi IDsi (database ID)
-    technician_order_id: Optional[int] = None   # Texnik ariza IDsi (database ID)
-    staff_order_id: Optional[int] = None        # staff arizasi IDsi (database ID)
     
     # Material haqida ma'lumot (avtomatik to'ldiriladi)
     material_name: Optional[str] = None        # Material nomi
@@ -442,28 +446,10 @@ class MaterialIssued(BaseModel):
     
     # Tasdiqlash uchun
     is_approved: bool = False                  # Tasdiqlanganmi?
-    approved_by: Optional[int] = None          # Kim tasdiqladi (FK users.id)
-    approved_at: Optional[datetime] = None     # Qachon tasdiqlangan
     
-    # Qaytarish uchun
-    is_returned: bool = False                  # Qaytarilganmi?
-    returned_quantity: int = 0                 # Qancha miqdori qaytarilgan
-    returned_at: Optional[datetime] = None     # Qachon qaytarilgan
-    returned_by: Optional[int] = None          # Kim qaytardi (FK users.id)
-    return_notes: Optional[str] = None         # Qaytarish sababi/izohi
-
-    def __post_init__(self):
-        """Validatsiya va avtomatik hisoblashlar"""
-        # Umumiy summani hisoblash
-        self.total_price = self.quantity * self.price
-        
-        # Faqat bitta order ID bo'lishi kerak
-        order_count = sum([
-            1 if x is not None else 0 
-            for x in [self.connection_order_id, self.technician_order_id, self.staff_order_id]
-        ])
-        if order_count != 1:
-            raise ValueError("Exactly one of connection_order_id, technician_order_id, or staff_order_id must be set")
+    # Qo'shimcha ma'lumotlar (database dan kelgan)
+    application_number: Optional[str] = None   # Ariza raqami
+    request_type: str = "connection"          # So'rov turi (connection, technician, staff)
 
 @dataclass
 class Reports(BaseModel):

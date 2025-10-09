@@ -70,7 +70,7 @@ DO $$ BEGIN
     CREATE TYPE public.connection_order_status AS ENUM (
       'in_manager', 'in_junior_manager', 'in_controller', 'in_technician',
       'in_repairs', 'in_warehouse', 'in_technician_work', 'completed',
-      'between_controller_technician'
+      'between_controller_technician', 'cancelled'
     );
   END IF;
 END $$;
@@ -83,7 +83,7 @@ DO $$ BEGIN
       'in_controller', 'in_technician', 'in_diagnostics', 'in_repairs',
       'in_warehouse', 'in_technician_work', 'completed', 
       'between_controller_technician', 'in_call_center_supervisor', 
-      'in_call_center_operator'
+      'in_call_center_operator', 'cancelled'
     );
   END IF;
 END $$;
@@ -375,6 +375,8 @@ CREATE TABLE IF NOT EXISTS public.material_requests (
   quantity            INTEGER DEFAULT 1,
   price               NUMERIC DEFAULT 0,
   total_price         NUMERIC DEFAULT 0,
+  source_type         VARCHAR(20) DEFAULT 'warehouse',
+  warehouse_approved  BOOLEAN DEFAULT FALSE,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -404,29 +406,13 @@ CREATE TABLE IF NOT EXISTS public.material_issued (
   total_price           NUMERIC(10,2) NOT NULL,
   issued_by             BIGINT NOT NULL REFERENCES public.users(id),
   issued_at             TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  notes                 TEXT,
-  -- FIXED: INT not VARCHAR for order IDs
-  connection_order_id   BIGINT REFERENCES public.connection_orders(id) ON DELETE SET NULL,
-  technician_order_id   BIGINT REFERENCES public.technician_orders(id) ON DELETE SET NULL,
-  staff_order_id        BIGINT REFERENCES public.staff_orders(id) ON DELETE SET NULL,
   material_name         TEXT,
   material_unit         TEXT,
   is_approved           BOOLEAN DEFAULT FALSE,
-  approved_by           BIGINT REFERENCES public.users(id),
-  approved_at           TIMESTAMPTZ,
-  is_returned           BOOLEAN DEFAULT FALSE,
-  returned_quantity     INTEGER DEFAULT 0,
-  returned_at           TIMESTAMPTZ,
-  returned_by           BIGINT REFERENCES public.users(id),
-  return_notes          TEXT,
+  application_number    VARCHAR(50),
+  request_type          VARCHAR(20) DEFAULT 'connection',
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT chk_one_order_type CHECK (
-    (connection_order_id IS NOT NULL)::INTEGER + 
-    (technician_order_id IS NOT NULL)::INTEGER + 
-    (staff_order_id IS NOT NULL)::INTEGER = 1
-  ),
-  CONSTRAINT chk_return_quantity CHECK (returned_quantity <= quantity)
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 DROP TRIGGER IF EXISTS trg_material_issued_updated_at ON public.material_issued;
 CREATE TRIGGER trg_material_issued_updated_at BEFORE UPDATE ON public.material_issued

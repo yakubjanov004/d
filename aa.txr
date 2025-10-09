@@ -2333,6 +2333,8 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
     mode = st.get("tech_mode", "connection")
     request_type = "technician" if mode == "technician" else ("staff" if mode == "staff" else "connection")
 
+    # Faqat tanlov saqlansin, omborga yuborilmasin
+    # Yakunlashda barcha materiallar omborga yuboriladi
     try:
         mode = st.get("tech_mode", "connection")
         await upsert_material_selection(
@@ -2341,14 +2343,16 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
             material_id=material_id,
             qty=qty,
             request_type=mode,
-            source_type="warehouse"  
+            source_type="warehouse"  # Custom materials are from warehouse
         )
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
+    # Application number ni olish
     mode = st.get("tech_mode", "connection")
     app_number = await get_application_number(req_id, mode)
     
+    # Tanlangan materiallarni ko'rsatish
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
     lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("selected_products", lang)]
     for it in selected:
