@@ -51,9 +51,9 @@ async def fetch_technician_inbox(
                 co.status,
                 co.created_at,
                 co.jm_notes,
-                u.full_name AS client_name,
-                u.phone     AS client_phone,
-                t.name      AS tariff
+                COALESCE(u.full_name, 'Mijoz') AS client_name,
+                COALESCE(u.phone, '-') AS client_phone,
+                t.name AS tariff
             FROM last_conn c
             JOIN connection_orders co ON co.id = c.connection_id
             LEFT JOIN users u ON u.id = co.user_id
@@ -171,7 +171,7 @@ async def fetch_technician_inbox_tech(
                 to2.status,
                 to2.created_at,
                 to2.description,
-                to2.diagnostics,
+                COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
                 to2.media AS media_file_id,
                 CASE 
                     WHEN to2.media IS NOT NULL THEN 'photo'
@@ -179,12 +179,13 @@ async def fetch_technician_inbox_tech(
                 END AS media_type,
                 to2.description_operator,
                 to2.description_ish,
-                u.full_name AS client_name,
-                u.phone     AS client_phone,
+                COALESCE(client_user.full_name, user_user.full_name) AS client_name,
+                COALESCE(client_user.phone, user_user.phone) AS client_phone,
                 NULL        AS tariff
             FROM last_conn lc
             JOIN technician_orders to2 ON to2.id = lc.tech_order_id
-            LEFT JOIN users u ON u.id = to2.user_id
+            LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
+            LEFT JOIN users user_user ON user_user.id = to2.user_id
             WHERE
                 lc.rn = 1
                 AND to2.is_active = TRUE

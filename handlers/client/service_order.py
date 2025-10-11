@@ -528,27 +528,29 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     f"{'='*30}"
                 )
 
-                await bot.send_message(
-                    chat_id=settings.ZAYAVKA_GROUP_ID,
-                    text=group_msg,
-                    parse_mode='HTML'
-                )
-
+                # Send media with application details as caption, or just text if no media
                 if data.get('media_id'):
                     if data.get('media_type') == 'photo':
                         await bot.send_photo(
                             chat_id=settings.ZAYAVKA_GROUP_ID,
                             photo=data['media_id'],
-                            caption=None,
+                            caption=group_msg,
                             parse_mode='HTML'
                         )
                     elif data.get('media_type') == 'video':
                         await bot.send_video(
                             chat_id=settings.ZAYAVKA_GROUP_ID,
                             video=data['media_id'],
-                            caption=None,
+                            caption=group_msg,
                             parse_mode='HTML'
                         )
+                else:
+                    # No media, send text message
+                    await bot.send_message(
+                        chat_id=settings.ZAYAVKA_GROUP_ID,
+                        text=group_msg,
+                        parse_mode='HTML'
+                    )
 
                 if geo:
                     await bot.send_location(

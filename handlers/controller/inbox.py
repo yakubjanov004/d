@@ -755,9 +755,9 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
             load = result.get("current_load", 0)
             
             if notif_lang == "uz":
-                notif_text = f"📬 Yangi texnik xizmat arizasi\n\n🆔 #{app_num}\n\n📊 Sizda yana {load}ta ariza bor"
+                notif_text = f"📬 Yangi texnik xizmat arizasi\n\n🆔 {app_num}\n\n📊 Sizda yana {load}ta ariza bor"
             else:
-                notif_text = f"📬 Новая заявка на техническое обслуживание\n\n🆔 #{app_num}\n\n📊 У вас ещё {load} заявок"
+                notif_text = f"📬 Новая заявка на техническое обслуживание\n\n🆔 {app_num}\n\n📊 У вас ещё {load} заявок"
             
             try:
                 await bot.send_message(result["telegram_id"], notif_text)

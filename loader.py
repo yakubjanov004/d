@@ -4,11 +4,10 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import settings
 from middlewares import ErrorHandlingMiddleware
+from utils.universal_error_logger import get_universal_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
+# Bot logger ni ishlatish
+logger = get_universal_logger("AlfaConnectBot")
 
 bot = Bot(
     token=settings.BOT_TOKEN, 

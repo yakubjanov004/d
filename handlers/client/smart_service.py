@@ -196,16 +196,16 @@ def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
         "srv_smart_home_setup": "aqlli_uy_tizimlarini_ornatish_sozlash",
         "srv_smart_lighting": "aqlli_yoritish_smart_lighting_tizimlari",
         "srv_smart_thermostat": "aqlli_termostat_iqlim_nazarati_tizimlari",
-        "srv_smart_lock": "smart_lock_internet_boshqariladigan_eshik_qulfi",
+        "srv_smart_lock": "smart_lock_internet_orqali_boshqariladigan_eshik_qulfi_tizimlari",
         "srv_smart_outlets": "aqlli_rozetalar_energiya_monitoring_tizimlari",
-        "srv_remote_control": "uyni_masofadan_boshqarish_qurilmalari_uzim",
+        "srv_remote_control": "uyni_masofadan_boshqarish_qurilmalari_yagona_uzim_orqali_boshqarish",
         "srv_smart_curtains": "aqlli_pardalari_jaluz_tizimlari",
         "srv_appliance_integration": "aqlli_malahiy_texnika_integratsiyasi",
         # Security
-        "srv_cctv_cameras": "videokuzatuv_kameralarini_ornatish_ip_va_analog",
+        "srv_cctv_cameras": "videokuzatuv_kameralari_ornatish_ip_va_analog",
         "srv_camera_storage": "kamera_arxiv_tizimlari_bulutli_saqlash_xizmatlari",
         "srv_intercom": "domofon_tizimlari_ornatish",
-        "srv_security_alarm": "xavfsizlik_signalizatsiyasi_harakat_sensorlari",
+        "srv_security_alarm": "xavfsizlik_signalizatsiyasi_harakat_sensorlarini_ornatish",
         "srv_fire_alarm": "yong_signalizatsiyasi_tizimlari",
         "srv_gas_flood_protection": "gaz_sizish_sav_toshqinliqqa_qarshi_tizimlar",
         "srv_face_recognition": "yuzni_tanish_face_recognition_tizimlari",
@@ -218,10 +218,10 @@ def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
         "srv_internet_provider": "internet_provayder_xizmatlarini_ulash",
         "srv_server_nas": "server_va_nas_qurilmalarini_ornatish",
         "srv_cloud_storage": "bulutli_fayl_almashish_zaxira_tizimlari",
-        "srv_vpn_setup": "vpn_va_xavfsiz_internet_ulanishlarini_tashkil",
+        "srv_vpn_setup": "vpn_va_xavfsiz_internet_ulanishlarini_tashkil_qilish",
         # Energy
         "srv_solar_panels": "quyosh_panellarini_ornatish_ulash",
-        "srv_solar_batteries": "quyosh_batareyalari_orqali_energiya_saqlash",
+        "srv_solar_batteries": "quyosh_batareyalari_orqali_energiya_saqlash_tizimlari",
         "srv_wind_generators": "shamol_generatorlarini_ornatish",
         "srv_energy_saving_lighting": "elektr_energiyasini_tejovchi_yoritish_tizimlari",
         "srv_smart_irrigation": "avtomatik_suv_orish_tizimlari_smart_irrigation",
@@ -229,17 +229,17 @@ def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
         "srv_smart_tv": "smart_tv_ornatish_ulash",
         "srv_home_cinema": "uy_kinoteatri_tizimlari_ornatish",
         "srv_multiroom_audio": "audio_tizimlar_multiroom",
-        "srv_ip_telephony": "ip_telefoniya_mini_ats_tizimlarini_tashkil",
+        "srv_ip_telephony": "ip_telefoniya_mini_ats_tizimlarini_tashkil_qilish",
         "srv_video_conference": "video_konferensiya_tizimlari",
-        "srv_presentation_systems": "interaktiv_taqdimot_tizimlari_proyektor_led",
+        "srv_presentation_systems": "interaktiv_taqdimot_tizimlari_proyektor_led_ekran",
         # Special
         "srv_smart_office": "aqlli_ofis_tizimlarini_ornatish",
-        "srv_data_center": "data_markaz_server_room_loyihalash_montaj",
+        "srv_data_center": "data_markaz_server_room_loyihalash_montaj_qilish",
         "srv_technical_support": "qurilma_tizimlar_uchun_texnik_xizmat_korsatish",
         "srv_software_install": "dasturiy_taminotni_ornatish_yangilash",
-        "srv_iot_integration": "iot_internet_of_things_qurilmalarini_integratsiya",
+        "srv_iot_integration": "iot_internet_of_things_qurilmalarini_integratsiya_qilish",
         "srv_remote_management": "qurilmalarni_masofadan_boshqarish_tizimlarini_sozlash",
-        "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv",
+        "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv_tizimlari",
     }
     
     # Russian mappings
@@ -305,17 +305,17 @@ SERVICE_TYPE_MAPPING = {
     "srv_smart_home_setup": "aqlli_uy_tizimlarini_ornatish_sozlash",
     "srv_smart_lighting": "aqlli_yoritish_smart_lighting_tizimlari",
     "srv_smart_thermostat": "aqlli_termostat_iqlim_nazarati_tizimlari",
-    "srv_smart_lock": "smart_lock_internet_boshqariladigan_eshik_qulfi",
+    "srv_smart_lock": "smart_lock_internet_orqali_boshqariladigan_eshik_qulfi_tizimlari",
     "srv_smart_outlets": "aqlli_rozetalar_energiya_monitoring_tizimlari",
-    "srv_remote_control": "uyni_masofadan_boshqarish_qurilmalari_uzim",
+    "srv_remote_control": "uyni_masofadan_boshqarish_qurilmalari_yagona_uzim_orqali_boshqarish",
     "srv_smart_curtains": "aqlli_pardalari_jaluz_tizimlari",
     "srv_appliance_integration": "aqlli_malahiy_texnika_integratsiyasi",
     
     # Security Services
-    "srv_cctv_cameras": "videokuzatuv_kameralarini_ornatish_ip_va_analog",
+    "srv_cctv_cameras": "videokuzatuv_kameralari_ornatish_ip_va_analog",
     "srv_camera_storage": "kamera_arxiv_tizimlari_bulutli_saqlash_xizmatlari",
     "srv_intercom": "domofon_tizimlari_ornatish",
-    "srv_security_alarm": "xavfsizlik_signalizatsiyasi_harakat_sensorlari",
+    "srv_security_alarm": "xavfsizlik_signalizatsiyasi_harakat_sensorlarini_ornatish",
     "srv_fire_alarm": "yong_signalizatsiyasi_tizimlari",
     "srv_gas_flood_protection": "gaz_sizish_sav_toshqinliqqa_qarshi_tizimlar",
     "srv_face_recognition": "yuzni_tanish_face_recognition_tizimlari",
@@ -329,11 +329,11 @@ SERVICE_TYPE_MAPPING = {
     "srv_internet_provider": "internet_provayder_xizmatlarini_ulash",
     "srv_server_nas": "server_va_nas_qurilmalarini_ornatish",
     "srv_cloud_storage": "bulutli_fayl_almashish_zaxira_tizimlari",
-    "srv_vpn_setup": "vpn_va_xavfsiz_internet_ulanishlarini_tashkil",
+    "srv_vpn_setup": "vpn_va_xavfsiz_internet_ulanishlarini_tashkil_qilish",
     
     # Energy Services
     "srv_solar_panels": "quyosh_panellarini_ornatish_ulash",
-    "srv_solar_batteries": "quyosh_batareyalari_orqali_energiya_saqlash",
+    "srv_solar_batteries": "quyosh_batareyalari_orqali_energiya_saqlash_tizimlari",
     "srv_wind_generators": "shamol_generatorlarini_ornatish",
     "srv_energy_saving_lighting": "elektr_energiyasini_tejovchi_yoritish_tizimlari",
     "srv_smart_irrigation": "avtomatik_suv_orish_tizimlari_smart_irrigation",
@@ -342,18 +342,18 @@ SERVICE_TYPE_MAPPING = {
     "srv_smart_tv": "smart_tv_ornatish_ulash",
     "srv_home_cinema": "uy_kinoteatri_tizimlari_ornatish",
     "srv_multiroom_audio": "audio_tizimlar_multiroom",
-    "srv_ip_telephony": "ip_telefoniya_mini_ats_tizimlarini_tashkil",
+    "srv_ip_telephony": "ip_telefoniya_mini_ats_tizimlarini_tashkil_qilish",
     "srv_video_conference": "video_konferensiya_tizimlari",
-    "srv_presentation_systems": "interaktiv_taqdimot_tizimlari_proyektor_led",
+    "srv_presentation_systems": "interaktiv_taqdimot_tizimlari_proyektor_led_ekran",
     
     # Special Services
     "srv_smart_office": "aqlli_ofis_tizimlarini_ornatish",
-    "srv_data_center": "data_markaz_server_room_loyihalash_montaj",
+    "srv_data_center": "data_markaz_server_room_loyihalash_montaj_qilish",
     "srv_technical_support": "qurilma_tizimlar_uchun_texnik_xizmat_korsatish",
     "srv_software_install": "dasturiy_taminotni_ornatish_yangilash",
-    "srv_iot_integration": "iot_internet_of_things_qurilmalarini_integratsiya",
+    "srv_iot_integration": "iot_internet_of_things_qurilmalarini_integratsiya_qilish",
     "srv_remote_management": "qurilmalarni_masofadan_boshqarish_tizimlarini_sozlash",
-    "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv"
+    "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv_tizimlari"
 }
 
 # SmartService boshlash

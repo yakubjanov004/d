@@ -9,12 +9,13 @@ from database.controller.export import (
     get_controller_employees_for_export,
 )
 from utils.export_utils import ExportUtils
+from utils.universal_error_logger import get_universal_logger, log_error
 import logging
 from datetime import datetime
 
 router = Router()
 router.message.filter(RoleFilter(role="controller"))
-logger = logging.getLogger(__name__)
+logger = get_universal_logger("ControllerExport")
 
 @router.message(F.text.in_(["📤 Export", "📤 Экспорт"]))
 async def export_handler(message: Message, state: FSMContext):
@@ -103,7 +104,7 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         
         # Get data based on export type
         if export_type == "tech_requests":
-            raw_data = await get_controller_tech_requests_for_export()
+            orders_data = await get_controller_orders_for_export()
             title = "Texnik arizalar ro'yxati"
             filename_base = "texnik_arizalar"
             headers = [
@@ -114,8 +115,27 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                 "Akt raqami"
             ]
             
+            # Convert dict data to list format for export
+            raw_data = [
+                [
+                    order.get("id", ""),
+                    order.get("application_number", ""),
+                    order.get("client_name", ""),
+                    order.get("client_phone", ""),
+                    order.get("address", ""),
+                    order.get("description", ""),
+                    order.get("status", ""),
+                    order.get("technician_name", ""),  # Texnik
+                    order.get("controller_name", ""),  # Kontroller
+                    order.get("created_at", ""),
+                    "",  # Yangilangan sana (bo'sh)
+                    order.get("akt_number", "")  # Akt raqami
+                ]
+                for order in orders_data
+            ]
+            
         elif export_type == "connection_orders":
-            raw_data = await get_controller_connection_orders_for_export()
+            raw_data = await get_controller_orders_for_export()
             title = "Ulanish arizalari ro'yxati"
             filename_base = "ulanish_arizalari"
             headers = [
@@ -157,9 +177,9 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             add_row("🆕 Yangi arizalar:", stats['summary']['new_requests'])
             add_row("🔄 Jarayondagi arizalar:", stats['summary']['in_progress_requests'])
             add_row("✅ Yakunlangan arizalar:", stats['summary']['completed_requests'])
-            add_row("📈 Yakunlangan arizalar foizi:", f"{stats['summary']['completion_rate']}%")
+            add_row("📈 Yakunlangan arizalar foizi:", f"{stats['summary'].get('completion_rate', 0)}%")
             add_row("👥 Yagona mijozlar:", stats['summary']['unique_clients'])
-            add_row("🔧 Muammo turlari:", stats['summary']['unique_problem_types'])
+            add_row("🔧 Muammo turlari:", stats['summary'].get('unique_tariffs', 0))
             
             # 2. Texniklar bo'yicha statistika
             if stats['by_technician']:
@@ -169,42 +189,42 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                     phone = technician['technician_phone'] or 'Tel. yo\'q'
                     add_row(technician_name, "", 0)
                     add_row("  📞 Telefon:", phone, 1)
-                    add_row("  📊 Jami arizalar:", technician['total_requests'], 1)
-                    add_row("  ✅ Yakunlangan:", technician['completed_requests'], 1)
-                    add_row("  🔄 Jarayonda:", technician['in_progress_requests'], 1)
+                    add_row("  📊 Jami arizalar:", technician['total_orders'], 1)
+                    add_row("  ✅ Yakunlangan:", technician['completed_orders'], 1)
+                    add_row("  🔄 Jarayonda:", technician['in_progress_orders'], 1)
                     raw_data.append(["", ""])  # Empty row after each technician
             
             # 3. Oylik statistika
-            if stats['monthly_trends']:
+            if stats['monthly']:
                 add_section("Oylik statistika (6 oy)")
-                for month_data in stats['monthly_trends']:
+                for month_data in stats['monthly']:
                     month = month_data['month']
                     add_row(f"🗓️ {month}:", "", 0)
-                    add_row("  📊 Jami:", month_data['total_requests'], 1)
-                    add_row("  🆕 Yangi:", month_data['new_requests'], 1)
-                    add_row("  ✅ Yakunlangan:", month_data['completed_requests'], 1)
+                    add_row("  📊 Jami:", month_data['total_orders'], 1)
+                    add_row("  🆕 Yangi:", month_data['new_orders'], 1)
+                    add_row("  ✅ Yakunlangan:", month_data['completed_orders'], 1)
             
-            # 4. Muammo turlari bo'yicha statistika
-            if stats['by_problem_type']:
-                add_section("Muammo turlari bo'yicha statistika")
-                for problem in stats['by_problem_type']:
-                    add_row(f"🔧 {problem['problem_type']}", "", 0)
-                    add_row("  📊 Arizalar soni:", problem['total_requests'], 1)
-                    add_row("  👥 Mijozlar soni:", problem['unique_clients'], 1)
-                    add_row("  ✅ Yakunlangan:", problem['completed_requests'], 1)
+            # 4. Muammo turlari bo'yicha statistika (currently not implemented)
+            # if stats['by_problem_type']:
+            #     add_section("Muammo turlari bo'yicha statistika")
+            #     for problem in stats['by_problem_type']:
+            #         add_row(f"🔧 {problem['problem_type']}", "", 0)
+            #         add_row("  📊 Arizalar soni:", problem['total_requests'], 1)
+            #         add_row("  👥 Mijozlar soni:", problem['unique_clients'], 1)
+            #         add_row("  ✅ Yakunlangan:", problem['completed_requests'], 1)
             
             # 5. So'nggi faollik
             if stats['recent_activity']:
                 add_section("So'nggi faollik (30 kun)")
                 for activity in stats['recent_activity']:
-                    if activity['recent_requests'] > 0:
-                        last_active = activity['last_activity'].strftime('%Y-%m-%d') if activity['last_activity'] else 'Noma\'lum'
+                    if activity['recent_orders'] > 0:
+                        last_active = activity['last_order_date'].strftime('%Y-%m-%d') if activity['last_order_date'] else 'Noma\'lum'
                         add_row(
                             f"👤 {activity['technician_name']}",
                             f"📅 So'nggi: {last_active}",
                             0
                         )
-                        add_row("  📊 Arizalar soni:", activity['recent_requests'], 1)
+                        add_row("  📊 Arizalar soni:", activity['recent_orders'], 1)
                 
             headers = ["Ko'rsatkich", "Qiymat"]
             
@@ -220,10 +240,10 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             # Convert the list of dicts to the format expected by the export functions
             raw_data = [
                 [
-                    emp.get("Ism-sharif", ""),
-                    emp.get("Telefon", ""),
-                    emp.get("Lavozim", ""),
-                    emp.get("Qo'shilgan sana", "")
+                    emp.get("full_name", ""),
+                    emp.get("phone", ""),
+                    emp.get("role", ""),
+                    emp.get("created_at", "").strftime('%Y-%m-%d') if emp.get("created_at") else ""
                 ]
                 for emp in employees
             ]
@@ -271,7 +291,7 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         
     except Exception as e:
-        logger.error(f"Export format handler error: {str(e)}", exc_info=True)
+        log_error(e, "Controller export format handler", callback.from_user.id)
         await callback.message.answer(
             f"❌ Xatolik yuz berdi: {str(e)}\n"
             "Iltimos, qaytadan urinib ko'ring yoki administratorga murojaat qiling."

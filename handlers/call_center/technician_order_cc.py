@@ -297,8 +297,13 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         try:
             from loader import bot
             from utils.notification_service import send_group_notification_for_staff_order
+            from database.basic.user import get_user_by_telegram_id
             
             region_name = region_code.replace('_', ' ').title()
+            
+            # Bazadan xodim ma'lumotlarini olish
+            creator_user = await get_user_by_telegram_id(callback.from_user.id)
+            creator_name = creator_user.get('full_name', callback.from_user.full_name) if creator_user else callback.from_user.full_name
             
             await send_group_notification_for_staff_order(
                 bot=bot,
@@ -306,7 +311,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
                 order_type="technician",
                 client_name=acting_client.get('full_name', 'Noma\'lum'),
                 client_phone=acting_client.get('phone', '-'),
-                creator_name=callback.from_user.full_name,
+                creator_name=creator_name,
                 creator_role='call_center',
                 region=region_name,
                 address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),

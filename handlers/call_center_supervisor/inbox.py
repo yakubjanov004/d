@@ -174,7 +174,6 @@ def _tech_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKey
     prev_cb = f"ccs_tech_prev:{idx}"
     next_cb = f"ccs_tech_next:{idx}"
     send_to_operator_cb = f"ccs_tech_send_operator:{order_id}:{idx}"
-    complete_cb = f"ccs_tech_complete:{order_id}:{idx}"
     back_cb = "ccs_back_to_categories"
 
     texts = {
@@ -182,30 +181,42 @@ def _tech_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKey
             "back": "◀️ Orqaga",
             "next": "▶️ Oldinga",
             "send_to_operator": "📤 Operatorga jo'natish",
-            "complete": "✅ Yakunlash",
             "categories": "🔙 Kategoriyalar"
         },
         "ru": {
             "back": "◀️ Назад",
             "next": "▶️ Далее",
             "send_to_operator": "📤 Отправить оператору",
-            "complete": "✅ Завершить",
             "categories": "🔙 Категории"
         }
     }
     t = texts[lang]
 
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=t["back"], callback_data=prev_cb),
-            InlineKeyboardButton(text=t["next"], callback_data=next_cb),
-        ],
-        [
-            InlineKeyboardButton(text=t["send_to_operator"], callback_data=send_to_operator_cb),
-            InlineKeyboardButton(text=t["complete"], callback_data=complete_cb)
-        ],
-        [InlineKeyboardButton(text=t["categories"], callback_data=back_cb)]
+    # Paginatsiya tugmalari mantiqiy tarzda ko'rinadi
+    keyboard = []
+    
+    if total > 1:
+        pagination_row = []
+        
+        # Orqaga tugmasi - faqat boshida bo'lmasa
+        if idx > 0:
+            pagination_row.append(InlineKeyboardButton(text=t["back"], callback_data=prev_cb))
+        
+        # Oldinga tugmasi - faqat oxirida bo'lmasa
+        if idx < total - 1:
+            pagination_row.append(InlineKeyboardButton(text=t["next"], callback_data=next_cb))
+        
+        if pagination_row:  # Agar kamida bitta tugma bo'lsa
+            keyboard.append(pagination_row)
+    
+    keyboard.append([
+        InlineKeyboardButton(text=t["send_to_operator"], callback_data=send_to_operator_cb)
     ])
+    keyboard.append([
+        InlineKeyboardButton(text=t["categories"], callback_data=back_cb)
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -> str:
     """Format technician order card"""
@@ -527,7 +538,6 @@ def _staff_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKe
     prev_cb = f"ccs_staff_prev:{idx}"
     next_cb = f"ccs_staff_next:{idx}"
     send_to_operator_cb = f"ccs_staff_send_operator:{order_id}:{idx}"
-    complete_cb = f"ccs_staff_complete:{order_id}:{idx}"
     back_cb = "ccs_back_to_categories"
 
     texts = {
@@ -535,30 +545,42 @@ def _staff_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKe
             "back": "◀️ Orqaga",
             "next": "▶️ Oldinga",
             "send_to_operator": "📤 Operatorga jo'natish",
-            "complete": "✅ Yakunlash",
             "categories": "🔙 Kategoriyalar"
         },
         "ru": {
             "back": "◀️ Назад",
             "next": "▶️ Далее",
             "send_to_operator": "📤 Отправить оператору",
-            "complete": "✅ Завершить",
             "categories": "🔙 Категории"
         }
     }
     t = texts[lang]
 
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=t["back"], callback_data=prev_cb),
-            InlineKeyboardButton(text=t["next"], callback_data=next_cb),
-        ],
-        [
-            InlineKeyboardButton(text=t["send_to_operator"], callback_data=send_to_operator_cb),
-            InlineKeyboardButton(text=t["complete"], callback_data=complete_cb)
-        ],
-        [InlineKeyboardButton(text=t["categories"], callback_data=back_cb)]
+    # Paginatsiya tugmalari mantiqiy tarzda ko'rinadi
+    keyboard = []
+    
+    if total > 1:
+        pagination_row = []
+        
+        # Orqaga tugmasi - faqat boshida bo'lmasa
+        if idx > 0:
+            pagination_row.append(InlineKeyboardButton(text=t["back"], callback_data=prev_cb))
+        
+        # Oldinga tugmasi - faqat oxirida bo'lmasa
+        if idx < total - 1:
+            pagination_row.append(InlineKeyboardButton(text=t["next"], callback_data=next_cb))
+        
+        if pagination_row:  # Agar kamida bitta tugma bo'lsa
+            keyboard.append(pagination_row)
+    
+    keyboard.append([
+        InlineKeyboardButton(text=t["send_to_operator"], callback_data=send_to_operator_cb)
     ])
+    keyboard.append([
+        InlineKeyboardButton(text=t["categories"], callback_data=back_cb)
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def _format_staff_card(row: dict, idx: int, total: int, lang: str = "uz") -> str:
     """Format staff order card"""
@@ -932,21 +954,41 @@ async def _show_operator_item(target, idx: int, user_id: int):
         
         # Navigation keyboard
         total_count = await ccs_count_operator_orders()
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⬅️", callback_data=f"ccs_operator_prev:{idx}"),
-                InlineKeyboardButton(text=f"{idx + 1}/{total_count}", callback_data="noop"),
-                InlineKeyboardButton(text="➡️", callback_data=f"ccs_operator_next:{idx}")
-            ],
-            [InlineKeyboardButton(
+        
+        # Paginatsiya tugmalari mantiqiy tarzda ko'rinadi
+        keyboard_rows = []
+        
+        if total_count > 1:
+            pagination_row = []
+            
+            # Orqaga tugmasi - faqat boshida bo'lmasa
+            if idx > 0:
+                pagination_row.append(InlineKeyboardButton(text="⬅️", callback_data=f"ccs_operator_prev:{idx}"))
+            
+            # O'rta qismda raqam ko'rsatish
+            pagination_row.append(InlineKeyboardButton(text=f"{idx + 1}/{total_count}", callback_data="noop"))
+            
+            # Oldinga tugmasi - faqat oxirida bo'lmasa
+            if idx < total_count - 1:
+                pagination_row.append(InlineKeyboardButton(text="➡️", callback_data=f"ccs_operator_next:{idx}"))
+            
+            if pagination_row:  # Agar kamida bitta tugma bo'lsa
+                keyboard_rows.append(pagination_row)
+        
+        keyboard_rows.append([
+            InlineKeyboardButton(
                 text="📤 Controllerga yuborish" if lang == "uz" else "📤 Отправить контроллеру",
                 callback_data=f"ccs_operator_send_controller:{row['id']}:{idx}"
-            )],
-            [InlineKeyboardButton(
+            )
+        ])
+        keyboard_rows.append([
+            InlineKeyboardButton(
                 text="🔙 Orqaga" if lang == "uz" else "🔙 Назад",
                 callback_data="ccs_back_to_categories"
-            )]
+            )
         ])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
         
         await target.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         
@@ -1047,186 +1089,6 @@ async def ccs_operator_send_controller(cb: CallbackQuery):
 # =========================================================
 # Complete Handlers
 # =========================================================
-@router.callback_query(F.data.startswith("ccs_tech_complete:"))
-async def ccs_tech_complete(cb: CallbackQuery):
-    """Texnik arizani yakunlash"""
-    _, order_id, cur = cb.data.split(":")
-    order_id = int(order_id)
-    cur = int(cur)
-    
-    lang = await get_user_language(cb.from_user.id) or "uz"
-    
-    try:
-        # Database da yakunlash
-        success = await ccs_complete_technician_order(order_id, cb.from_user.id)
-        
-        if success:
-            # Clientga xabar yuborish
-            try:
-                from loader import bot
-                from utils.notification_service import send_completion_notification
-                
-                # Client ma'lumotlarini olish
-                conn = await asyncpg.connect(settings.DB_URL)
-                try:
-                    row = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.full_name, u.language
-                        FROM technician_orders to
-                        LEFT JOIN users u ON u.id = to.user_id
-                        WHERE to.id = $1
-                    """, order_id)
-                    
-                    if row and row['telegram_id']:
-                        await send_completion_notification(
-                            bot=bot,
-                            recipient_telegram_id=row['telegram_id'],
-                            order_id=f"#{order_id}",
-                            order_type="technician",
-                            client_name=row['full_name'] or "Mijoz",
-                            lang=row['language'] or 'uz'
-                        )
-                finally:
-                    await conn.close()
-            except Exception as e:
-                logger.error(f"Failed to send completion notification: {e}")
-            
-            # AKT yuborish
-            try:
-                from utils.akt_service import send_akt_to_client
-                
-                conn = await asyncpg.connect(settings.DB_URL)
-                try:
-                    row = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.full_name, u.language
-                        FROM technician_orders to
-                        LEFT JOIN users u ON u.id = to.user_id
-                        WHERE to.id = $1
-                    """, order_id)
-                    
-                    if row and row['telegram_id']:
-                        await send_akt_to_client(
-                            bot=bot,
-                            recipient_telegram_id=row['telegram_id'],
-                            order_id=order_id,
-                            order_type="technician",
-                            client_name=row['full_name'] or "Mijoz",
-                            lang=row['language'] or 'uz'
-                        )
-                finally:
-                    await conn.close()
-            except Exception as e:
-                logger.error(f"Failed to send AKT: {e}")
-            
-            await cb.answer(
-                ("✅ Texnik ariza yakunlandi!" if lang == "uz" else "✅ Техническая заявка завершена!"),
-                show_alert=True
-            )
-            
-            # Keyingi arizaga o'tish
-            await _show_technician_item(cb, idx=cur, user_id=cb.from_user.id)
-        else:
-            await cb.answer(
-                ("❌ Yakunlashda xatolik!" if lang == "uz" else "❌ Ошибка завершения!"),
-                show_alert=True
-            )
-            
-    except Exception as e:
-        logger.error(f"Error completing technician order: {e}")
-        await cb.answer(
-            ("❌ Xatolik yuz berdi!" if lang == "uz" else "❌ Произошла ошибка!"),
-            show_alert=True
-        )
-
-@router.callback_query(F.data.startswith("ccs_staff_complete:"))
-async def ccs_staff_complete(cb: CallbackQuery):
-    """Staff arizani yakunlash"""
-    _, order_id, cur = cb.data.split(":")
-    order_id = int(order_id)
-    cur = int(cur)
-    
-    lang = await get_user_language(cb.from_user.id) or "uz"
-    
-    try:
-        # Database da yakunlash
-        success = await ccs_complete_staff_order(order_id, cb.from_user.id)
-        
-        if success:
-            # Clientga xabar yuborish
-            try:
-                from loader import bot
-                from utils.notification_service import send_completion_notification
-                
-                # Client ma'lumotlarini olish
-                conn = await asyncpg.connect(settings.DB_URL)
-                try:
-                    row = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.full_name, u.language
-                        FROM staff_orders so
-                        LEFT JOIN users u ON u.id::text = so.abonent_id
-                        WHERE so.id = $1
-                    """, order_id)
-                    
-                    if row and row['telegram_id']:
-                        await send_completion_notification(
-                            bot=bot,
-                            recipient_telegram_id=row['telegram_id'],
-                            order_id=f"#{order_id}",
-                            order_type=row.get('type_of_zayavka', 'staff'),
-                            client_name=row['full_name'] or "Mijoz",
-                            lang=row['language'] or 'uz'
-                        )
-                finally:
-                    await conn.close()
-            except Exception as e:
-                logger.error(f"Failed to send completion notification: {e}")
-            
-            # AKT yuborish
-            try:
-                from utils.akt_service import send_akt_to_client
-                
-                conn = await asyncpg.connect(settings.DB_URL)
-                try:
-                    row = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.full_name, u.language, so.type_of_zayavka
-                        FROM staff_orders so
-                        LEFT JOIN users u ON u.id::text = so.abonent_id
-                        WHERE so.id = $1
-                    """, order_id)
-                    
-                    if row and row['telegram_id']:
-                        await send_akt_to_client(
-                            bot=bot,
-                            recipient_telegram_id=row['telegram_id'],
-                            order_id=order_id,
-                            order_type=row.get('type_of_zayavka', 'staff'),
-                            client_name=row['full_name'] or "Mijoz",
-                            lang=row['language'] or 'uz'
-                        )
-                finally:
-                    await conn.close()
-            except Exception as e:
-                logger.error(f"Failed to send AKT: {e}")
-            
-            await cb.answer(
-                ("✅ Staff ariza yakunlandi!" if lang == "uz" else "✅ Заявка сотрудника завершена!"),
-                show_alert=True
-            )
-            
-            # Keyingi arizaga o'tish
-            await _show_staff_item(cb, idx=cur, user_id=cb.from_user.id)
-        else:
-            await cb.answer(
-                ("❌ Yakunlashda xatolik!" if lang == "uz" else "❌ Ошибка завершения!"),
-                show_alert=True
-            )
-            
-    except Exception as e:
-        logger.error(f"Error completing staff order: {e}")
-        await cb.answer(
-            ("❌ Xatolik yuz berdi!" if lang == "uz" else "❌ Произошла ошибка!"),
-            show_alert=True
-        )
-
 # =========================================================
 # Back to Categories
 # =========================================================

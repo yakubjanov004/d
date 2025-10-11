@@ -12,49 +12,85 @@ import json
 import os
 from logging.handlers import RotatingFileHandler
 
-log_dir = "media/logs"
+log_dir = "logs"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(
-            os.path.join(log_dir, "bot.log"), 
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5,
-            encoding="utf-8"
-        ),
-        RotatingFileHandler(
-            os.path.join(log_dir, "errors.log"), 
-            maxBytes=5*1024*1024,   # 5MB
-            backupCount=3,
-            encoding="utf-8"
-        )
-    ]
+# Bot log uchun alohida logger
+bot_logger = logging.getLogger("BotLogger")
+bot_handler = RotatingFileHandler(
+    os.path.join(log_dir, "bot.log"), 
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5,
+    encoding="utf-8"
 )
+bot_handler.setLevel(logging.INFO)
+bot_formatter = logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+bot_handler.setFormatter(bot_formatter)
+bot_logger.addHandler(bot_handler)
+bot_logger.setLevel(logging.INFO)
 
-# Error logger alohida
+# Console uchun alohida handler (faqat INFO va yuqori)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+console_handler.setFormatter(console_formatter)
+bot_logger.addHandler(console_handler)
+
+# Error logger alohida - faqat ERROR va CRITICAL
 error_logger = logging.getLogger("ErrorLogger")
-error_handler = RotatingFileHandler(
+error_logger.setLevel(logging.ERROR)
+
+# Error fayl handler
+error_file_handler = RotatingFileHandler(
     os.path.join(log_dir, "errors.log"), 
-    maxBytes=5*1024*1024, 
+    maxBytes=5*1024*1024,  # 5MB
     backupCount=3,
     encoding="utf-8"
 )
-error_handler.setLevel(logging.ERROR)
-error_formatter = logging.Formatter(
+error_file_handler.setLevel(logging.ERROR)
+error_file_formatter = logging.Formatter(
     "%(asctime)s | ERROR | %(message)s"
 )
-error_handler.setFormatter(error_formatter)
-error_logger.addHandler(error_handler)
-error_logger.setLevel(logging.ERROR)
+error_file_handler.setFormatter(error_file_formatter)
+error_logger.addHandler(error_file_handler)
+
+# Console uchun error handler (terminalga chiqadigan errorlar)
+error_console_handler = logging.StreamHandler()
+error_console_handler.setLevel(logging.ERROR)
+error_console_formatter = logging.Formatter(
+    "%(asctime)s | ERROR | %(message)s"
+)
+error_console_handler.setFormatter(error_console_formatter)
+error_logger.addHandler(error_console_handler)
 
 def get_universal_logger(name: str = "AlfaConnectBot") -> logging.Logger:
-    """Universal logger olish"""
-    return logging.getLogger(name)
+    """Universal logger olish - bot.log ga yozadi"""
+    logger = logging.getLogger(name)
+    
+    # Agar handler yo'q bo'lsa, qo'shish
+    if not logger.handlers:
+        logger.addHandler(bot_handler)
+        logger.addHandler(console_handler)
+        logger.setLevel(logging.INFO)
+    
+    return logger
+
+def get_error_logger(name: str = "ErrorLogger") -> logging.Logger:
+    """Error logger olish - errors.log ga yozadi"""
+    logger = logging.getLogger(name)
+    
+    # Agar handler yo'q bo'lsa, qo'shish
+    if not logger.handlers:
+        logger.addHandler(error_file_handler)
+        logger.addHandler(error_console_handler)
+        logger.setLevel(logging.ERROR)
+    
+    return logger
 
 def log_error(
     error: Exception,
@@ -62,8 +98,7 @@ def log_error(
     user_id: Optional[int] = None,
     additional_data: Optional[Dict[str, Any]] = None
 ) -> None:
-    """Xatolarni log qilish"""
-    logger = get_universal_logger()
+    """Xatolarni log qilish - faqat errors.log ga"""
     
     error_data = {
         "timestamp": datetime.now().isoformat(),
@@ -77,24 +112,21 @@ def log_error(
     if additional_data:
         error_data.update(additional_data)
     
-    # Asosiy loggerga yozish
-    logger.error(f"ERROR: {json.dumps(error_data, ensure_ascii=False)}")
-    
-    # Alohida error loggerga ham yozish
+    # Faqat error loggerga yozish (errors.log va terminalga)
     error_logger.error(json.dumps(error_data, ensure_ascii=False, indent=2))
 
 def log_info(message: str, context: str = "", user_id: Optional[int] = None) -> None:
-    """Info log qilish"""
+    """Info log qilish - faqat bot.log ga"""
     logger = get_universal_logger()
     logger.info(f"INFO: {context} | {message} | User: {user_id}")
 
 def log_warning(message: str, context: str = "", user_id: Optional[int] = None) -> None:
-    """Warning log qilish"""
+    """Warning log qilish - faqat bot.log ga"""
     logger = get_universal_logger()
     logger.warning(f"WARNING: {context} | {message} | User: {user_id}")
 
 def log_debug(message: str, context: str = "", user_id: Optional[int] = None) -> None:
-    """Debug log qilish"""
+    """Debug log qilish - faqat bot.log ga"""
     logger = get_universal_logger()
     logger.debug(f"DEBUG: {context} | {message} | User: {user_id}")
 

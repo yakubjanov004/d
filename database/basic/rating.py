@@ -19,6 +19,22 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Ensure rating is integer and validate parameters
+        rating = int(rating)
+        
+        # Debug: Print parameters
+        print(f"DEBUG: Saving rating - request_id: {request_id}, request_type: {request_type}, rating: {rating}, comment: {comment}")
+        
+        # Validate parameters
+        if not isinstance(request_id, int):
+            raise ValueError(f"request_id must be int, got {type(request_id)}")
+        if not isinstance(request_type, str):
+            raise ValueError(f"request_type must be str, got {type(request_type)}")
+        if not isinstance(rating, int):
+            raise ValueError(f"rating must be int, got {type(rating)}")
+        if comment is not None and not isinstance(comment, str):
+            raise ValueError(f"comment must be str or None, got {type(comment)}")
+        
         # Check if rating already exists
         existing = await conn.fetchrow(
             """
@@ -30,16 +46,18 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
         
         if existing:
             # Update existing rating
+            print(f"DEBUG: Updating existing rating with id: {existing['id']}")
             await conn.execute(
                 """
                 UPDATE akt_ratings 
-                SET rating = $3, comment = $4, created_at = NOW()
-                WHERE id = $5
+                SET rating = $1, comment = $2, updated_at = NOW()
+                WHERE id = $3
                 """,
                 rating, comment, existing['id']
             )
         else:
             # Insert new rating
+            print(f"DEBUG: Inserting new rating")
             await conn.execute(
                 """
                 INSERT INTO akt_ratings (request_id, request_type, rating, comment)
@@ -47,9 +65,12 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
                 """,
                 request_id, request_type, rating, comment
             )
+        print(f"DEBUG: Rating saved successfully")
         return True
     except Exception as e:
         print(f"Error saving rating: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         await conn.close()

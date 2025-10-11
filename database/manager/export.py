@@ -58,7 +58,7 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
             SELECT 
                 COUNT(*) as total_orders,
                 SUM(CASE WHEN status = 'in_manager' THEN 1 ELSE 0 END) as new_orders,
-                SUM(CASE WHEN status IN ('in_manager', 'in_junior_manager', 'in_controller', 'in_technician', 'in_diagnostics', 'in_repairs', 'in_warehouse', 'in_technician_work') THEN 1 ELSE 0 END) as in_progress_orders,
+                SUM(CASE WHEN status IN ('in_manager', 'in_junior_manager', 'in_controller', 'in_technician', 'in_technician_work') THEN 1 ELSE 0 END) as in_progress_orders,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders,
                 COUNT(DISTINCT user_id) as unique_clients,
                 COUNT(DISTINCT tarif_id) as unique_tariffs_used
@@ -85,7 +85,7 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
                 u.phone as manager_phone,
                 COUNT(co.id) as total_orders,
                 SUM(CASE WHEN co.status = 'completed' THEN 1 ELSE 0 END) as completed_orders,
-                SUM(CASE WHEN co.status IN ('in_manager', 'in_junior_manager', 'in_controller', 'in_technician', 'in_diagnostics', 'in_repairs', 'in_warehouse', 'in_technician_work') THEN 1 ELSE 0 END) as in_progress_orders,
+                SUM(CASE WHEN co.status IN ('in_manager', 'in_junior_manager', 'in_controller', 'in_technician', 'in_technician_work') THEN 1 ELSE 0 END) as in_progress_orders,
                 COUNT(DISTINCT co.user_id) as unique_clients
             FROM users u
             LEFT JOIN connection_orders co ON u.id = co.user_id
@@ -163,7 +163,22 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
         return result
     except Exception as e:
         logger.error(f"Error fetching manager statistics for export: {e}")
-        return {}
+        return {
+            'summary': {
+                'total_orders': 0,
+                'new_orders': 0,
+                'in_progress_orders': 0,
+                'completed_orders': 0,
+                'unique_clients': 0,
+                'unique_tariffs_used': 0,
+                'completion_rate': 0,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            },
+            'monthly_trends': [],
+            'by_manager': [],
+            'by_tariff': [],
+            'recent_activity': []
+        }
     finally:
         await conn.close()
 

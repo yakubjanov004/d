@@ -13,7 +13,10 @@ def _as_dicts(rows):
 
 
 # ======================= MATERIALLAR (SELECTION) =======================
-async def fetch_technician_materials(user_id: int = None, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+async def fetch_technician_materials(user_id: int = None, current_application_id: int = None, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    current_application_id - joriy ariza ID, bu arizadagi tanlovlarni hisobga olmaslik
+    """
     conn = await _conn()
     try:
         if user_id is not None:
@@ -24,15 +27,33 @@ async def fetch_technician_materials(user_id: int = None, limit: int = 200, offs
                   m.name,
                   m.price,
                   m.serial_number,
-                  t.quantity    AS stock_quantity
+                  t.quantity    AS assigned_quantity,
+                  COALESCE(
+                    (SELECT SUM(mr.quantity) 
+                     FROM material_requests mr 
+                     WHERE mr.user_id = t.user_id 
+                       AND mr.material_id = t.material_id
+                       AND mr.source_type = 'technician_stock'
+                       AND ($2::int IS NULL OR mr.applications_id != $2::int)
+                    ), 0
+                  ) AS pending_usage,
+                  t.quantity - COALESCE(
+                    (SELECT SUM(mr.quantity) 
+                     FROM material_requests mr 
+                     WHERE mr.user_id = t.user_id 
+                       AND mr.material_id = t.material_id
+                       AND mr.source_type = 'technician_stock'
+                       AND ($2::int IS NULL OR mr.applications_id != $2::int)
+                    ), 0
+                  ) AS stock_quantity
                 FROM material_and_technician t
                 JOIN materials m ON m.id = t.material_id
                 WHERE t.user_id = $1
                   AND t.quantity > 0
                 ORDER BY m.name
-                LIMIT $2 OFFSET $3
+                LIMIT $3 OFFSET $4
                 """,
-                user_id, limit, offset
+                user_id, current_application_id, limit, offset
             )
         else:
             rows = await conn.fetch(
@@ -42,7 +63,23 @@ async def fetch_technician_materials(user_id: int = None, limit: int = 200, offs
                   m.name,
                   m.price,
                   m.serial_number,
-                  t.quantity    AS stock_quantity
+                  t.quantity    AS assigned_quantity,
+                  COALESCE(
+                    (SELECT SUM(mr.quantity) 
+                     FROM material_requests mr 
+                     WHERE mr.user_id = t.user_id 
+                       AND mr.material_id = t.material_id
+                       AND mr.source_type = 'technician_stock'
+                    ), 0
+                  ) AS pending_usage,
+                  t.quantity - COALESCE(
+                    (SELECT SUM(mr.quantity) 
+                     FROM material_requests mr 
+                     WHERE mr.user_id = t.user_id 
+                       AND mr.material_id = t.material_id
+                       AND mr.source_type = 'technician_stock'
+                    ), 0
+                  ) AS stock_quantity
                 FROM material_and_technician t
                 JOIN materials m ON m.id = t.material_id
                 WHERE t.quantity > 0
@@ -128,6 +165,39 @@ async def fetch_assigned_qty(user_id: int, material_id: int) -> int:
             user_id, material_id
         )
         return int(row["qty"]) if row else 0
+    finally:
+        await conn.close()
+
+
+async def fetch_pending_material_usage(user_id: int, material_id: int, exclude_application_id: int = None) -> int:
+    """
+    Texnikning boshqa arizalarda tanlagan lekin hali yakunlamagan material miqdorini hisoblash.
+    exclude_application_id - joriy ariza, uni hisobga olmaslik kerak.
+    """
+    conn = await _conn()
+    try:
+        if exclude_application_id:
+            pending = await conn.fetchval(
+                """
+                SELECT COALESCE(SUM(quantity), 0)
+                FROM material_requests
+                WHERE user_id = $1 AND material_id = $2 
+                  AND applications_id != $3
+                  AND source_type = 'technician_stock'
+                """,
+                user_id, material_id, exclude_application_id
+            )
+        else:
+            pending = await conn.fetchval(
+                """
+                SELECT COALESCE(SUM(quantity), 0)
+                FROM material_requests
+                WHERE user_id = $1 AND material_id = $2 
+                  AND source_type = 'technician_stock'
+                """,
+                user_id, material_id
+            )
+        return int(pending or 0)
     finally:
         await conn.close()
 
@@ -242,8 +312,32 @@ async def upsert_material_selection(
                     user_id, material_id
                 )
                 
-                if current_qty is None or current_qty < qty:
-                    raise ValueError(f"Texnikda yetarli material yo'q. Mavjud: {current_qty or 0}, Kerak: {qty}")
+                if current_qty is None:
+                    raise ValueError(f"Texnikda bu material yo'q")
+                
+                # Joriy ariza uchun avval tanlangan miqdorni olish
+                current_selection = await conn.fetchval(
+                    """
+                    SELECT COALESCE(quantity, 0) 
+                    FROM material_requests 
+                    WHERE user_id = $1 AND applications_id = $2 AND material_id = $3
+                    """,
+                    user_id, applications_id, material_id
+                )
+                current_selection = int(current_selection or 0)
+                
+                # Boshqa arizelarda band qilingan miqdorni hisoblash
+                pending_other = await fetch_pending_material_usage(user_id, material_id, applications_id)
+                
+                # Haqiqiy mavjud miqdor
+                real_available = current_qty - pending_other + current_selection
+                
+                if real_available < qty:
+                    raise ValueError(
+                        f"Texnikda yetarli material yo'q. "
+                        f"Umumiy: {current_qty}, Boshqa arizelarda: {pending_other}, "
+                        f"Mavjud: {real_available}, Kerak: {qty}"
+                    )
                 
                 # DARHOL material_and_technician dan kamaytiramiz
                 await conn.execute(
@@ -453,10 +547,17 @@ async def pick_warehouse_user_rr(seed: int) -> int | None:
             ORDER BY id
             """
         )
+        print(f"DEBUG: Found {len(rows)} warehouse users")
         if not rows:
+            print("DEBUG: No warehouse users found!")
             return None
         ids = [r["id"] for r in rows]
-        return ids[seed % len(ids)]
+        print(f"DEBUG: Warehouse user IDs: {ids}")
+        
+        # Round-robin logic
+        selected_id = ids[seed % len(ids)]
+        print(f"DEBUG: Selected warehouse user ID: {selected_id}")
+        return selected_id
     finally:
         await conn.close()
 
@@ -482,7 +583,10 @@ async def send_selection_to_warehouse(
             # STATUS O'ZGARMAYDI! Texnik davom ettiradi.
             # Faqat connections ga tarix yozamiz - omborchi material_requests dan ko'radi
             
+            print(f"DEBUG: Picking warehouse user for applications_id={applications_id}")
             warehouse_id = await pick_warehouse_user_rr(applications_id)
+            print(f"DEBUG: Selected warehouse_id: {warehouse_id}")
+            
             if warehouse_id is not None:
                 conn_id  = applications_id if request_type == "connection"  else None
                 tech_oid = applications_id if request_type == "technician" else None

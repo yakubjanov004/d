@@ -18,8 +18,6 @@ def setup_media_structure(base_path: str = 'media') -> None:
         os.path.join(base_path, current_year, current_month, 'orders', 'akt'),
         os.path.join(base_path, current_year, current_month, 'reports'),
         os.path.join(base_path, current_year, current_month, 'exports'),
-        os.path.join(base_path, 'temp'),
-        os.path.join(base_path, 'logs')  
     ]
     
     for directory in directories:

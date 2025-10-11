@@ -270,9 +270,9 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                 FROM connections c
                 JOIN connection_orders co ON co.id = c.connection_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND co.status = 'in_technician'
+                  AND co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
-                  AND c.recipient_status = 'in_technician'
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             technician_loads AS (
@@ -283,9 +283,9 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                 FROM connections c
                 JOIN technician_orders to_orders ON to_orders.id = c.technician_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND to_orders.status = 'in_technician'
+                  AND to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
-                  AND c.recipient_status = 'in_technician'
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             staff_loads AS (
@@ -296,9 +296,9 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                 FROM connections c
                 JOIN staff_orders so ON so.id = c.staff_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND so.status = 'in_technician'
+                  AND so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
-                  AND c.recipient_status = 'in_technician'
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             total_loads AS (
@@ -502,37 +502,37 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
             WITH connection_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM connection_orders co
-                WHERE co.status = 'in_technician'
+                WHERE co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.connection_id = co.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             technician_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM technician_orders to_orders
-                WHERE to_orders.status = 'in_technician'
+                WHERE to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.technician_id = to_orders.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             staff_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM staff_orders so
-                WHERE so.status = 'in_technician'
+                WHERE so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.staff_id = so.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             )
             SELECT 
@@ -605,37 +605,37 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
             WITH connection_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM connection_orders co
-                WHERE co.status = 'in_technician'
+                WHERE co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.connection_id = co.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             technician_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM technician_orders to_orders
-                WHERE to_orders.status = 'in_technician'
+                WHERE to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.technician_id = to_orders.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             staff_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM staff_orders so
-                WHERE so.status = 'in_technician'
+                WHERE so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.staff_id = so.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             )
             SELECT 
@@ -708,37 +708,37 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
             WITH connection_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM connection_orders co
-                WHERE co.status = 'in_technician'
+                WHERE co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.connection_id = co.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             technician_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM technician_orders to_orders
-                WHERE to_orders.status = 'in_technician'
+                WHERE to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.technician_id = to_orders.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             ),
             staff_loads AS (
                 SELECT COUNT(*) AS cnt
                 FROM staff_orders so
-                WHERE so.status = 'in_technician'
+                WHERE so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
                       WHERE c.staff_id = so.id
                         AND c.recipient_id = $1
-                        AND c.recipient_status = 'in_technician'
+                        AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
             )
             SELECT 

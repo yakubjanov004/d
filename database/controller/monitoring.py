@@ -200,13 +200,14 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS active_orders,
                     COUNT(CASE WHEN co.status = 'between_controller_technician' THEN 1 END) as pending_orders,
-                    COUNT(CASE WHEN co.status = 'in_technician' THEN 1 END) as in_progress_orders
+                    COUNT(CASE WHEN co.status = 'in_technician' THEN 1 END) as in_progress_orders,
+                    COUNT(CASE WHEN co.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
                 JOIN connection_orders co ON co.id = c.connection_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND co.status IN ('between_controller_technician', 'in_technician')
+                  AND co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             technician_loads AS (
@@ -215,13 +216,14 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS active_orders,
                     COUNT(CASE WHEN to_orders.status = 'between_controller_technician' THEN 1 END) as pending_orders,
-                    COUNT(CASE WHEN to_orders.status = 'in_technician' THEN 1 END) as in_progress_orders
+                    COUNT(CASE WHEN to_orders.status = 'in_technician' THEN 1 END) as in_progress_orders,
+                    COUNT(CASE WHEN to_orders.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
                 JOIN technician_orders to_orders ON to_orders.id = c.technician_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND to_orders.status IN ('between_controller_technician', 'in_technician')
+                  AND to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             staff_loads AS (
@@ -230,13 +232,14 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS active_orders,
                     COUNT(CASE WHEN so.status = 'between_controller_technician' THEN 1 END) as pending_orders,
-                    COUNT(CASE WHEN so.status = 'in_technician' THEN 1 END) as in_progress_orders
+                    COUNT(CASE WHEN so.status = 'in_technician' THEN 1 END) as in_progress_orders,
+                    COUNT(CASE WHEN so.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
                 JOIN staff_orders so ON so.id = c.staff_id
                 WHERE c.recipient_id IS NOT NULL
-                  AND so.status IN ('between_controller_technician', 'in_technician')
+                  AND so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician')
+                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                 GROUP BY c.recipient_id
             ),
             total_loads AS (
@@ -245,13 +248,14 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     technician_id,
                     SUM(active_orders) AS total_active_orders,
                     SUM(pending_orders) AS total_pending_orders,
-                    SUM(in_progress_orders) AS total_in_progress_orders
+                    SUM(in_progress_orders) AS total_in_progress_orders,
+                    SUM(in_work_orders) AS total_in_work_orders
                 FROM (
-                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM connection_loads
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders, in_work_orders FROM connection_loads
                     UNION ALL
-                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM technician_loads
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders, in_work_orders FROM technician_loads
                     UNION ALL
-                    SELECT technician_id, active_orders, pending_orders, in_progress_orders FROM staff_loads
+                    SELECT technician_id, active_orders, pending_orders, in_progress_orders, in_work_orders FROM staff_loads
                 ) combined
                 GROUP BY technician_id
             )

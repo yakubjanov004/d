@@ -8,6 +8,7 @@ from database.manager.export import (
     get_manager_employees_for_export
 )
 from utils.export_utils import ExportUtils
+from utils.universal_error_logger import get_universal_logger, log_error
 from states.manager_states import ManagerExportStates
 import logging
 from filters.role_filter import RoleFilter
@@ -15,7 +16,7 @@ from datetime import datetime
 
 router = Router()
 router.message.filter(RoleFilter("manager"))
-logger = logging.getLogger(__name__)
+logger = get_universal_logger("ManagerExport")
 
 @router.message(F.text.in_(["📤 Export", "📤 Экспорт"]))
 async def export_handler(message: Message, state: FSMContext):
@@ -259,7 +260,7 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         )
             
     except Exception as e:
-        logger.error(f"Export format handler error: {e}", exc_info=True)
+        log_error(e, "Manager export format handler", callback.from_user.id)
         await callback.message.answer("❌ Hisobot yaratishda xatolik yuz berdi")
     finally:
         await callback.answer()

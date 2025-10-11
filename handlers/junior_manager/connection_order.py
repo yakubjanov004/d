@@ -397,13 +397,17 @@ async def jm_confirm(callback: CallbackQuery, state: FSMContext):
             tariff_name = TARIFF_DISPLAY.get(lang, {}).get(tariff_code or '', tariff_code or None)
             region_name = region_display(lang, region_code)
             
+            # Bazadan xodim ma'lumotlarini olish
+            creator_user = await get_user_by_telegram_id(callback.from_user.id)
+            creator_name = creator_user.get('full_name', callback.from_user.full_name) if creator_user else callback.from_user.full_name
+            
             await send_group_notification_for_staff_order(
                 bot=bot,
                 order_id=result['application_number'],
                 order_type="connection",
                 client_name=acting_client.get('full_name', 'Noma\'lum'),
                 client_phone=acting_client.get('phone', '-'),
-                creator_name=callback.from_user.full_name,
+                creator_name=creator_name,
                 creator_role='junior_manager',
                 region=region_name,
                 address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),

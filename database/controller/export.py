@@ -14,46 +14,89 @@ logger = logging.getLogger(__name__)
 async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
     """
     Controller orders ro'yxatini export uchun olish.
+    Faqat texnik arizalar: technician_orders va staff_orders (type_of_zayavka = 'technician').
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        rows = await conn.fetch(
+        # Technician orders (mijozlar yaratgan texnik arizalar)
+        tech_rows = await conn.fetch(
             """
-            WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
-                       c.recipient_id,
-                       c.recipient_status,
-                       c.created_at as assigned_at
-                FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
-            )
             SELECT 
-                so.id,
-                so.application_number,
-                so.region,
-                so.address,
-                so.description,
-                so.type_of_zayavka,
-                so.status,
-                so.created_at,
+                t.id,
+                t.application_number,
+                t.region,
+                t.address,
+                t.description,
+                'technician' as type_of_zayavka,
+                t.status,
+                t.created_at,
                 u.full_name as client_name,
                 u.phone as client_phone,
-                t.name as tariff,
-                r.name as region_name
-            FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
-            LEFT JOIN users u ON u.id = so.user_id
-            LEFT JOIN tarif t ON t.id = so.tarif_id
-            LEFT JOIN regions r ON r.id = so.region
-            LEFT JOIN users creator ON creator.id = so.user_id
-            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
-              AND COALESCE(so.is_active, TRUE) = TRUE
-            ORDER BY so.created_at DESC
+                NULL as tariff,
+                t.region as region_name,
+                'mijoz' as creator_type,
+                a.akt_number,
+                tech_user.full_name as technician_name,
+                controller_user.full_name as controller_name
+            FROM technician_orders t
+            LEFT JOIN users u ON u.id = t.user_id
+            LEFT JOIN akt_documents a ON a.request_id = t.id AND a.request_type = 'technician'
+            LEFT JOIN connections c ON c.technician_id = t.id 
+                AND c.sender_id IN (SELECT id FROM users WHERE role = 'controller')
+                AND c.recipient_id IN (SELECT id FROM users WHERE role = 'technician')
+            LEFT JOIN users tech_user ON tech_user.id = c.recipient_id AND tech_user.role = 'technician'
+            LEFT JOIN users controller_user ON controller_user.id = c.sender_id AND controller_user.role = 'controller'
+            WHERE COALESCE(t.is_active, TRUE) = TRUE
+            ORDER BY t.created_at DESC
             """
         )
-        return [dict(r) for r in rows]
+        
+        # Staff orders (xodimlar yaratgan texnik xizmat arizalari)
+        # Eski database bilan mos kelishi uchun cancellation_note maydonini ixtiyoriy qildik
+        staff_rows = await conn.fetch(
+            """
+            SELECT 
+                s.id,
+                s.application_number,
+                s.region,
+                s.address,
+                s.description,
+                s.type_of_zayavka,
+                s.status,
+                s.created_at,
+                u.full_name as client_name,
+                u.phone as client_phone,
+                NULL as tariff,
+                s.region as region_name,
+                'xodim' as creator_type,
+                a.akt_number,
+                tech_user.full_name as technician_name,
+                controller_user.full_name as controller_name
+            FROM staff_orders s
+            LEFT JOIN users u ON u.id = s.user_id
+            LEFT JOIN akt_documents a ON a.request_id = s.id AND a.request_type = 'staff'
+            LEFT JOIN connections c ON c.staff_id = s.id 
+                AND c.sender_id IN (SELECT id FROM users WHERE role = 'controller')
+                AND c.recipient_id IN (SELECT id FROM users WHERE role = 'technician')
+            LEFT JOIN users tech_user ON tech_user.id = c.recipient_id AND tech_user.role = 'technician'
+            LEFT JOIN users controller_user ON controller_user.id = c.sender_id AND controller_user.role = 'controller'
+            WHERE COALESCE(s.is_active, TRUE) = TRUE
+              AND s.type_of_zayavka = 'technician'
+            ORDER BY s.created_at DESC
+            """
+        )
+        
+        # Birlashtirish
+        all_orders = []
+        for row in tech_rows:
+            all_orders.append(dict(row))
+        for row in staff_rows:
+            all_orders.append(dict(row))
+            
+        # Created_at bo'yicha tartiblash
+        all_orders.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return all_orders
     finally:
         await conn.close()
 
@@ -89,7 +132,7 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
                 COUNT(DISTINCT so.tarif_id) as unique_tariffs_used
             FROM staff_orders so
             JOIN last_assign la ON la.staff_id = so.id
-            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
+            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician', 'in_technician_work')
               AND COALESCE(so.is_active, TRUE) = TRUE
             """
         )
@@ -113,7 +156,7 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
                 COUNT(CASE WHEN so.status = 'in_controller' THEN 1 END) as new_orders
             FROM staff_orders so
             JOIN last_assign la ON la.staff_id = so.id
-            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
+            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician', 'in_technician_work')
               AND COALESCE(so.is_active, TRUE) = TRUE
               AND so.created_at >= NOW() - INTERVAL '6 months'
             GROUP BY TO_CHAR(so.created_at, 'YYYY-MM')
@@ -169,7 +212,7 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
             FROM tarif t
             LEFT JOIN staff_orders so ON t.id = so.tarif_id
             LEFT JOIN last_assign la ON la.staff_id = so.id
-            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
+            WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician', 'in_technician_work')
               AND COALESCE(so.is_active, TRUE) = TRUE
             GROUP BY t.id, t.name
             ORDER BY total_orders DESC
@@ -206,6 +249,21 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
             """
         )
         
+        # Summary qo'shish
+        total_requests = stats['general']['total_orders'] if stats['general'] else 0
+        completed_requests = stats['general']['completed'] if stats['general'] else 0
+        
+        stats['summary'] = {
+            'total_requests': total_requests,
+            'new_requests': stats['general']['in_controller'] if stats['general'] else 0,
+            'in_progress_requests': (stats['general']['between_controller_technician'] + stats['general']['in_technician']) if stats['general'] else 0,
+            'completed_requests': completed_requests,
+            'cancelled_requests': stats['general']['cancelled'] if stats['general'] else 0,
+            'unique_clients': stats['general']['unique_clients'] if stats['general'] else 0,
+            'unique_tariffs': stats['general']['unique_tariffs_used'] if stats['general'] else 0,
+            'completion_rate': round((completed_requests / total_requests * 100), 2) if total_requests > 0 else 0
+        }
+        
         return stats
     finally:
         await conn.close()
@@ -216,7 +274,8 @@ async def get_controller_employees_for_export() -> List[Dict[str, Any]]:
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        rows = await conn.fetch(
+        # First get all controller and technician users
+        users = await conn.fetch(
             """
             SELECT 
                 u.id,
@@ -226,16 +285,35 @@ async def get_controller_employees_for_export() -> List[Dict[str, Any]]:
                 u.telegram_id,
                 u.role,
                 u.is_blocked,
-                u.created_at,
-                COUNT(so.id) as total_orders,
-                COUNT(CASE WHEN so.status = 'completed' THEN 1 END) as completed_orders
+                u.created_at
             FROM users u
-            LEFT JOIN staff_orders so ON so.user_id = u.id AND COALESCE(so.is_active, TRUE) = TRUE
             WHERE u.role IN ('controller', 'technician')
-            GROUP BY u.id, u.full_name, u.phone, u.username, u.telegram_id, u.role, u.is_blocked, u.created_at
             ORDER BY u.role, u.full_name
             """
         )
-        return [dict(r) for r in rows]
+        
+        # Then get order counts for each user
+        result = []
+        for user in users:
+            user_dict = dict(user)
+            
+            # Get order counts for this user
+            order_stats = await conn.fetchrow(
+                """
+                SELECT 
+                    COUNT(*) as total_orders,
+                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders
+                FROM staff_orders 
+                WHERE user_id = $1 AND COALESCE(is_active, TRUE) = TRUE
+                """,
+                user['id']
+            )
+            
+            user_dict['total_orders'] = order_stats['total_orders'] if order_stats else 0
+            user_dict['completed_orders'] = order_stats['completed_orders'] if order_stats else 0
+            
+            result.append(user_dict)
+        
+        return result
     finally:
         await conn.close()

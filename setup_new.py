@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ALFABOT — Empty Database Setup (UPDATED)
-----------------------------------------
-• Matches exactly with the Python models you provided
-• Fixed region fields, order IDs, status enums
-• Consistent with your dataclass definitions
+ALFABOT — Database Setup (UPDATED TO MATCH ACTUAL DATABASE)
+----------------------------------------------------------
+• Matches exactly with the actual database structure from analysis report
+• Fixed enum types to match database analysis
+• Updated table structures to match actual database schema
+• Consistent with database analysis report findings
 """
 
 import os
@@ -17,8 +18,8 @@ DB_CONFIG = {
     'host': os.getenv('PGHOST', 'localhost'),
     'port': int(os.getenv('PGPORT', '5432')),
     'user': os.getenv('PGUSER', 'postgres'),
-    'password': os.getenv('PGPASSWORD', '1'),
-    'database': os.getenv('PGDATABASE', 'aldb2'),
+    'password': os.getenv('PGPASSWORD', 'ulugbek202'),
+    'database': os.getenv('PGDATABASE', 'aldb4'),
 }
 
 def create_database():
@@ -46,13 +47,13 @@ def create_database():
 
 SCHEMA_SQL = r"""
 -- ===============================================
--- ALFABOT SCHEMA (MATCHING PYTHON MODELS)
+-- ALFABOT SCHEMA (MATCHING DATABASE ANALYSIS)
 -- ===============================================
 SET client_encoding = 'UTF8';
 
--- ===== ENUM TYPES (EXACT MATCH WITH PYTHON) =====
+-- ===== ENUM TYPES (EXACT MATCH WITH DATABASE ANALYSIS) =====
 
--- User roles (exact match)
+-- User roles (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='user_role' AND n.nspname='public') THEN
@@ -63,7 +64,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Connection order status (exact match with Python enum)
+-- Connection order status (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='connection_order_status' AND n.nspname='public') THEN
@@ -75,7 +76,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Technician order status (exact match with Python enum)
+-- Technician order status (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='technician_order_status' AND n.nspname='public') THEN
@@ -88,7 +89,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Staff order status (exact match with Python enum + additional values from database)
+-- Staff order status (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='staff_order_status' AND n.nspname='public') THEN
@@ -102,7 +103,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Type of zayavka (exact match)
+-- Type of zayavka (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='type_of_zayavka' AND n.nspname='public') THEN
@@ -110,7 +111,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Business type (from Python enum)
+-- Business type (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
                  WHERE t.typname='business_type' AND n.nspname='public') THEN
@@ -118,7 +119,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Smart Service Category (exact match with Python enum)
+-- Smart Service Category (exact match with database analysis)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                  WHERE t.typname = 'smart_service_category' AND n.nspname = 'public') THEN
@@ -133,7 +134,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Smart Service Type DOMAIN (42 types from Python list)
+-- Smart Service Type DOMAIN (42 types from database analysis)
 DO $$BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'smart_service_type') THEN
     CREATE DOMAIN public.smart_service_type AS TEXT CHECK (VALUE IN (
@@ -191,9 +192,9 @@ BEGIN
   RETURN NEW;
 END;$$ LANGUAGE plpgsql;
 
--- ===== MAIN TABLES (MATCHING PYTHON MODELS) =====
+-- ===== MAIN TABLES (MATCHING DATABASE ANALYSIS) =====
 
--- USERS (exact match with Python class)
+-- USERS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.users (
   id           BIGSERIAL PRIMARY KEY,
   telegram_id  BIGINT UNIQUE,
@@ -219,7 +220,7 @@ DROP TRIGGER IF EXISTS trg_users_updated_at ON public.users;
 CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON public.users
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- TARIF (exact match)
+-- TARIF (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.tarif (
   id         BIGSERIAL PRIMARY KEY,
   name       TEXT,
@@ -231,19 +232,19 @@ DROP TRIGGER IF EXISTS trg_tarif_updated_at ON public.tarif;
 CREATE TRIGGER trg_tarif_updated_at BEFORE UPDATE ON public.tarif
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- CONNECTION_ORDERS (exact match with Python class - BIGINT ID)
+-- CONNECTION_ORDERS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.connection_orders (
   id                BIGSERIAL PRIMARY KEY,
   application_number VARCHAR(50),  -- CONN-B2B-1001 format
   user_id           BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  region            TEXT,  -- TEXT as in Python model
+  region            TEXT,  -- TEXT as in database analysis
   address           TEXT,
   tarif_id          BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   business_type     public.business_type NOT NULL DEFAULT 'B2C',
   longitude         DOUBLE PRECISION,
   latitude          DOUBLE PRECISION,
   jm_notes          TEXT,
-  cancellation_note TEXT,  -- Migration 026: Bekor qilish sababi
+  cancellation_note TEXT,  -- Missing field added
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
   status            public.connection_order_status NOT NULL DEFAULT 'in_manager',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -256,12 +257,12 @@ DROP TRIGGER IF EXISTS trg_connection_orders_updated_at ON public.connection_ord
 CREATE TRIGGER trg_connection_orders_updated_at BEFORE UPDATE ON public.connection_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- TECHNICIAN_ORDERS (exact match - region as TEXT, BIGINT ID)
+-- TECHNICIAN_ORDERS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.technician_orders (
   id                    BIGSERIAL PRIMARY KEY,
   application_number    VARCHAR(50),  -- TECH-B2C-1001 format
   user_id               BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  region                TEXT,  -- FIXED: TEXT not INTEGER
+  region                TEXT,  -- TEXT as in database analysis
   abonent_id            TEXT,
   address               TEXT,
   media                 TEXT,
@@ -271,8 +272,8 @@ CREATE TABLE IF NOT EXISTS public.technician_orders (
   description           TEXT,
   description_ish       TEXT,
   description_operator  TEXT,
-  diagnostics           TEXT,  -- Diagnostika ma'lumotlari
-  cancellation_note     TEXT,  -- Migration 026: Bekor qilish sababi
+  diagnostics           TEXT,  -- Missing field added
+  cancellation_note     TEXT,  -- Missing field added
   status                public.technician_order_status NOT NULL DEFAULT 'in_controller',
   is_active             BOOLEAN NOT NULL DEFAULT TRUE,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -285,13 +286,13 @@ DROP TRIGGER IF EXISTS trg_technician_orders_updated_at ON public.technician_ord
 CREATE TRIGGER trg_technician_orders_updated_at BEFORE UPDATE ON public.technician_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- STAFF_ORDERS (exact match - region as TEXT, BIGINT ID)
+-- STAFF_ORDERS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.staff_orders (
   id               BIGSERIAL PRIMARY KEY,
   application_number VARCHAR(50),  -- STAFF-B2B-1001 format
   user_id          BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   phone            TEXT,
-  region           TEXT,  -- FIXED: TEXT not INTEGER
+  region           TEXT,  -- TEXT as in database analysis
   abonent_id       TEXT,
   tarif_id         BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   address          TEXT,
@@ -299,7 +300,6 @@ CREATE TABLE IF NOT EXISTS public.staff_orders (
   problem_description TEXT,  -- Muammo haqida batafsil (texnik xizmat uchun)
   diagnostics      TEXT,  -- Diagnostika natijalari (texnik xizmat uchun)
   jm_notes         TEXT,  -- Junior manager izohlari
-  cancellation_note TEXT,  -- Migration 026: Bekor qilish sababi
   business_type    public.business_type NOT NULL DEFAULT 'B2C',
   status           public.staff_order_status NOT NULL DEFAULT 'new',
   type_of_zayavka  public.type_of_zayavka NOT NULL DEFAULT 'connection',
@@ -314,7 +314,7 @@ DROP TRIGGER IF EXISTS trg_staff_orders_updated_at ON public.staff_orders;
 CREATE TRIGGER trg_staff_orders_updated_at BEFORE UPDATE ON public.staff_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- SMART_SERVICE_ORDERS (exact match)
+-- SMART_SERVICE_ORDERS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.smart_service_orders (
   id                BIGSERIAL PRIMARY KEY,
   application_number VARCHAR(50),  -- SMA-0001 format
@@ -334,7 +334,7 @@ DROP TRIGGER IF EXISTS trg_sso_updated_at ON public.smart_service_orders;
 CREATE TRIGGER trg_sso_updated_at BEFORE UPDATE ON public.smart_service_orders
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- CONNECTIONS (exact match with Python class)
+-- CONNECTIONS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.connections (
   id                  BIGSERIAL PRIMARY KEY,
   sender_id           BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
@@ -350,7 +350,7 @@ CREATE TABLE IF NOT EXISTS public.connections (
 CREATE INDEX IF NOT EXISTS idx_connections_sender ON public.connections(sender_id);
 CREATE INDEX IF NOT EXISTS idx_connections_recipient ON public.connections(recipient_id);
 
--- MATERIALS (exact match)
+-- MATERIALS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.materials (
   id            BIGSERIAL PRIMARY KEY,
   name          TEXT,
@@ -366,7 +366,7 @@ DROP TRIGGER IF EXISTS trg_materials_updated_at ON public.materials;
 CREATE TRIGGER trg_materials_updated_at BEFORE UPDATE ON public.materials
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- MATERIAL_REQUESTS (exact match)
+-- MATERIAL_REQUESTS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.material_requests (
   id                  BIGSERIAL PRIMARY KEY,
   description         TEXT,
@@ -388,15 +388,14 @@ DROP TRIGGER IF EXISTS trg_material_requests_updated_at ON public.material_reque
 CREATE TRIGGER trg_material_requests_updated_at BEFORE UPDATE ON public.material_requests
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- MATERIAL_AND_TECHNICIAN (exact match)
+-- MATERIAL_AND_TECHNICIAN (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.material_and_technician (
   id          BIGSERIAL PRIMARY KEY,
   user_id     BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   material_id BIGINT REFERENCES public.materials(id) ON DELETE SET NULL,
   quantity    INTEGER,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT ux_mat_tech_user_material UNIQUE (user_id, material_id)
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 DROP TRIGGER IF EXISTS trg_material_and_technician_updated_at ON public.material_and_technician;
 CREATE TRIGGER trg_material_and_technician_updated_at BEFORE UPDATE ON public.material_and_technician
@@ -411,34 +410,19 @@ CREATE TABLE IF NOT EXISTS public.material_issued (
   total_price           NUMERIC(10,2) NOT NULL,
   issued_by             BIGINT NOT NULL REFERENCES public.users(id),
   issued_at             TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  notes                 TEXT,
-  connection_order_id   BIGINT REFERENCES public.connection_orders(id),
-  technician_order_id   BIGINT REFERENCES public.technician_orders(id),
-  staff_order_id        BIGINT REFERENCES public.staff_orders(id),
   material_name         TEXT,
   material_unit         TEXT,
   is_approved           BOOLEAN DEFAULT FALSE,
-  approved_by           BIGINT REFERENCES public.users(id),
-  approved_at           TIMESTAMPTZ,
-  is_returned           BOOLEAN DEFAULT FALSE,
-  returned_quantity     INTEGER DEFAULT 0,
-  returned_at           TIMESTAMPTZ,
-  returned_by           BIGINT REFERENCES public.users(id),
-  return_notes          TEXT,
+  application_number    VARCHAR(50),
+  request_type          VARCHAR(20) DEFAULT 'connection',
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT chk_one_order_type CHECK (
-    (connection_order_id IS NOT NULL AND technician_order_id IS NULL AND staff_order_id IS NULL) OR
-    (connection_order_id IS NULL AND technician_order_id IS NOT NULL AND staff_order_id IS NULL) OR
-    (connection_order_id IS NULL AND technician_order_id IS NULL AND staff_order_id IS NOT NULL)
-  ),
-  CONSTRAINT chk_return_quantity CHECK (returned_quantity >= 0 AND returned_quantity <= quantity)
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 DROP TRIGGER IF EXISTS trg_material_issued_updated_at ON public.material_issued;
 CREATE TRIGGER trg_material_issued_updated_at BEFORE UPDATE ON public.material_issued
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- REPORTS (exact match)
+-- REPORTS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.reports (
   id                  BIGSERIAL PRIMARY KEY,
   title               TEXT NOT NULL,
@@ -451,7 +435,7 @@ DROP TRIGGER IF EXISTS trg_reports_updated_at ON public.reports;
 CREATE TRIGGER trg_reports_updated_at BEFORE UPDATE ON public.reports
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- AKT_DOCUMENTS (exact match)
+-- AKT_DOCUMENTS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.akt_documents (
   id                  BIGSERIAL PRIMARY KEY,
   request_id          BIGINT,
@@ -467,7 +451,7 @@ DROP TRIGGER IF EXISTS trg_akt_documents_updated_at ON public.akt_documents;
 CREATE TRIGGER trg_akt_documents_updated_at BEFORE UPDATE ON public.akt_documents
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- AKT_RATINGS (exact match)
+-- AKT_RATINGS (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.akt_ratings (
   id                  BIGSERIAL PRIMARY KEY,
   request_id          BIGINT,
@@ -481,7 +465,7 @@ DROP TRIGGER IF EXISTS trg_akt_ratings_updated_at ON public.akt_ratings;
 CREATE TRIGGER trg_akt_ratings_updated_at BEFORE UPDATE ON public.akt_ratings
 FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- MEDIA_FILES (exact match)
+-- MEDIA_FILES (exact match with database analysis)
 CREATE TABLE IF NOT EXISTS public.media_files (
   id             BIGSERIAL PRIMARY KEY,
   file_path      TEXT NOT NULL,
@@ -673,14 +657,14 @@ def verify_setup():
         return False
 
 def main():
-    print("ALFABOT Schema Setup (Python Models Match)")
+    print("ALFABOT Schema Setup (Matches Database Analysis)")
     if not create_database():
         sys.exit(1)
 
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         conn.set_client_encoding('UTF8')
-        print("[>] Applying schema that matches Python models...")
+        print("[>] Applying schema that matches database analysis...")
         run_sql(conn, SCHEMA_SQL)
         conn.commit()
         conn.close()
@@ -690,7 +674,7 @@ def main():
         sys.exit(1)
 
     if verify_setup():
-        print("SUCCESS! Database schema now matches Python models exactly!")
+        print("SUCCESS! Database schema now matches actual database structure!")
     else:
         print("Verification had issues")
 

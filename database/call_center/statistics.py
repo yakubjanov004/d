@@ -47,9 +47,11 @@ async def get_operator_stats_by_range(operator_id: int, range_key: str) -> Dict[
     """
     sent_sql = f"""
         SELECT COUNT(*)::int
-        FROM connections
-        WHERE sender_id = $1
-          AND created_at >= NOW() - INTERVAL '{interval}'
+        FROM connections c
+        JOIN users u ON u.id = c.recipient_id
+        WHERE c.sender_id = $1
+          AND u.role = 'controller'
+          AND c.created_at >= NOW() - INTERVAL '{interval}'
     """
 
     conn = await get_connection()
@@ -97,8 +99,10 @@ async def get_operator_total_stats(operator_id: int) -> Dict[str, int]:
         sent_orders = await conn.fetchval(
             """
             SELECT COUNT(*)::int
-            FROM connections
-            WHERE sender_id = $1
+            FROM connections c
+            JOIN users u ON u.id = c.recipient_id
+            WHERE c.sender_id = $1
+              AND u.role = 'controller'
             """,
             operator_id
         )

@@ -172,6 +172,22 @@ async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Avval application_number ni olish
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            return []
+        
+        application_number = app_number_result['application_number']
+        
         # material_issued jadvalidan olish (yakuniy ishlatilgan materiallar)
         materials = await conn.fetch(
             """
@@ -183,22 +199,10 @@ async def get_materials_for_akt(request_id: int, request_type: str) -> List[Dict
                 material_unit AS unit
             FROM material_issued
             WHERE request_type = $1 
-              AND application_number = (
-                  SELECT application_number 
-                  FROM technician_orders 
-                  WHERE id = $2
-                  UNION ALL
-                  SELECT application_number 
-                  FROM connection_orders 
-                  WHERE id = $2
-                  UNION ALL
-                  SELECT application_number 
-                  FROM staff_orders 
-                  WHERE id = $2
-              )
+              AND application_number = $2
             ORDER BY created_at
             """,
-            request_type, request_id
+            request_type, application_number
         )
             
         return [dict(m) for m in materials]
@@ -246,19 +250,34 @@ async def create_akt_document(request_id: int, request_type: str, akt_number: st
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        await conn.execute(
+        # First check if document already exists
+        existing = await conn.fetchrow(
             """
-            INSERT INTO akt_documents (request_id, request_type, akt_number, file_path, file_hash, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (request_id, request_type) 
-            DO UPDATE SET 
-                akt_number = $3, 
-                file_path = $4, 
-                file_hash = $5, 
-                updated_at = NOW()
+            SELECT id FROM akt_documents 
+            WHERE request_id = $1 AND request_type = $2
             """,
-            request_id, request_type, akt_number, file_path, file_hash
+            request_id, request_type
         )
+        
+        if existing:
+            # Update existing document
+            await conn.execute(
+                """
+                UPDATE akt_documents 
+                SET akt_number = $1, file_path = $2, file_hash = $3, updated_at = NOW()
+                WHERE id = $4
+                """,
+                akt_number, file_path, file_hash, existing['id']
+            )
+        else:
+            # Insert new document
+            await conn.execute(
+                """
+                INSERT INTO akt_documents (request_id, request_type, akt_number, file_path, file_hash, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                """,
+                request_id, request_type, akt_number, file_path, file_hash
+            )
         return True
     except Exception as e:
         print(f"Error creating AKT document: {e}")

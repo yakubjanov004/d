@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import State, StatesGroup
 from database.basic.user import find_user_by_telegram_id
+from database.technician.materials import fetch_pending_material_usage
 from loader import bot
 import logging
 import asyncpg
@@ -271,13 +272,25 @@ def _preserve_mode_clear(state: FSMContext, keep_keys: list[str] | None = None):
     async def _inner():
         data = await state.get_data()
         mode = data.get("tech_mode")
+        lang = data.get("lang")
+        inbox = data.get("tech_inbox")
+        idx = data.get("tech_idx")
+        current_application_id = data.get("current_application_id")
+        
         kept: dict = {}
         if keep_keys:
             for k in keep_keys:
                 if k in data:
                     kept[k] = data[k]
+        
         await state.clear()
-        payload = {"tech_mode": mode}
+        payload = {
+            "tech_mode": mode,
+            "lang": lang,
+            "tech_inbox": inbox,
+            "tech_idx": idx,
+            "current_application_id": current_application_id
+        }
         payload.update(kept)
         await state.update_data(**payload)
     return _inner()
@@ -318,7 +331,6 @@ def short_view_text(item: dict, idx: int, total: int, lang: str = "uz", mode: st
     if mode == "staff":
         base = f"{t('title_inbox', lang)}\n"
         base += f"{t('id', lang)} {esc(item.get('application_number') or item.get('id'))}\n"
-        base += f"{status_emoji(item.get('status',''))} {t('status', lang)} {esc(item.get('status'))}\n"
         
         # Ariza turi
         req_type = item.get('type_of_zayavka', '-')
@@ -376,7 +388,6 @@ def short_view_text(item: dict, idx: int, total: int, lang: str = "uz", mode: st
     elif mode == "technician":
         base = f"{t('title_inbox', lang)}\n"
         base += f"{t('id', lang)} {esc(item.get('application_number') or item.get('id'))}\n"
-        base += f"{status_emoji(item.get('status',''))} {t('status', lang)} {esc(item.get('status'))}\n"
         
         # Texnik xizmat arizasi
         base += f"{t('req_type', lang)} {'Texnik xizmat' if lang=='uz' else 'Техобслуживание'}\n\n"
@@ -412,7 +423,6 @@ def short_view_text(item: dict, idx: int, total: int, lang: str = "uz", mode: st
     else:  # mode == "connection"
         base = f"{t('title_inbox', lang)}\n"
         base += f"{t('id', lang)} {esc(item.get('application_number') or item.get('id'))}\n"
-        base += f"{status_emoji(item.get('status',''))} {t('status', lang)} {esc(item.get('status'))}\n"
         
         # Ulanish arizasi
         base += f"{t('req_type', lang)} {'Ulanish' if lang=='uz' else 'Подключение'}\n\n"
@@ -752,6 +762,8 @@ def materials_keyboard(materials: list[dict], applications_id: int, lang: str = 
             )])
     rows.append([InlineKeyboardButton(text=("➕ Boshqa mahsulot" if lang == "uz" else "➕ Другой материал"),
                                       callback_data=f"tech_mat_custom_{applications_id}")])
+    # Add "Orqaga" button
+    rows.append([InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{applications_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def unassigned_materials_keyboard(materials: list[dict], applications_id: int, lang: str = "uz") -> InlineKeyboardMarkup:
@@ -767,8 +779,7 @@ def unassigned_materials_keyboard(materials: list[dict], applications_id: int, l
                 text=title[:64],
                 callback_data=f"tech_unassigned_select_{mat.get('material_id')}_{applications_id}"
             )])
-    rows.append([InlineKeyboardButton(text=("⬅️ Orqaga" if lang == "uz" else "⬅️ Назад"),
-                                      callback_data=f"tech_back_to_materials_{applications_id}")])
+    rows.append([InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{applications_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def action_keyboard(item_id: int, index: int, total: int, status: str, mode: str = "connection", lang: str = "uz", item: dict = None) -> InlineKeyboardMarkup:
@@ -795,16 +806,10 @@ async def action_keyboard(item_id: int, index: int, total: int, status: str, mod
     
     # Statusga qarab amal tugmalari
     if status == "between_controller_technician":
-        # Faqat connection mode uchun bekor qilish mumkin
-        if mode == "connection":
-            rows.append([
-                InlineKeyboardButton(text=t("cancel", lang), callback_data=f"tech_cancel_{item_id}"),
-                InlineKeyboardButton(text=t("accept", lang), callback_data=f"tech_accept_{item_id}"),
-            ])
-        else:
-            rows.append([
-                InlineKeyboardButton(text=t("accept", lang), callback_data=f"tech_accept_{item_id}"),
-            ])
+        # Faqat accept tugmasi ko'rsatiladi, cancel tugmasi faqat yakuniy ko'rinishda
+        rows.append([
+            InlineKeyboardButton(text=t("accept", lang), callback_data=f"tech_accept_{item_id}"),
+        ])
     
     elif status == "in_technician":
         rows.append([InlineKeyboardButton(text=t("start", lang), callback_data=f"tech_start_{item_id}")])
@@ -812,11 +817,12 @@ async def action_keyboard(item_id: int, index: int, total: int, status: str, mod
     elif status == "in_technician_work":
         # Diagnostika tugmasi (faqat technician va staff uchun)
         if mode == "technician" or (mode == "staff" and item and item.get("type_of_zayavka") == "technician"):
-            # Avval diagnostika tugmasini tekshirish kerak
+            # Diagnostika mavjudligini tekshirish
             has_diagnostics = False
             if item:
                 diagnostics = item.get("diagnostics")
-                has_diagnostics = bool(diagnostics and diagnostics.strip())
+                # Diagnostika mavjud va bo'sh emasligini tekshirish
+                has_diagnostics = bool(diagnostics and str(diagnostics).strip())
             
             if not has_diagnostics:
                 # Diagnostika qo'shilmagan bo'lsa, diagnostika tugmasi ko'rsatish
@@ -852,23 +858,39 @@ def tech_category_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=c, callback_data="tech_inbox_cat_operator")],
     ])
 
-async def _safe_edit(message, text: str, kb: InlineKeyboardMarkup):
-    try:
-        if message.text == text:
+async def purge_tracked_messages(state: FSMContext, chat_id: int):
+    """Delete or clear markup from all tracked interactive messages"""
+    st = await state.get_data()
+    msg_ids = st.get("active_msg_ids", [])
+    for msg_id in msg_ids:
+        try:
+            await bot.delete_message(chat_id, msg_id)
+        except:
             try:
-                await message.edit_reply_markup(reply_markup=kb)
-                return
-            except TelegramBadRequest as e:
-                if "message is not modified" in str(e):
-                    return
-                raise
-        await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    except TelegramBadRequest as e:
-        if "message is not modified" in str(e):
-            return
-        raise
+                await bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            except:
+                pass
+    await state.update_data(active_msg_ids=[])
 
-async def render_item(message, item: dict, idx: int, total: int, lang: str, mode: str, user_id: int = None):
+async def track_message(state: FSMContext, message_id: int):
+    """Add message ID to tracking list"""
+    st = await state.get_data()
+    msg_ids = st.get("active_msg_ids", [])
+    msg_ids.append(message_id)
+    await state.update_data(active_msg_ids=msg_ids)
+
+async def clear_temp_contexts(state: FSMContext):
+    """Clear temporary contexts while preserving persistent fields"""
+    st = await state.get_data()
+    await state.update_data(
+        qty_ctx=None,
+        custom_ctx=None,
+        unassigned_ctx=None,
+        diag_ctx=None,
+        active_msg_ids=[]
+    )
+
+async def render_item(message, item: dict, idx: int, total: int, lang: str, mode: str, user_id: int = None, state: FSMContext = None):
     """Arizani rasm bilan yoki rasmsiz ko'rsatish"""
     if user_id:
         text = await short_view_text_with_materials(item, idx, total, user_id, lang, mode)
@@ -887,10 +909,11 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
             pass
         
         # Yangi xabar yuborish
+        sent_msg = None
         if media_file_id and media_type:
             try:
                 if media_type == 'photo':
-                    await bot.send_photo(
+                    sent_msg = await bot.send_photo(
                         chat_id=message.chat.id,
                         photo=media_file_id,
                         caption=text,
@@ -898,7 +921,7 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                         reply_markup=kb
                     )
                 elif media_type == 'video':
-                    await bot.send_video(
+                    sent_msg = await bot.send_video(
                         chat_id=message.chat.id,
                         video=media_file_id,
                         caption=text,
@@ -906,20 +929,29 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                         reply_markup=kb
                     )
                 else:
-                    await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                    sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
             except Exception:
                 # Agar media yuborishda xatolik bo'lsa, faqat matn yuboramiz
-                await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         else:
-            await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        
+        # Track the sent message if state is provided
+        if state and sent_msg:
+            await track_message(state, sent_msg.message_id)
+        
+        return sent_msg
     except Exception:
         # Agar delete ishlamasa ham, matn yuborishga harakat qilamiz
         try:
-            await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            if state and sent_msg:
+                await track_message(state, sent_msg.message_id)
+            return sent_msg
         except:
-            pass
+            return None
 
-async def render_item_new_message(message: Message, item: dict, idx: int, total: int, lang: str, mode: str, user_id: int = None):
+async def render_item_new_message(message: Message, item: dict, idx: int, total: int, lang: str, mode: str, user_id: int = None, state: FSMContext = None):
     """Arizani yangi xabar sifatida render qilish (edit emas)"""
     if user_id:
         text = await short_view_text_with_materials(item, idx, total, user_id, lang, mode)
@@ -932,10 +964,11 @@ async def render_item_new_message(message: Message, item: dict, idx: int, total:
     
     try:
         # Yangi xabar yuborish
+        sent_msg = None
         if media_file_id and media_type:
             try:
                 if media_type == 'photo':
-                    await bot.send_photo(
+                    sent_msg = await bot.send_photo(
                         chat_id=message.chat.id,
                         photo=media_file_id,
                         caption=text,
@@ -943,7 +976,7 @@ async def render_item_new_message(message: Message, item: dict, idx: int, total:
                         reply_markup=kb
                     )
                 elif media_type == 'video':
-                    await bot.send_video(
+                    sent_msg = await bot.send_video(
                         chat_id=message.chat.id,
                         video=media_file_id,
                         caption=text,
@@ -951,7 +984,7 @@ async def render_item_new_message(message: Message, item: dict, idx: int, total:
                         reply_markup=kb
                     )
                 elif media_type == 'document':
-                    await bot.send_document(
+                    sent_msg = await bot.send_document(
                         chat_id=message.chat.id,
                         document=media_file_id,
                         caption=text,
@@ -960,15 +993,24 @@ async def render_item_new_message(message: Message, item: dict, idx: int, total:
                     )
             except Exception as e:
                 # Agar media yuborishda xatolik bo'lsa, oddiy matn yuboramiz
-                await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         else:
-            await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        
+        # Track the sent message if state is provided
+        if state and sent_msg:
+            await track_message(state, sent_msg.message_id)
+        
+        return sent_msg
     except Exception:
         # Agar xatolik bo'lsa, oddiy matn yuborishga harakat qilamiz
         try:
-            await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            if state and sent_msg:
+                await track_message(state, sent_msg.message_id)
+            return sent_msg
         except:
-            pass
+            return None
 
 # ====== Inbox ochish: avval kategoriya ======
 @router.message(F.text.in_(["📥 Inbox", "Inbox", "📥 Входящие"]))
@@ -989,16 +1031,26 @@ async def tech_cat_connection(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Purge tracked messages and delete category selection message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+
     items = _dedup_by_id(await fetch_technician_inbox(technician_id=user["id"], limit=50, offset=0))
     await state.update_data(tech_mode="connection", tech_inbox=items, tech_idx=0, lang=lang)
     if not items:
-        return await cb.message.edit_text(t("empty_connection", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        sent_msg = await bot.send_message(cb.message.chat.id, t("empty_connection", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        await track_message(state, sent_msg.message_id)
+        return
     
-    # Connection arizalarida rasmlar bo'lmaydi, shuning uchun oddiy edit
+    # Connection arizalarida rasmlar bo'lmaydi, shuning uchun oddiy send
     item = items[0]; total = len(items)
     text = await short_view_text_with_materials(item, 0, total, user["id"], lang, mode="connection")
     kb = await action_keyboard(item.get("id"), 0, total, item.get("status", ""), mode="connection", lang=lang, item=item)
-    await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
 
 @router.callback_query(F.data == "tech_inbox_cat_tech")
 async def tech_cat_tech(cb: CallbackQuery, state: FSMContext):
@@ -1008,13 +1060,22 @@ async def tech_cat_tech(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Purge tracked messages and delete category selection message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+
     items = _dedup_by_id(await fetch_technician_inbox_tech(technician_id=user["id"], limit=50, offset=0))
     await state.update_data(tech_mode="technician", tech_inbox=items, tech_idx=0, lang=lang)
     if not items:
-        return await cb.message.edit_text(t("empty_tech", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        sent_msg = await bot.send_message(cb.message.chat.id, t("empty_tech", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        await track_message(state, sent_msg.message_id)
+        return
     
     # Texnik xizmat arizalarida rasmlar bo'lishi mumkin - render_item ishlatamiz
-    await render_item(cb.message, items[0], 0, len(items), lang, "technician", user["id"])
+    await render_item(cb.message, items[0], 0, len(items), lang, "technician", user["id"], state)
 
 @router.callback_query(F.data == "tech_inbox_cat_operator")
 async def tech_cat_operator(cb: CallbackQuery, state: FSMContext):
@@ -1024,16 +1085,26 @@ async def tech_cat_operator(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Purge tracked messages and delete category selection message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+
     items = _dedup_by_id(await fetch_technician_inbox_staff(technician_id=user["id"], limit=50, offset=0))
     await state.update_data(tech_mode="staff", tech_inbox=items, tech_idx=0, lang=lang)
     if not items:
-        return await cb.message.edit_text(t("empty_staff", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        sent_msg = await bot.send_message(cb.message.chat.id, t("empty_staff", lang), reply_markup=InlineKeyboardMarkup(inline_keyboard=[]))
+        await track_message(state, sent_msg.message_id)
+        return
     
-    # Staff arizalarida rasmlar yo'q - oddiy edit
+    # Staff arizalarida rasmlar yo'q - oddiy send
     item = items[0]; total = len(items)
     text = await short_view_text_with_materials(item, 0, total, user["id"], lang, mode="staff")
     kb = await action_keyboard(item.get("id"), 0, total, item.get("status", ""), mode="staff", lang=lang, item=item)
-    await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
 
 # ====== Navigatsiya (prev/next) ======
 @router.callback_query(F.data.startswith("tech_inbox_prev_"))
@@ -1054,15 +1125,23 @@ async def tech_prev(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(t("reached_start", lang))
     await state.update_data(tech_inbox=items, tech_idx=idx)
     
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+    
     # Modga qarab render qilish
     if mode == "technician":
         # Technician mode - rasmlar bor, render_item
-        await render_item(cb.message, items[idx], idx, total, lang, mode, user["id"])
+        await render_item(cb.message, items[idx], idx, total, lang, mode, user["id"], state)
     else:
-        # Connection/staff mode - rasmlar yo'q, oddiy edit
+        # Connection/staff mode - rasmlar yo'q, oddiy send
         text = await short_view_text_with_materials(items[idx], idx, total, user["id"], lang, mode)
         kb = await action_keyboard(items[idx].get("id"), idx, total, items[idx].get("status", ""), mode=mode, lang=lang, item=items[idx])
-        await _safe_edit(cb.message, text, kb)
+        sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
 
 @router.callback_query(F.data.startswith("tech_inbox_next_"))
 async def tech_next(cb: CallbackQuery, state: FSMContext):
@@ -1082,15 +1161,23 @@ async def tech_next(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(t("reached_end", lang))
     await state.update_data(tech_inbox=items, tech_idx=idx)
     
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+    
     # Modga qarab render qilish
     if mode == "technician":
         # Technician mode - rasmlar bor, render_item
-        await render_item(cb.message, items[idx], idx, total, lang, mode, user["id"])
+        await render_item(cb.message, items[idx], idx, total, lang, mode, user["id"], state)
     else:
-        # Connection/staff mode - rasmlar yo'q, oddiy edit
+        # Connection/staff mode - rasmlar yo'q, oddiy send
         text = await short_view_text_with_materials(items[idx], idx, total, user["id"], lang, mode)
         kb = await action_keyboard(items[idx].get("id"), idx, total, items[idx].get("status", ""), mode=mode, lang=lang, item=items[idx])
-        await _safe_edit(cb.message, text, kb)
+        sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
 
 # ====== Qabul qilish / Bekor qilish / Boshlash ======
 @router.callback_query(F.data.startswith("tech_accept_"))
@@ -1115,26 +1202,70 @@ async def tech_accept(cb: CallbackQuery, state: FSMContext):
         # Controller'ga notification yuboramiz (texnik qabul qildi)
         try:
             from utils.notification_service import send_role_notification
-            from database.basic.user import get_user_by_telegram_id
+            from database.connections import get_connection_url
+            import asyncpg
             
-            # Controller'ning telegram_id ni olamiz
-            controller_user = await get_user_by_telegram_id(cb.from_user.id)  # Technician ID
-            if controller_user and controller_user.get('telegram_id'):
-                # Notification yuborish
-                await send_role_notification(
-                    bot=bot,
-                    recipient_telegram_id=controller_user['telegram_id'],
-                    order_id=f"#{req_id}",
-                    order_type=mode if mode != "connection" else "connection",
-                    current_load=1,  # Controller'ning hozirgi yuklamasi
-                    lang=controller_user.get('language', 'uz')
-                )
-                logger.info(f"Notification sent to controller - technician accepted order {req_id}")
+            # Controller'ning telegram_id ni olamiz (connections jadvalidan)
+            conn = await asyncpg.connect(get_connection_url())
+            try:
+                # Get controller who assigned this order to technician
+                controller_info = None
+                if mode == "technician":
+                    controller_info = await conn.fetchrow("""
+                        SELECT u.telegram_id, u.language 
+                        FROM connections c
+                        JOIN users u ON u.id = c.sender_id
+                        WHERE c.technician_id = $1 AND c.sender_id IN (
+                            SELECT id FROM users WHERE role = 'controller'
+                        )
+                        ORDER BY c.created_at DESC LIMIT 1
+                    """, req_id)
+                elif mode == "staff":
+                    controller_info = await conn.fetchrow("""
+                        SELECT u.telegram_id, u.language 
+                        FROM connections c
+                        JOIN users u ON u.id = c.sender_id
+                        WHERE c.staff_id = $1 AND c.sender_id IN (
+                            SELECT id FROM users WHERE role = 'controller'
+                        )
+                        ORDER BY c.created_at DESC LIMIT 1
+                    """, req_id)
+                else:  # connection mode
+                    controller_info = await conn.fetchrow("""
+                        SELECT u.telegram_id, u.language 
+                        FROM connections c
+                        JOIN users u ON u.id = c.sender_id
+                        WHERE c.connection_id = $1 AND c.sender_id IN (
+                            SELECT id FROM users WHERE role = 'controller'
+                        )
+                        ORDER BY c.created_at DESC LIMIT 1
+                    """, req_id)
+                
+                if controller_info and controller_info.get('telegram_id'):
+                    # Notification yuborish
+                    await send_role_notification(
+                        bot=bot,
+                        recipient_telegram_id=controller_info['telegram_id'],
+                        order_id=f"#{req_id}",
+                        order_type=mode if mode != "connection" else "connection",
+                        current_load=1,  # Controller'ning hozirgi yuklamasi
+                        lang=controller_info.get('language', 'uz')
+                    )
+                    logger.info(f"Notification sent to controller - technician accepted order {req_id}")
+            finally:
+                await conn.close()
         except Exception as notif_error:
             logger.error(f"Failed to send notification to controller: {notif_error}")
             # Notification xatosi asosiy jarayonga ta'sir qilmaydi
     except Exception as e:
         return await cb.answer(f"{t('x_error', lang)} {e}", show_alert=True)
+
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
 
     items = _dedup_by_id((await state.get_data()).get("tech_inbox", []))
     idx = int((await state.get_data()).get("tech_idx", 0))
@@ -1148,55 +1279,15 @@ async def tech_accept(cb: CallbackQuery, state: FSMContext):
     
     # Modga qarab render qilish
     if mode == "technician":
-        await render_item(cb.message, item, idx, total, lang, mode, user["id"])
+        await render_item(cb.message, item, idx, total, lang, mode, user["id"], state)
     else:
-        # Connection/staff mode - oddiy edit
+        # Connection/staff mode - oddiy send
         text = await short_view_text_with_materials(item, idx, total, user["id"], lang, mode)
         kb = await action_keyboard(item.get("id"), idx, total, item.get("status", ""), mode=mode, lang=lang, item=item)
-        await _safe_edit(cb.message, text, kb)
+        sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
     
     await cb.answer()
-
-@router.callback_query(F.data.startswith("tech_cancel_"))
-async def tech_cancel(cb: CallbackQuery, state: FSMContext):
-    st = await state.get_data(); lang = st.get("lang") or await resolve_lang(cb.from_user.id)
-    mode = st.get("tech_mode", "connection")
-    if mode != "connection":
-        return await cb.answer(t("no_perm", lang), show_alert=True)
-
-    user = await find_user_by_telegram_id(cb.from_user.id)
-    if not user or user.get("role") != "technician":
-        return await cb.answer(t("no_perm", lang), show_alert=True)
-
-    req_id = int(cb.data.replace("tech_cancel_", ""))
-    try:
-        await cancel_technician_request(applications_id=req_id, technician_id=user["id"])
-    except Exception as e:
-        return await cb.answer(f"{t('x_error', lang)} {e}", show_alert=True)
-
-    items = _dedup_by_id(st.get("tech_inbox", []))
-    idx = int(st.get("tech_idx", 0))
-    items = [it for it in items if it.get("id") != req_id]
-
-    if not items:
-        await state.update_data(tech_inbox=[], tech_idx=0)
-        await cb.answer(t("ok_cancelled", lang))
-        return await _safe_edit(cb.message, t("empty_inbox", lang), InlineKeyboardMarkup(inline_keyboard=[]))
-
-    if idx >= len(items):
-        idx = len(items) - 1
-
-    await state.update_data(tech_inbox=items, tech_idx=idx)
-    total = len(items); item = items[idx]
-    
-    # Modga qarab render qilish
-    if mode == "technician":
-        await render_item(cb.message, item, idx, total, lang, mode, user["id"])
-    else:
-        # Connection/staff mode - oddiy edit
-        text = await short_view_text_with_materials(item, idx, total, user["id"], lang, mode)
-        kb = await action_keyboard(item.get("id"), idx, total, item.get("status", ""), mode=mode, lang=lang, item=item)
-        await _safe_edit(cb.message, text, kb)
 
 @router.callback_query(F.data.startswith("tech_start_"))
 async def tech_start(cb: CallbackQuery, state: FSMContext):
@@ -1229,6 +1320,13 @@ async def tech_start(cb: CallbackQuery, state: FSMContext):
     except Exception as e:
         return await cb.answer(f"{t('x_error', lang)} {e}", show_alert=True)
 
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except:
+        pass
+
     # Inbox'ni yangilash
     items = _dedup_by_id((await state.get_data()).get("tech_inbox", []))
     idx = int((await state.get_data()).get("tech_idx", 0))
@@ -1243,11 +1341,12 @@ async def tech_start(cb: CallbackQuery, state: FSMContext):
     
     # Ariza ko'rinishini yangilash
     if mode == "technician":
-        await render_item(cb.message, item, idx, total, lang, mode, user["id"])
+        await render_item(cb.message, item, idx, total, lang, mode, user["id"], state)
     else:
         text = await short_view_text_with_materials(item, idx, total, user["id"], lang, mode)
         kb = await action_keyboard(item.get("id"), idx, total, item.get("status", ""), mode=mode, lang=lang, item=item)
-        await _safe_edit(cb.message, text, kb)
+        sent_msg = await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
     
     # Ish boshlangan xabari
     await cb.answer(t("ok_started", lang))
@@ -1266,7 +1365,7 @@ async def tech_diag_text(msg: Message, state: FSMContext):
     data = await state.get_data()
     req_id = int(data.get("diag_req_id", 0))
     if req_id <= 0:
-        await _preserve_mode_clear(state)
+        await clear_temp_contexts(state)
         return await msg.answer(t("req_not_found", lang))
 
     text = (msg.text or "").strip()
@@ -1296,19 +1395,27 @@ async def tech_diag_text(msg: Message, state: FSMContext):
             await save_technician_diagnosis(applications_id=req_id, technician_id=user["id"], text=text)
         # Connection mode uchun diagnostika qo'shish kerak emas
     except Exception as e:
-        await _preserve_mode_clear(state)
+        await clear_temp_contexts(state)
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
-    mode = st.get("tech_mode", "connection")
-    app_number = await get_application_number(req_id, mode)
-    
-    await _preserve_mode_clear(state, keep_keys=["tech_inbox", "tech_idx"])
-
-    # Diagnostika xabarini o'chirish
+    # Purge tracked messages and delete user's text input
+    await purge_tracked_messages(state, msg.chat.id)
     try:
         await msg.delete()
     except Exception:
         pass
+
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+        # Diagnostika saqlangandan keyin tasdiqlash xabari
+    success_text = f"✅ <b>{'Diagnostika saqlandi!' if lang=='uz' else 'Диагностика сохранена!'}</b>\n\n"
+    success_text += f"🆔 <b>{'Ariza raqami:' if lang=='uz' else 'Номер заявки:'}</b> {app_number}\n"
+    success_text += f"📝 <b>{'Diagnostika:' if lang=='uz' else 'Диагностика:'}</b>\n<code>{html.escape(text, quote=False)}</code>\n\n"
+    success_text += f"{'Davom etishingiz mumkin' if lang=='uz' else 'Можете продолжить'}"
+    
+    await msg.answer(success_text, parse_mode="HTML")
+    
+    await clear_temp_contexts(state)
 
     # Diagnostika tugaganidan so'ng, ariza ko'rinishini yangilash
     items = _dedup_by_id((await state.get_data()).get("tech_inbox", []))
@@ -1317,12 +1424,6 @@ async def tech_diag_text(msg: Message, state: FSMContext):
     
     # Agar items bo'sh bo'lsa, oddiy xabar yuboramiz
     if not items:
-        # Diagnostika saqlandi xabari + inline tugmalar
-        diag_text = f"✅ <b>{'Diagnostika saqlandi!' if lang=='uz' else 'Диагностика сохранена!'}</b>\n\n"
-        diag_text += f"{t('order_id', lang)} {esc(app_number)}\n"
-        diag_text += f"{t('diag_text', lang)}\n<code>{html.escape(text, quote=False)}</code>\n\n"
-        diag_text += f"{'Davom etishingiz mumkin' if lang=='uz' else 'Можете продолжить'}"
-        
         # Inline tugmalar yaratish
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -1331,7 +1432,8 @@ async def tech_diag_text(msg: Message, state: FSMContext):
             ]
         ])
         
-        await msg.answer(diag_text, reply_markup=kb, parse_mode="HTML")
+        sent_msg = await msg.answer(diag_text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
         return
     
     item = items[idx] if 0 <= idx < total else items[0]
@@ -1342,11 +1444,12 @@ async def tech_diag_text(msg: Message, state: FSMContext):
     
     # Yangi xabar yuborish (edit emas) - faqat bitta xabar
     if item and mode == "technician":
-        await render_item_new_message(msg, item, idx, total, lang, mode, user["id"])
+        await render_item_new_message(msg, item, idx, total, lang, mode, user["id"], state)
     elif item:
         text = await short_view_text_with_materials(item, idx, total, user["id"], lang, mode)
         kb = await action_keyboard(item.get("id"), idx, total, item.get("status", ""), mode=mode, lang=lang, item=item)
-        await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+        sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
     else:
         # Agar item yo'q bo'lsa, oddiy xabar yuboramiz
         diag_text = f"✅ <b>{'Diagnostika saqlandi!' if lang=='uz' else 'Диагностика сохранена!'}</b>\n\n"
@@ -1362,7 +1465,8 @@ async def tech_diag_text(msg: Message, state: FSMContext):
             ]
         ])
         
-        await msg.answer(diag_text, reply_markup=kb, parse_mode="HTML")
+        sent_msg = await msg.answer(diag_text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
 
 # ====== Diagnostika tugmasi ======
 @router.callback_query(F.data.startswith("tech_diag_"))
@@ -1377,6 +1481,7 @@ async def tech_diag_button(cb: CallbackQuery, state: FSMContext):
     mode = st.get("tech_mode", "connection")
     
     # Diagnostika so'rash
+    await cb.message.edit_reply_markup(reply_markup=None)  # Inline keyboard o'chirish
     await cb.message.answer(
         t("diag_begin_prompt", lang),
         parse_mode="HTML"
@@ -1410,15 +1515,20 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
 
     assigned_left = await fetch_assigned_qty(user["id"], material_id)
     assigned_left = int(assigned_left or 0)
+    
+    # Boshqa arizelarda band qilingan miqdorni hisoblash
+    pending_other = await fetch_pending_material_usage(user["id"], material_id, req_id)
+    real_available = assigned_left - pending_other
 
     # Source type ni aniqlash - texnikda bor yoki ombordan so'rash
-    source_type = "technician_stock" if assigned_left > 0 else "warehouse"
+    source_type = "technician_stock" if real_available > 0 else "warehouse"
 
-    # Avvalgi xabardagi inline keyboard'ni tozalash
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
     try:
-        await cb.message.edit_reply_markup(reply_markup=None)
+        await cb.message.delete()
     except Exception:
-        pass  # Agar edit qila olmasa, davom etamiz
+        pass
 
     # Application number ni olish
     mode = st.get("tech_mode", "connection")
@@ -1429,20 +1539,24 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
         f"{t('order_id', lang)} {esc(app_number)}\n"
         f"{t('chosen_prod', lang)} {esc(mat['name'])}\n"
         f"{t('price', lang)} {_fmt_price_uzs(mat['price'])} {'so\'m' if lang=='uz' else 'сум'}\n"
-        f"{t('assigned_left', lang)} {assigned_left} {'dona' if lang=='uz' else 'шт'}\n\n"
-        + t("enter_qty_hint", lang, max=assigned_left)
+        f"📊 Umumiy: {assigned_left} {'dona' if lang=='uz' else 'шт'}\n"
+        f"⏳ Boshqa arizelarda: {pending_other} {'dona' if lang=='uz' else 'шт'}\n"
+        f"✅ Mavjud: {real_available} {'dona' if lang=='uz' else 'шт'}\n\n"
+        + t("enter_qty_hint", lang, max=real_available)
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_qty_cancel_{req_id}")]
+        [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_qty_cancel_{req_id}")],
+        [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
     ])
 
     await state.update_data(
+        current_application_id=req_id,
         qty_ctx={
             "applications_id": req_id,
             "material_id": material_id,
             "material_name": mat["name"],
             "price": mat["price"],
-            "max_qty": assigned_left,
+            "max_qty": real_available,
             "lang": lang,
             "qty_message_id": None,  # Miqdor xabari ID'si
             "source_type": source_type,  # Material manbai
@@ -1450,6 +1564,7 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
     )
 
     qty_message = await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, qty_message.message_id)
     
     # Miqdor xabari ID'sini saqlash
     await state.update_data(
@@ -1458,7 +1573,7 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
             "material_id": material_id,
             "material_name": mat["name"],
             "price": mat["price"],
-            "max_qty": assigned_left,
+            "max_qty": real_available,
             "lang": lang,
             "qty_message_id": qty_message.message_id,
             "source_type": source_type,  # Material manbai
@@ -1479,6 +1594,13 @@ async def tech_qty_cancel(cb: CallbackQuery, state: FSMContext):
     user = await find_user_by_telegram_id(cb.from_user.id)
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
+
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
 
     mode = st.get("tech_mode", "connection")
     
@@ -1535,9 +1657,10 @@ async def tech_qty_cancel(cb: CallbackQuery, state: FSMContext):
     full_text = text + materials_text
     kb = materials_keyboard(mats, applications_id=req_id, lang=lang)
     
-    await _safe_edit(cb.message, full_text, kb)
-    await _preserve_mode_clear(state)
-    await cb.answer(t("state_cleared", lang))
+    sent_msg = await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
+    await clear_temp_contexts(state)
+    await cb.answer()
 
 @router.message(StateFilter(QtyStates.waiting_qty))
 async def tech_qty_entered(msg: Message, state: FSMContext):
@@ -1563,17 +1686,6 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     if qty > max_qty:
         return await msg.answer(t("max_exceeded", lang, max=max_qty))
 
-    # Miqdor xabari inline keyboard'ni tozalash
-    if qty_message_id:
-        try:
-            await msg.bot.edit_message_reply_markup(
-                chat_id=msg.chat.id,
-                message_id=qty_message_id,
-                reply_markup=None
-            )
-        except Exception:
-            pass  # Agar edit qila olmasa, davom etamiz
-
     # Faqat tanlov saqlansin, material_requests ga yozilmasin
     # Yakunlashda barcha tanlangan materiallar yoziladi
     try:
@@ -1591,23 +1703,51 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
+    # Purge tracked messages and delete user's text input
+    await purge_tracked_messages(state, msg.chat.id)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
     # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         if mode == "technician":
             query = """
-                SELECT * FROM technician_orders 
-                WHERE id = $1
+                SELECT 
+                    to2.*,
+                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    COALESCE(client_user.full_name, user_user.full_name) AS client_name,
+                    COALESCE(client_user.phone, user_user.phone) AS client_phone
+                FROM technician_orders to2
+                LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
+                LEFT JOIN users user_user ON user_user.id = to2.user_id
+                WHERE to2.id = $1
             """
         elif mode == "staff":
             query = """
-                SELECT * FROM staff_orders 
-                WHERE id = $1
+                SELECT 
+                    so.*,
+                    COALESCE(client_user.full_name, 'Mijoz') AS client_name,
+                    COALESCE(client_user.phone, so.phone) AS client_phone,
+                    creator.full_name AS staff_creator_name,
+                    creator.phone AS staff_creator_phone,
+                    creator.role AS staff_creator_role
+                FROM staff_orders so
+                LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+                LEFT JOIN users creator ON creator.id = so.user_id
+                WHERE so.id = $1
             """
         else:
             query = """
-                SELECT * FROM connection_orders 
-                WHERE id = $1
+                SELECT 
+                    co.*,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone
+                FROM connection_orders co
+                LEFT JOIN users u ON u.id = co.user_id
+                WHERE co.id = $1
             """
         
         item = await conn.fetchrow(query, req_id)
@@ -1623,7 +1763,12 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
         await conn.close()
     
     # Build text with order details + selected materials
-    original_text = short_view_text(item, 0, 1, lang, mode)
+    # Joriy inbox state ni saqlab qolish
+    current_idx = st.get("tech_idx", 0)
+    current_inbox = st.get("tech_inbox", [])
+    total_items = len(current_inbox)
+    
+    original_text = short_view_text(item, current_idx, total_items, lang, mode)
     
     selected = await fetch_selected_materials_for_request(user["id"], req_id)
     materials_text = "\n\n📦 <b>Ishlatilayotgan mahsulotlar:</b>\n"
@@ -1645,9 +1790,99 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     ])
     
     # Always send new message instead of editing
-    await msg.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    sent_msg = await msg.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
     
-    await _preserve_mode_clear(state)
+    await clear_temp_contexts(state)
+
+@router.callback_query(F.data.startswith("tech_back_to_order_"))
+async def tech_back_to_order(cb: CallbackQuery, state: FSMContext):
+    """Return to main order view with [Ombor] [Yakuniy ko'rinish] buttons"""
+    st = await state.get_data(); lang = st.get("lang") or await resolve_lang(cb.from_user.id)
+    try:
+        req_id = int(cb.data.replace("tech_back_to_order_", ""))
+    except Exception:
+        return await cb.answer()
+    user = await find_user_by_telegram_id(cb.from_user.id)
+    if not user or user.get("role") != "technician":
+        return await cb.answer(t("no_perm", lang), show_alert=True)
+
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    mode = st.get("tech_mode", "connection")
+    
+    # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        if mode == "technician":
+            query = """
+                SELECT 
+                    to2.*,
+                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    COALESCE(client_user.full_name, user_user.full_name) AS client_name,
+                    COALESCE(client_user.phone, user_user.phone) AS client_phone
+                FROM technician_orders to2
+                LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
+                LEFT JOIN users user_user ON user_user.id = to2.user_id
+                WHERE to2.id = $1
+            """
+        elif mode == "staff":
+            query = """
+                SELECT 
+                    so.*,
+                    COALESCE(client_user.full_name, 'Mijoz') AS client_name,
+                    COALESCE(client_user.phone, so.phone) AS client_phone,
+                    creator.full_name AS staff_creator_name,
+                    creator.phone AS staff_creator_phone,
+                    creator.role AS staff_creator_role
+                FROM staff_orders so
+                LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+                LEFT JOIN users creator ON creator.id = so.user_id
+                WHERE so.id = $1
+            """
+        else:
+            query = """
+                SELECT 
+                    co.*,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone
+                FROM connection_orders co
+                LEFT JOIN users u ON u.id = co.user_id
+                WHERE co.id = $1
+            """
+        
+        item = await conn.fetchrow(query, req_id)
+        
+        if not item:
+            return await cb.answer(
+                "❌ Ariza topilmadi" if lang == "uz" else "❌ Заявка не найдена",
+                show_alert=True
+            )
+        
+        item = dict(item)
+        
+    finally:
+        await conn.close()
+    
+    # Restore original text with [Ombor] [Yakuniy ko'rinish] buttons
+    original_text = short_view_text(item, 0, 1, lang, mode)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=t("warehouse", lang), callback_data=f"tech_add_more_{req_id}"),
+            InlineKeyboardButton(text=t("review", lang), callback_data=f"tech_review_{req_id}"),
+        ]
+    ])
+    
+    sent_msg = await cb.message.answer(original_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
+    await clear_temp_contexts(state)
+    await cb.answer()
 
 @router.callback_query(F.data.startswith("tech_back_to_materials_"))
 async def tech_back_to_materials(cb: CallbackQuery, state: FSMContext):
@@ -1660,6 +1895,15 @@ async def tech_back_to_materials(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    mode = st.get("tech_mode", "connection")
+    
     # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -1702,7 +1946,9 @@ async def tech_back_to_materials(cb: CallbackQuery, state: FSMContext):
         ]
     ])
     
-    await _safe_edit(cb.message, original_text, kb)
+    sent_msg = await cb.message.answer(original_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
+    await clear_temp_contexts(state)
     await cb.answer()
 
 @router.callback_query(F.data.startswith("tech_finish_"))
@@ -1755,6 +2001,13 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
     except Exception as e:
         return await cb.answer(f"{t('x_error', lang)} {e}", show_alert=True)
 
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
     # Application number ni olish
     app_number = await get_application_number(req_id, mode)
     lines = [t("work_finished", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("used_materials", lang)]
@@ -1765,8 +2018,12 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
     else:
         lines.append(T["none"][lang])
 
+    # Send completion summary (no inline buttons) - don't track this message
     await cb.message.answer("\n".join(lines), parse_mode="HTML")
     await cb.answer(t("finish", lang) + " ✅")
+
+    # Clear all temporary contexts
+    await clear_temp_contexts(state)
 
     try:
         # Avval clientga ariza haqida ma'lumot yuboramiz va rating so'ramiz
@@ -1784,6 +2041,13 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
     mode = st.get("tech_mode", "connection")
     
     # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
@@ -1791,18 +2055,39 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
     try:
         if mode == "technician":
             query = """
-                SELECT * FROM technician_orders 
-                WHERE id = $1
+                SELECT 
+                    to2.*,
+                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    COALESCE(client_user.full_name, user_user.full_name) AS client_name,
+                    COALESCE(client_user.phone, user_user.phone) AS client_phone
+                FROM technician_orders to2
+                LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
+                LEFT JOIN users user_user ON user_user.id = to2.user_id
+                WHERE to2.id = $1
             """
         elif mode == "staff":
             query = """
-                SELECT * FROM staff_orders 
-                WHERE id = $1
+                SELECT 
+                    so.*,
+                    COALESCE(client_user.full_name, 'Mijoz') AS client_name,
+                    COALESCE(client_user.phone, so.phone) AS client_phone,
+                    creator.full_name AS staff_creator_name,
+                    creator.phone AS staff_creator_phone,
+                    creator.role AS staff_creator_role
+                FROM staff_orders so
+                LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+                LEFT JOIN users creator ON creator.id = so.user_id
+                WHERE so.id = $1
             """
         else:
             query = """
-                SELECT * FROM connection_orders 
-                WHERE id = $1
+                SELECT 
+                    co.*,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone
+                FROM connection_orders co
+                LEFT JOIN users u ON u.id = co.user_id
+                WHERE co.id = $1
             """
         
         item = await conn.fetchrow(query, req_id)
@@ -1818,31 +2103,19 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
     finally:
         await conn.close()
     
-    # Build text with order details + materials list
+    # Build text with order details (materials list olib tashlandi)
     original_text = short_view_text(item, 0, 1, lang, mode)
     
     # Get technician's materials only
-    mats = await fetch_technician_materials(user_id=user["id"])
+    mats = await fetch_technician_materials(user_id=user["id"], current_application_id=req_id)
     
-    # Add materials list to text
-    materials_text = "\n\n📦 <b>Ombor jihozlari</b>\n"
-    materials_text += "Kerakli jihozlarni tanlang yoki boshqa mahsulot kiriting:\n\n"
-    
-    if mats:
-        for mat in mats:
-            name = _short(mat.get('name', 'NO NAME'))
-            price = _fmt_price_uzs(mat.get('price', 0))
-            stock = mat.get('stock_quantity', '0')
-            materials_text += f"📦 {name} — {price} so'm ({stock} dona)\n"
-    else:
-        materials_text += "• Texnikda materiallar yo'q\n"
-    
-    # Combine original text with materials
-    full_text = original_text + materials_text
+    # Combine original text (materials text qo'shilmadi)
+    full_text = original_text
     
     # Yangi xabar yuborish (edit emas)
     kb = materials_keyboard(mats, applications_id=req_id, lang=lang)
-    await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    sent_msg = await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
     await cb.answer()
 
 @router.callback_query(F.data.startswith("tech_review_"))
@@ -1852,6 +2125,13 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
     user = await find_user_by_telegram_id(cb.from_user.id)
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
+
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
 
     # Application number ni olish
     mode = st.get("tech_mode", "connection")
@@ -1864,18 +2144,39 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
     try:
         if mode == "technician":
             query = """
-                SELECT * FROM technician_orders 
-                WHERE id = $1
+                SELECT 
+                    to2.*,
+                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    COALESCE(client_user.full_name, user_user.full_name) AS client_name,
+                    COALESCE(client_user.phone, user_user.phone) AS client_phone
+                FROM technician_orders to2
+                LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
+                LEFT JOIN users user_user ON user_user.id = to2.user_id
+                WHERE to2.id = $1
             """
         elif mode == "staff":
             query = """
-                SELECT * FROM staff_orders 
-                WHERE id = $1
+                SELECT 
+                    so.*,
+                    COALESCE(client_user.full_name, 'Mijoz') AS client_name,
+                    COALESCE(client_user.phone, so.phone) AS client_phone,
+                    creator.full_name AS staff_creator_name,
+                    creator.phone AS staff_creator_phone,
+                    creator.role AS staff_creator_role
+                FROM staff_orders so
+                LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
+                LEFT JOIN users creator ON creator.id = so.user_id
+                WHERE so.id = $1
             """
         else:
             query = """
-                SELECT * FROM connection_orders 
-                WHERE id = $1
+                SELECT 
+                    co.*,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone
+                FROM connection_orders co
+                LEFT JOIN users u ON u.id = co.user_id
+                WHERE co.id = $1
             """
         
         item = await conn.fetchrow(query, req_id)
@@ -1926,7 +2227,8 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"tech_confirm_warehouse_{req_id}")],
-            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"tech_back_to_materials_{req_id}")]
+            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"tech_back_to_order_{req_id}")],
+            [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
         ])
     else:
         # No warehouse materials, show regular buttons
@@ -1935,10 +2237,11 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t("finish", lang), callback_data=f"tech_finish_{req_id}")],
             [InlineKeyboardButton(text=t("cancel_order", lang), callback_data=f"tech_cancel_order_{req_id}")],
-            [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_materials_{req_id}")]
+            [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
         ])
     
-    await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    sent_msg = await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, sent_msg.message_id)
     await cb.answer()
 
 @router.callback_query(F.data.startswith("tech_confirm_warehouse_"))
@@ -1996,6 +2299,13 @@ async def tech_confirm_warehouse(cb: CallbackQuery, state: FSMContext):
             except Exception as notif_error:
                 logger.error(f"Failed to send warehouse notification: {notif_error}")
                 # Notification xatosi asosiy jarayonga ta'sir qilmaydi
+            
+            # Purge tracked messages and delete current message
+            await purge_tracked_messages(state, cb.message.chat.id)
+            try:
+                await cb.message.delete()
+            except Exception:
+                pass
             
             # Show finish/cancel/back buttons
             # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
@@ -2055,10 +2365,11 @@ async def tech_confirm_warehouse(cb: CallbackQuery, state: FSMContext):
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t("finish", lang), callback_data=f"tech_finish_{req_id}")],
                 [InlineKeyboardButton(text=t("cancel_order", lang), callback_data=f"tech_cancel_order_{req_id}")],
-                [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_materials_{req_id}")]
+                [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
             ])
             
-            await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+            sent_msg = await cb.message.answer(full_text, reply_markup=kb, parse_mode="HTML")
+            await track_message(state, sent_msg.message_id)
             try:
                 await cb.answer("✅ Omborga yuborildi!")
             except Exception:
@@ -2087,20 +2398,25 @@ async def tech_cancel_order(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
     
+    # Texnik arizani bekor qilish huquqiga ega
+    # Faqat texnik rolini tekshirish kifoya
+    
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+    
     # Bekor qilish sababini so'rash
     await state.update_data(cancel_req_id=req_id)
     await state.set_state(CancellationStates.waiting_note)
     
-    # Inline keyboardni tozalash
-    try:
-        await cb.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    
-    await cb.message.answer(
+    sent_msg = await cb.message.answer(
         t("cancel_reason_prompt", lang),
         parse_mode="HTML"
     )
+    await track_message(state, sent_msg.message_id)
 
 @router.message(StateFilter(CancellationStates.waiting_note))
 async def tech_cancellation_note(msg: Message, state: FSMContext):
@@ -2114,7 +2430,7 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
     
     req_id = int(st.get("cancel_req_id", 0))
     if req_id <= 0:
-        await _preserve_mode_clear(state)
+        await clear_temp_contexts(state)
         return await msg.answer(t("req_not_found", lang))
     
     note = (msg.text or "").strip()
@@ -2151,14 +2467,17 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
     finally:
         await conn.close()
     
-    await _preserve_mode_clear(state)
-    
-    # Xabarni o'chirish
+    # Purge tracked messages and delete user's text input
+    await purge_tracked_messages(state, msg.chat.id)
     try:
         await msg.delete()
     except Exception:
         pass
     
+    # Clear all contexts including inbox (user starts fresh)
+    await clear_temp_contexts(state)
+    
+    # Send confirmation message (no inline buttons) - don't track this message
     await msg.answer(t("cancel_success", lang))
     
     # Inbox'dan o'chirish va keyingi arizani ko'rsatish
@@ -2172,11 +2491,13 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
             # Rasmlar bo'lishi mumkin
             text = await short_view_text_with_materials(item, 0, len(items), user["id"], lang, mode)
             kb = await action_keyboard(item.get("id"), 0, len(items), item.get("status", ""), mode=mode, lang=lang, item=item)
-            await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+            sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+            await track_message(state, sent_msg.message_id)
         else:
             text = await short_view_text_with_materials(item, 0, len(items), user["id"], lang, mode)
             kb = await action_keyboard(item.get("id"), 0, len(items), item.get("status", ""), mode=mode, lang=lang, item=item)
-            await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+            sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+            await track_message(state, sent_msg.message_id)
     else:
         await msg.answer("📭 Inbox bo'sh" if lang == "uz" else "📭 Входящие пусты")
 
@@ -2193,6 +2514,13 @@ async def tech_mat_custom(cb: CallbackQuery, state: FSMContext):
     if not user or user.get("role") != "technician":
         return await cb.answer(t("no_perm", lang), show_alert=True)
     
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+    
     # Get all materials (25 total) and filter out technician's materials (7 items)
     # Result: 18 materials from warehouse only
     all_mats = await fetch_all_materials(limit=200, offset=0)
@@ -2205,12 +2533,14 @@ async def tech_mat_custom(cb: CallbackQuery, state: FSMContext):
     warehouse_mats = [mat for mat in all_mats if mat['material_id'] not in tech_material_ids]
     
     if not warehouse_mats:
-        return await cb.message.answer(
+        sent_msg = await cb.message.answer(
             ("📦 Ombordan qo'shimcha materiallar yo'q" if lang == "uz" else "📦 Нет дополнительных материалов на складе"),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=T["back"][lang], callback_data=f"tech_back_to_materials_{req_id}")]
+                [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
             ])
         )
+        await track_message(state, sent_msg.message_id)
+        return
 
     # Application number ni olish
     mode = st.get("tech_mode", "connection")
@@ -2218,12 +2548,13 @@ async def tech_mat_custom(cb: CallbackQuery, state: FSMContext):
     
     header_text = ("📦 <b>Ombordan qo'shimcha materiallar</b>\n🆔 <b>Ariza ID:</b> {id}\nKerakli materialni tanlang:" if lang == "uz" else "📦 <b>Дополнительные материалы со склада</b>\n🆔 <b>ID заявки:</b> {id}\nВыберите нужный материал:")
     
-    # Edit existing message instead of sending new one
-    await _safe_edit(
-        cb.message, 
+    # Send new message instead of editing
+    sent_msg = await cb.message.answer(
         header_text.format(id=app_number), 
-        unassigned_materials_keyboard(warehouse_mats, applications_id=req_id, lang=lang)
+        reply_markup=unassigned_materials_keyboard(warehouse_mats, applications_id=req_id, lang=lang),
+        parse_mode="HTML"
     )
+    await track_message(state, sent_msg.message_id)
 
 @router.callback_query(F.data.startswith("tech_unassigned_select_"))
 async def tech_unassigned_select(cb: CallbackQuery, state: FSMContext):
@@ -2240,6 +2571,13 @@ async def tech_unassigned_select(cb: CallbackQuery, state: FSMContext):
     if not mat:
         return await cb.answer(t("not_found_mat", lang), show_alert=True)
 
+    # Purge tracked messages and delete current message
+    await purge_tracked_messages(state, cb.message.chat.id)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
     mode = st.get("tech_mode", "connection")
     app_number = await get_application_number(req_id, mode)
     
@@ -2251,6 +2589,7 @@ async def tech_unassigned_select(cb: CallbackQuery, state: FSMContext):
     )
     
     await state.update_data(
+        current_application_id=req_id,
         qty_ctx={
             "applications_id": req_id,
             "material_id": material_id,
@@ -2259,16 +2598,33 @@ async def tech_unassigned_select(cb: CallbackQuery, state: FSMContext):
             "max_qty": 999,  
             "lang": lang,
             "source_type": "warehouse",
-            "qty_message_id": cb.message.message_id  
+            "qty_message_id": None  # Will be set after sending message
         }
     )
     
-    # Show quantity input prompt with cancel button
+    # Show quantity input prompt with cancel and back buttons
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_qty_cancel_{req_id}")]
+        [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_qty_cancel_{req_id}")],
+        [InlineKeyboardButton(text=t("back", lang), callback_data=f"tech_back_to_order_{req_id}")]
     ])
     
-    await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    qty_message = await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await track_message(state, qty_message.message_id)
+    
+    # Update qty_message_id in context
+    await state.update_data(
+        qty_ctx={
+            "applications_id": req_id,
+            "material_id": material_id,
+            "material_name": mat["name"],
+            "price": mat["price"],
+            "max_qty": 999,  
+            "lang": lang,
+            "source_type": "warehouse",
+            "qty_message_id": qty_message.message_id
+        }
+    )
+    
     await state.set_state(QtyStates.waiting_qty)
 
 @router.callback_query(F.data.startswith("tech_custom_select_"))
