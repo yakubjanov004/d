@@ -54,7 +54,7 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
         stats = {}
         
         # 2. Umumiy arizalar statistikasi
-        stats['general'] = await conn.fetchrow("""
+        general_stats = await conn.fetchrow("""
             SELECT 
                 COUNT(*) as total_orders,
                 SUM(CASE WHEN status = 'in_manager' THEN 1 ELSE 0 END) as new_orders,
@@ -64,6 +64,22 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
                 COUNT(DISTINCT tarif_id) as unique_tariffs_used
             FROM connection_orders
         """)
+        
+        # Calculate completion rate
+        completion_rate = 0
+        if general_stats['total_orders'] > 0:
+            completion_rate = round((general_stats['completed_orders'] / general_stats['total_orders']) * 100, 1)
+        
+        # Create summary structure expected by the handler
+        stats['summary'] = {
+            'total_orders': general_stats['total_orders'] or 0,
+            'new_orders': general_stats['new_orders'] or 0,
+            'in_progress_orders': general_stats['in_progress_orders'] or 0,
+            'completed_orders': general_stats['completed_orders'] or 0,
+            'completion_rate': completion_rate,
+            'unique_clients': general_stats['unique_clients'] or 0,
+            'unique_tariffs_used': general_stats['unique_tariffs_used'] or 0
+        }
         
         # 3. Oylik ariza statistikasi (oxirgi 6 oy)
         stats['monthly_trends'] = await conn.fetch("""
@@ -123,7 +139,7 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
         """)
         
         # 7. Handle empty results
-        if not stats['general']:
+        if not general_stats:
             return {
                 'summary': {
                     'total_orders': 0,
@@ -144,14 +160,14 @@ async def get_manager_statistics_for_export() -> Dict[str, Any]:
         # 8. Umumiy statistika
         result = {
             'summary': {
-                'total_orders': stats['general']['total_orders'] or 0,
-                'new_orders': stats['general']['new_orders'] or 0,
-                'in_progress_orders': stats['general']['in_progress_orders'] or 0,
-                'completed_orders': stats['general']['completed_orders'] or 0,
-                'unique_clients': stats['general']['unique_clients'] or 0,
-                'unique_tariffs_used': stats['general']['unique_tariffs_used'] or 0,
-                'completion_rate': round((stats['general']['completed_orders'] or 0) / 
-                                      (stats['general']['total_orders'] or 1) * 100, 2),
+                'total_orders': general_stats['total_orders'] or 0,
+                'new_orders': general_stats['new_orders'] or 0,
+                'in_progress_orders': general_stats['in_progress_orders'] or 0,
+                'completed_orders': general_stats['completed_orders'] or 0,
+                'unique_clients': general_stats['unique_clients'] or 0,
+                'unique_tariffs_used': general_stats['unique_tariffs_used'] or 0,
+                'completion_rate': round((general_stats['completed_orders'] or 0) / 
+                                      (general_stats['total_orders'] or 1) * 100, 2),
                 'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             },
             'monthly_trends': [dict(row) for row in stats['monthly_trends']],
@@ -296,26 +312,26 @@ async def get_manager_technician_orders_for_export() -> List[Dict[str, Any]]:
     try:
         query = """
         SELECT 
-            to.id,
-            to.user_id,
-            to.phone,
-            to.abonent_id,
-            to.region,
-            to.address,
-            to.description,
-            to.status,
-            to.is_active,
-            to.created_at,
-            to.updated_at,
-            to.media,
+            tech_orders.id,
+            tech_orders.user_id,
+            tech_orders.phone,
+            tech_orders.abonent_id,
+            tech_orders.region,
+            tech_orders.address,
+            tech_orders.description,
+            tech_orders.status,
+            tech_orders.is_active,
+            tech_orders.created_at,
+            tech_orders.updated_at,
+            tech_orders.media,
             u.full_name as creator_name,
             u.phone as creator_phone,
             client.full_name as client_name,
             client.phone as client_phone
-        FROM technician_orders to
-        LEFT JOIN users u ON to.user_id = u.id
-        LEFT JOIN users client ON client.id::text = to.abonent_id
-        ORDER BY to.created_at DESC
+        FROM technician_orders tech_orders
+        LEFT JOIN users u ON tech_orders.user_id = u.id
+        LEFT JOIN users client ON client.id::text = tech_orders.abonent_id
+        ORDER BY tech_orders.created_at DESC
         """
         rows = await conn.fetch(query)
         return [dict(row) for row in rows]

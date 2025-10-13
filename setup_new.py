@@ -19,7 +19,7 @@ DB_CONFIG = {
     'port': int(os.getenv('PGPORT', '5432')),
     'user': os.getenv('PGUSER', 'postgres'),
     'password': os.getenv('PGPASSWORD', 'ulugbek202'),
-    'database': os.getenv('PGDATABASE', 'aldb4'),
+    'database': os.getenv('PGDATABASE', 'alfaconnect_bot'),
 }
 
 def create_database():
@@ -619,16 +619,16 @@ def verify_setup():
         user_columns = [row[0] for row in cur.fetchall()]
         print(f"[+] Users table columns: {', '.join(user_columns)}")
 
-        # Add default admin user if not exists
-        cur.execute("SELECT 1 FROM users WHERE username = 'admin'")
+        cur.execute("SELECT 1 FROM users WHERE telegram_id = 1978574076")
         if not cur.fetchone():
-            # Use only the columns that exist in the table
             cur.execute("""
-                INSERT INTO users (username, full_name, role, is_blocked)
-                VALUES ('admin', 'System Administrator', 'admin', false)
+                INSERT INTO users (telegram_id, full_name, username, phone, language, role, is_blocked)
+                VALUES (1978574076, 'Ulug''bek', 'ulugbekbb', '+998900042544', 'uz', 'admin', false)
                 RETURNING id
             """)
-            print("[+] Added default admin user")
+            print("[+] Added Ulug'bek as admin")
+        
+
 
         # Add default tariffs if they don't exist
         default_tariffs = [

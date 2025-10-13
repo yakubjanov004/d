@@ -172,7 +172,7 @@ async def process_user_search_for_block(message: Message, state: FSMContext):
     user_info += ((f"📊 <b>Holat:</b> {block_status}\n\n") if lang == "uz" else (f"📊 <b>Статус:</b> {block_status}\n\n"))
     
     # Bloklash/blokdan chiqarish
-    success = await toggle_user_block_status(user['telegram_id'])
+    success = await toggle_user_block_status(user['id'])
     
     if success:
         new_status = ("🔴 Bloklangan" if lang == "uz" else "🔴 Заблокирован") if not user.get('is_blocked') else ("🟢 Faol" if lang == "uz" else "🟢 Активен")
@@ -434,33 +434,47 @@ def format_user_info(user: dict, index: int) -> str:
 async def show_users_page(message: Message, state: FSMContext, page: int = 1, user_type: str = "all"):
     """Foydalanuvchilar sahifasini ko'rsatish"""
     try:
+        per_page = 5
+        offset = (page - 1) * per_page
+        
         if user_type == "all":
-            data = await get_all_users_paginated(page=page, per_page=5)
+            users = await get_all_users_paginated(limit=per_page, offset=offset)
+            # Get total count
+            all_users = await get_all_users_paginated(limit=1000, offset=0)
+            total = len(all_users)
             title = "👥 Barcha foydalanuvchilar"
         elif user_type == "staff":
             # Barcha rollarni olish (client dan boshqa)
             staff_roles = ['admin', 'manager', 'junior_manager', 'controller', 'technician', 'warehouse', 'callcenter_operator', 'callcenter_supervisor']
-            # Hozircha barcha foydalanuvchilarni olamiz, keyin filtrlash mumkin
-            data = await get_all_users_paginated(page=page, per_page=5)
-            # Staff foydalanuvchilarni filtrlash
-            staff_users = [user for user in data['users'] if user['role'] in staff_roles]
-            data['users'] = staff_users
-            data['total'] = len(staff_users)
+            # Get all users first, then filter
+            all_users = await get_all_users_paginated(limit=1000, offset=0)
+            staff_users = [user for user in all_users if user['role'] in staff_roles]
+            total = len(staff_users)
+            # Apply pagination to filtered results
+            users = staff_users[offset:offset + per_page]
             title = "👤 Xodimlar ro'yxati"
         elif user_type == "client":
-            data = await get_users_by_role_paginated(page=page, per_page=5, role="client")
+            users = await get_users_by_role_paginated(role="client", limit=per_page, offset=offset)
+            # Get total count for clients
+            all_clients = await get_users_by_role_paginated(role="client", limit=1000, offset=0)
+            total = len(all_clients)
             title = "👤 Mijozlar ro'yxati"
         else:
             await message.answer("❌ Noto'g'ri foydalanuvchi turi!", parse_mode='Markdown')
             return
 
-        if not data['users']:
+        if not users:
             await message.answer(f"{title}\n\n📭 Foydalanuvchilar topilmadi.", parse_mode='Markdown')
             return
 
+        # Calculate pagination info
+        total_pages = (total + per_page - 1) // per_page  # Ceiling division
+        has_prev = page > 1
+        has_next = page < total_pages
+
         # Sarlavha va statistika
         text = f"{title}\n\n"
-        text += f"📊 Jami: {data['total']} ta | Sahifa: {data['page']}/{data['total_pages']}\n\n"
+        text += f"📊 Jami: {total} ta | Sahifa: {page}/{total_pages}\n\n"
         if user_type == "client":
             text += "📋 <b>Mijozlar ro'yxati:</b>\n\n"
         elif user_type == "staff":
@@ -469,16 +483,16 @@ async def show_users_page(message: Message, state: FSMContext, page: int = 1, us
             text += "📋 <b>Foydalanuvchilar ro'yxati:</b>\n\n"
         
         # Foydalanuvchilar ro'yxatini formatlash
-        for i, user in enumerate(data['users'], 1):
+        for i, user in enumerate(users, 1):
             text += format_user_info(user, i)
         
         # Paginatsiya tugmalari
         from keyboards.admin_buttons import get_users_pagination_keyboard
         keyboard = get_users_pagination_keyboard(
-            current_page=data['page'],
-            total_pages=data['total_pages'],
-            has_prev=data['has_prev'],
-            has_next=data['has_next'],
+            current_page=page,
+            total_pages=total_pages,
+            has_prev=has_prev,
+            has_next=has_next,
             user_type=user_type
         )
         
@@ -500,30 +514,46 @@ async def handle_users_pagination(callback: CallbackQuery, state: FSMContext):
             
             # Eski xabarni o'chirish va yangi xabar yuborish o'rniga
             # Xabar matnini yangilash
+            per_page = 5
+            offset = (page - 1) * per_page
+            
             if user_type == "all":
-                data = await get_all_users_paginated(page=page, per_page=5)
+                users = await get_all_users_paginated(limit=per_page, offset=offset)
+                # Get total count
+                all_users = await get_all_users_paginated(limit=1000, offset=0)
+                total = len(all_users)
                 title = "👥 Barcha foydalanuvchilar"
             elif user_type == "staff":
                 staff_roles = ['admin', 'manager', 'junior_manager', 'controller', 'technician', 'warehouse', 'callcenter_operator', 'callcenter_supervisor']
-                data = await get_all_users_paginated(page=page, per_page=5)
-                staff_users = [user for user in data['users'] if user['role'] in staff_roles]
-                data['users'] = staff_users
-                data['total'] = len(staff_users)
+                # Get all users first, then filter
+                all_users = await get_all_users_paginated(limit=1000, offset=0)
+                staff_users = [user for user in all_users if user['role'] in staff_roles]
+                total = len(staff_users)
+                # Apply pagination to filtered results
+                users = staff_users[offset:offset + per_page]
                 title = "👤 Xodimlar ro'yxati"
             elif user_type == "client":
-                data = await get_users_by_role_paginated(page=page, per_page=5, role="client")
+                users = await get_users_by_role_paginated(role="client", limit=per_page, offset=offset)
+                # Get total count for clients
+                all_clients = await get_users_by_role_paginated(role="client", limit=1000, offset=0)
+                total = len(all_clients)
                 title = "👤 Mijozlar ro'yxati"
             else:
                 await callback.answer("❌ Noto'g'ri foydalanuvchi turi!", show_alert=True)
                 return
 
-            if not data['users']:
+            if not users:
                 await callback.message.edit_text(f"{title}\n\n📭 Foydalanuvchilar topilmadi.", parse_mode='Markdown')
                 return
 
+            # Calculate pagination info
+            total_pages = (total + per_page - 1) // per_page  # Ceiling division
+            has_prev = page > 1
+            has_next = page < total_pages
+
             # Sarlavha va statistika
             text = f"{title}\n\n"
-            text += f"📊 Jami: {data['total']} ta | Sahifa: {data['page']}/{data['total_pages']}\n\n"
+            text += f"📊 Jami: {total} ta | Sahifa: {page}/{total_pages}\n\n"
             if user_type == "client":
                 text += "📋 **Mijozlar ro'yxati:**\n\n"
             elif user_type == "staff":
@@ -532,16 +562,16 @@ async def handle_users_pagination(callback: CallbackQuery, state: FSMContext):
                 text += "📋 **Foydalanuvchilar ro'yxati:**\n\n"
             
             # Foydalanuvchilar ro'yxatini formatlash
-            for i, user in enumerate(data['users'], 1):
+            for i, user in enumerate(users, 1):
                 text += format_user_info(user, i)
             
             # Paginatsiya tugmalari
             from keyboards.admin_buttons import get_users_pagination_keyboard
             keyboard = get_users_pagination_keyboard(
-                current_page=data['page'],
-                total_pages=data['total_pages'],
-                has_prev=data['has_prev'],
-                has_next=data['has_next'],
+                current_page=page,
+                total_pages=total_pages,
+                has_prev=has_prev,
+                has_next=has_next,
                 user_type=user_type
             )
             

@@ -195,14 +195,14 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                     raw_data.append(["", ""])  # Empty row after each technician
             
             # 3. Oylik statistika
-            if stats['monthly']:
+            if stats.get('monthly_trends'):
                 add_section("Oylik statistika (6 oy)")
-                for month_data in stats['monthly']:
+                for month_data in stats['monthly_trends']:
                     month = month_data['month']
                     add_row(f"🗓️ {month}:", "", 0)
-                    add_row("  📊 Jami:", month_data['total_orders'], 1)
-                    add_row("  🆕 Yangi:", month_data['new_orders'], 1)
-                    add_row("  ✅ Yakunlangan:", month_data['completed_orders'], 1)
+                    add_row("  📊 Jami:", month_data['total_requests'], 1)
+                    add_row("  🆕 Yangi:", month_data['new_requests'], 1)
+                    add_row("  ✅ Yakunlangan:", month_data['completed_requests'], 1)
             
             # 4. Muammo turlari bo'yicha statistika (currently not implemented)
             # if stats['by_problem_type']:

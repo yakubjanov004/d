@@ -240,6 +240,9 @@ async def admin_export_format(cb: CallbackQuery, state: FSMContext):
 
     lang = await get_user_language(cb.from_user.id) or "uz"
     await cb.message.edit_text(("⏳ <b>Eksport tayyorlanmoqda...</b>" if lang == "uz" else "⏳ <b>Экспорт подготавливается...</b>"), parse_mode="HTML")
+    
+    # State ni tozalash
+    await state.clear()
 
     try:
         title = ""
@@ -277,28 +280,30 @@ async def admin_export_format(cb: CallbackQuery, state: FSMContext):
                 ("Yaratilgan" if lang == "uz" else "Создано"),
             ]
         elif export_type == "warehouse_stats":
-            raw_data = await get_warehouse_statistics_for_export('all')
+            stats = await get_warehouse_statistics_for_export('all')
+            # Convert dict to list format for export
+            raw_data = []
+            label_key = "Ko'rsatkich" if lang == "uz" else "Показатель"
+            value_key = "Qiymat" if lang == "uz" else "Значение"
+            raw_data.append({label_key: ("Jami materiallar" if lang == "uz" else "Всего материалов"), value_key: stats.get("total_materials", 0)})
+            raw_data.append({label_key: ("Jami miqdor" if lang == "uz" else "Общее количество"), value_key: stats.get("total_quantity", 0)})
+            raw_data.append({label_key: ("Jami qiymat" if lang == "uz" else "Общая стоимость"), value_key: stats.get("total_value", 0)})
+            raw_data.append({label_key: ("Mavjud materiallar" if lang == "uz" else "Доступные материалы"), value_key: stats.get("available_materials", 0)})
+            raw_data.append({label_key: ("Tugagan materiallar" if lang == "uz" else "Завершенные материалы"), value_key: stats.get("out_of_stock", 0)})
+            raw_data.append({label_key: ("Kam qolgan materiallar" if lang == "uz" else "Материалы с низким запасом"), value_key: stats.get("low_stock", 0)})
             title = "Ombor statistikasi" if lang == "uz" else "Статистика склада"
             filename_base = "warehouse_statistics"
         elif export_type == "statistics":
             stats = await get_admin_statistics_for_export()
             # Flatten to rows
-            raw_rows = []
+            raw_data = []
             label_key = "Ko'rsatkich" if lang == "uz" else "Показатель"
             value_key = "Qiymat" if lang == "uz" else "Значение"
-            raw_rows.append({label_key: ("Jami foydalanuvchilar" if lang == "uz" else "Всего пользователей"), value_key: stats["users"]["total"]})
-            raw_rows.append({label_key: ("Mijozlar" if lang == "uz" else "Клиенты"), value_key: stats["users"]["clients"]})
-            raw_rows.append({label_key: ("Xodimlar" if lang == "uz" else "Сотрудники"), value_key: stats["users"]["staff"]})
-            for r in stats["users"]["by_role"]:
-                raw_rows.append({label_key: (f"Rol: {r['role']}" if lang == "uz" else f"Роль: {r['role']}"), value_key: r['cnt']})
-            raw_rows.append({label_key: ("Ulanish arizalari" if lang == "uz" else "Заявки на подключение"), value_key: stats["orders"]["connection_total"]})
-            raw_rows.append({label_key: ("Texnik arizalar" if lang == "uz" else "Технические заявки"), value_key: stats["orders"]["technician_total"]})
-            raw_rows.append({label_key: ("Xodim arizalari" if lang == "uz" else "Заявки сотрудников"), value_key: stats["orders"]["staff_total"]})
-            for r in stats["orders"]["connection_by_status"]:
-                raw_rows.append({label_key: (f"Ulanish: {r['status']}" if lang == "uz" else f"Подключение: {r['status']}"), value_key: r['cnt']})
-            for r in stats["orders"]["technician_by_status"]:
-                raw_rows.append({label_key: (f"Texnik: {r['status']}" if lang == "uz" else f"Тех: {r['status']}"), value_key: r['cnt']})
-            raw_data = raw_rows
+            raw_data.append({label_key: ("Jami foydalanuvchilar" if lang == "uz" else "Всего пользователей"), value_key: stats.get("total_users", 0)})
+            raw_data.append({label_key: ("Faol ulanish arizalari" if lang == "uz" else "Активные заявки на подключение"), value_key: stats.get("active_connections", 0)})
+            raw_data.append({label_key: ("Faol texnik arizalar" if lang == "uz" else "Активные технические заявки"), value_key: stats.get("active_technician", 0)})
+            raw_data.append({label_key: ("Faol xodim arizalari" if lang == "uz" else "Активные заявки сотрудников"), value_key: stats.get("active_staff", 0)})
+            raw_data.append({label_key: ("Jami materiallar" if lang == "uz" else "Всего материалов"), value_key: stats.get("total_materials", 0)})
             title = "Statistika" if lang == "uz" else "Статистика"
             filename_base = "statistics"
             headers = (["Ko'rsatkich", "Qiymat"] if lang == "uz" else ["Показатель", "Значение"])

@@ -268,9 +268,13 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         client_name_raw = it.get("user_name")
         client_phone_raw = it.get("client_phone")
     
-    # Get location information
-    region_raw = it.get("region")
-    address_raw = it.get("address")
+    # Get location information - handle staff vs connection orders
+    if is_staff_order:
+        region_raw = it.get("staff_region")
+        address_raw = it.get("staff_address")
+    else:
+        region_raw = it.get("order_region")
+        address_raw = it.get("order_address")
     
     # Get notes
     jm_notes_raw = it.get("jm_notes")
@@ -278,8 +282,12 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     # Get tariff information
     tariff_name = it.get("tariff_name")
     
-    # Get order type
+    # Get order type and service type
     order_type = it.get("order_type", "connection")
+    service_type = it.get("type_of_zayavka", "connection")
+    
+    # Determine if this is a technician order
+    is_technician_order = service_type.lower() == "technician" or order_type.lower() == "technician"
 
     # Escape all values
     order_id_txt = _esc(application_number) if application_number else _esc(order_id)
@@ -287,7 +295,15 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     client_phone = _esc(client_phone_raw)
     region = _get_region_display_name(region_raw, lang)
     address = _esc(address_raw)
-    tariff = _esc(tariff_name)
+    
+    # For technician orders, show problem description instead of tariff
+    if is_technician_order:
+        problem_description = it.get("description", "-")
+        tariff_or_problem = _esc(problem_description) if problem_description else "-"
+        tariff_label = "🔧 <b>Muammo:</b>" if lang == "uz" else "🔧 <b>Проблема:</b>"
+    else:
+        tariff_or_problem = _esc(tariff_name) if tariff_name else "-"
+        tariff_label = "💳 <b>Tarif:</b>" if lang == "uz" else "💳 <b>Тариф:</b>"
 
     # Build notes block
     notes_block = ""
@@ -308,7 +324,14 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         f"{_t(lang,'card_phone')} {client_phone}\n"
         f"{_t(lang,'card_region')} {region}\n"
         f"{_t(lang,'card_address')} {address}\n"
-        f"💳 <b>Tarif:</b> {tariff}\n"
+        f"🆔 <b>Abonent ID:</b> {order_id_txt}\n"
+        f"📋 <b>Ariza turi:</b> {service_type}\n"
+        f"🏢 <b>Business turi:</b> B2C\n"
+        f"📊 <b>Holat:</b> {it.get('status', 'Noma\'lum')}\n"
+        f"📝 <b>Tavsif:</b> {_esc(it.get('description', '-'))}\n"
+        f"🕒 <b>Yaratilgan:</b> {order_created}\n"
+        f"🔄 <b>Yangilangan:</b> {_fmt_dt(it.get('updated_at'))}\n"
+        f"{tariff_label} {tariff_or_problem}\n"
         f"{notes_block}\n\n"
         f"{_t(lang,'card_pager').format(idx=idx+1, total=total)}"
     )

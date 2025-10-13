@@ -4,12 +4,20 @@ import asyncpg
 from typing import List, Dict, Any
 from config import settings
 
-async def get_admin_users_for_export() -> List[Dict[str, Any]]:
+async def get_admin_users_for_export(user_type: str = "all") -> List[Dict[str, Any]]:
     """Admin uchun foydalanuvchilar ro'yxatini export qilish"""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Build query based on user type
+        if user_type == "clients":
+            where_clause = "WHERE role = 'client'"
+        elif user_type == "staff":
+            where_clause = "WHERE role IN ('admin', 'manager', 'controller', 'technician', 'callcenter_supervisor', 'callcenter_operator', 'junior_manager', 'warehouse')"
+        else:
+            where_clause = ""
+        
         rows = await conn.fetch(
-            """
+            f"""
             SELECT 
                 id,
                 telegram_id,
@@ -22,6 +30,7 @@ async def get_admin_users_for_export() -> List[Dict[str, Any]]:
                 created_at,
                 updated_at
             FROM users
+            {where_clause}
             ORDER BY created_at DESC
             """
         )
@@ -64,20 +73,20 @@ async def get_admin_technician_orders_for_export() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             SELECT 
-                to.id,
-                to.application_number,
-                to.address,
-                to.region,
-                to.status,
-                to.is_active,
-                to.description,
-                to.created_at,
-                to.updated_at,
+                tech_orders.id,
+                tech_orders.application_number,
+                tech_orders.address,
+                tech_orders.region,
+                tech_orders.status,
+                tech_orders.is_active,
+                tech_orders.description,
+                tech_orders.created_at,
+                tech_orders.updated_at,
                 u.full_name as client_name,
                 u.phone as client_phone
-            FROM technician_orders to
-            LEFT JOIN users u ON u.id = to.user_id
-            ORDER BY to.created_at DESC
+            FROM technician_orders tech_orders
+            LEFT JOIN users u ON u.id = tech_orders.user_id
+            ORDER BY tech_orders.created_at DESC
             """
         )
         return [dict(row) for row in rows]

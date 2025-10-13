@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import html
 
-from database.basic.user import get_or_create_user, find_user_by_telegram_id, update_user_phone, update_user_full_name
+from database.basic.user import get_or_create_user, find_user_by_telegram_id, update_user_phone, update_user_full_name, update_user_username
 from database.basic.language import get_user_language
 
 from keyboards.admin_buttons import get_admin_main_menu
@@ -27,6 +27,9 @@ class UserRegistration(StatesGroup):
 async def start_handler(message: Message, state: FSMContext):
     await state.clear()
     user = message.from_user
+    
+    # Username ni yangilash (hech qanday xabar yuborilmaydi)
+    await update_user_username(user.id, user.username)
     
     # Check if user exists in database
     db_user = await find_user_by_telegram_id(user.id)

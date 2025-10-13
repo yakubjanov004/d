@@ -156,7 +156,7 @@ def short_view_text(item: dict, index: int, total: int, lang: str) -> str:
 
     return (
         f"{t(lang,'title')}\n\n"
-        f"{t(lang,'order')} #{esc(order_id)}\n"
+        f"{t(lang,'order')} {esc(formatted_order_id)}\n"
         f"{t(lang,'category')} {esc(category)}\n"
         f"{t(lang,'service')} {esc(service_name)}\n"
         f"{t(lang,'client')} {full_name}\n"

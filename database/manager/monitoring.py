@@ -325,21 +325,21 @@ async def list_technician_orders_active_detailed(limit: int = 50) -> List[Dict[s
     """
     sql = """
     SELECT
-        to.id,
-        to.created_at,
-        to.status::text AS status_text,
-        to.address,
-        to.description,
-        to.media,
+        tech_orders.id,
+        tech_orders.created_at,
+        tech_orders.status::text AS status_text,
+        tech_orders.address,
+        tech_orders.description,
+        tech_orders.media,
         u.full_name AS creator_name,
         u.phone AS creator_phone,
         client.full_name AS client_name,
         client.phone AS client_phone
-    FROM technician_orders to
-    LEFT JOIN users u ON u.id = to.user_id
-    LEFT JOIN users client ON client.id::text = to.abonent_id
-    WHERE to.is_active = TRUE
-    ORDER BY to.created_at DESC
+    FROM technician_orders tech_orders
+    LEFT JOIN users u ON u.id = tech_orders.user_id
+    LEFT JOIN users client ON client.id::text = tech_orders.abonent_id
+    WHERE tech_orders.is_active = TRUE
+    ORDER BY tech_orders.created_at DESC
     LIMIT $1;
     """
     conn = await asyncpg.connect(settings.DB_URL)

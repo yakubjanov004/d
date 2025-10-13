@@ -1,6 +1,6 @@
 # handlers/call_center_supervisor/inbox.py
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaDocument
 from aiogram.exceptions import TelegramBadRequest
 from typing import Optional, Dict, Any
 import html
@@ -90,7 +90,14 @@ def fmt_dt(dt) -> str:
 @router.message(F.text.in_(["📥 Inbox", "📥 Входящие"]))
 async def ccs_inbox(message: Message):
     """CCS inbox main handler - shows category selection"""
-    lang = await get_user_language(message.from_user.id) or "uz"
+    await _ccs_inbox_content(message)
+
+async def _ccs_inbox_content(target, user_id: int = None):
+    """CCS inbox content - can be used for both new messages and edits"""
+    if user_id is None:
+        user_id = target.from_user.id if hasattr(target, 'from_user') else target.message.from_user.id
+    
+    lang = await get_user_language(user_id) or "uz"
     
     # Get counts for each category
     tech_count = await ccs_count_technician_orders()
@@ -134,7 +141,10 @@ async def ccs_inbox(message: Message):
         )]
     ])
     
-    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    if hasattr(target, 'message'):  # CallbackQuery
+        await target.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    else:  # Message
+        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 # =========================================================
 # Technician Orders Handlers
@@ -142,10 +152,10 @@ async def ccs_inbox(message: Message):
 @router.callback_query(F.data == "ccs_tech_orders")
 async def show_technician_orders(callback: CallbackQuery):
     """Show technician orders from controller"""
-    await _show_technician_item(callback, idx=0, user_id=callback.from_user.id)
+    await _show_technician_item_with_media(callback, idx=0, user_id=callback.from_user.id)
 
-async def _show_technician_item(target, idx: int, user_id: int):
-    """Show technician order item"""
+async def _show_technician_item_with_media(target, idx: int, user_id: int):
+    """Show technician order item with media support"""
     lang = await get_user_language(user_id) or "uz"
     
     total = await ccs_count_technician_orders()
@@ -164,10 +174,81 @@ async def _show_technician_item(target, idx: int, user_id: int):
     kb = _tech_kb(idx, total, row["id"], lang)
     text = _format_technician_card(row, idx, total, lang)
     
+    # Check if there's media to display
+    media_path = row.get("media")
+    
     if isinstance(target, Message):
-        return await target.answer(text, parse_mode="HTML", reply_markup=kb)
+        if media_path:
+            try:
+                # Try to send as photo first
+                return await target.answer_photo(
+                    photo=media_path,
+                    caption=text,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                try:
+                    # If photo fails, try as document
+                    return await target.answer_document(
+                        document=media_path,
+                        caption=text,
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    # If both fail, send as text
+                    return await target.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            return await target.answer(text, parse_mode="HTML", reply_markup=kb)
     else:
-        return await target.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        # For CallbackQuery, we need to handle media differently
+        if media_path:
+            try:
+                # Try to edit with photo
+                return await target.message.edit_media(
+                    media=InputMediaPhoto(
+                        media=media_path,
+                        caption=text,
+                        parse_mode="HTML"
+                    ),
+                    reply_markup=kb
+                )
+            except Exception:
+                try:
+                    # If photo fails, try as document
+                    return await target.message.edit_media(
+                        media=InputMediaDocument(
+                            media=media_path,
+                            caption=text,
+                            parse_mode="HTML"
+                        ),
+                        reply_markup=kb
+                    )
+                except Exception:
+                    # If both fail, delete and send new message
+                    try:
+                        await target.message.delete()
+                        return await target.message.answer_photo(
+                            photo=media_path,
+                            caption=text,
+                            reply_markup=kb,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        # If everything fails, send as text
+                        return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            # Check if current message has media, if so delete and send new text message
+            try:
+                if target.message.photo or target.message.document or target.message.video:
+                    await target.message.delete()
+                    return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+                else:
+                    return await target.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+            except Exception:
+                # If edit fails, send new message
+                return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 def _tech_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKeyboardMarkup:
     """Technician orders keyboard"""
@@ -261,7 +342,7 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
 
     return (
         f"{t['title']}\n"
-        f"{t['id']} <b>#{row['id']}</b> <i>({idx+1}/{total})</i>\n\n"
+        f"{t['id']} <b>{row.get('application_number', row['id'])}</b> <i>({idx+1}/{total})</i>\n\n"
         f"{t['client']} {client_name}\n"
         f"{t['phone']} {client_phone}\n"
         f"{t['abonent']} {abonent_id}\n"
@@ -274,13 +355,13 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
 @router.callback_query(F.data.startswith("ccs_tech_prev:"))
 async def ccs_tech_prev(cb: CallbackQuery):
     cur = int(cb.data.split(":")[1])
-    await _show_technician_item(cb, idx=cur - 1, user_id=cb.from_user.id)
+    await _show_technician_item_with_media(cb, idx=cur - 1, user_id=cb.from_user.id)
     await cb.answer()
 
 @router.callback_query(F.data.startswith("ccs_tech_next:"))
 async def ccs_tech_next(cb: CallbackQuery):
     cur = int(cb.data.split(":")[1])
-    await _show_technician_item(cb, idx=cur + 1, user_id=cb.from_user.id)
+    await _show_technician_item_with_media(cb, idx=cur + 1, user_id=cb.from_user.id)
     await cb.answer()
 
 
@@ -639,7 +720,7 @@ def _format_staff_card(row: dict, idx: int, total: int, lang: str = "uz") -> str
 
     return (
         f"{t['title']}\n"
-        f"{t['id']} <b>#{row['id']}</b> <i>({idx+1}/{total})</i>\n"
+        f"{t['id']} <b>{row['id']}</b> <i>({idx+1}/{total})</i>\n"
         f"📋 <b>Ariza turi:</b> {order_type_text}\n\n"
         f"{t['client']} {client_name}\n"
         f"{t['phone']} {client_phone}\n"
@@ -1095,5 +1176,5 @@ async def ccs_operator_send_controller(cb: CallbackQuery):
 @router.callback_query(F.data == "ccs_back_to_categories")
 async def ccs_back_to_categories(cb: CallbackQuery):
     """Back to main categories"""
-    await ccs_inbox(cb.message)
+    await _ccs_inbox_content(cb, cb.from_user.id)
     await cb.answer()

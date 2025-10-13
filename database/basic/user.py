@@ -226,7 +226,7 @@ async def find_user_by_phone(phone: str) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow(
             """
             SELECT id, telegram_id, full_name, username, phone, language, region, address,
-                   abonent_id, is_blocked
+                   abonent_id, is_blocked, role
               FROM users
              WHERE regexp_replace(phone, '[^0-9]', '', 'g')
                    = regexp_replace($1,   '[^0-9]', '', 'g')
@@ -296,6 +296,50 @@ async def update_user_region(telegram_id: int, region: str) -> bool:
         result = await conn.execute(
             'UPDATE users SET region = $1 WHERE telegram_id = $2',
             region, telegram_id
+        )
+        return result != 'UPDATE 0'
+    finally:
+        await conn.close()
+
+async def update_user_username(telegram_id: int, username: Optional[str]) -> bool:
+    """
+    Foydalanuvchi username ni yangilaydi.
+    
+    Args:
+        telegram_id: Telegram foydalanuvchi IDsi
+        username: Yangi username (@ belgisi bo'lsa olib tashlanadi, None bo'lsa NULL saqlanadi)
+        
+    Returns:
+        bool: Muvaffaqiyatli yangilangan bo'lsa True
+        
+    Features:
+        - @ belgisini olib tashlaydi
+        - Bo'sh/None qiymatni NULL sifatida saqlaydi
+        - Idempotent: bir xil qiymat bo'lsa UPDATE qilmaydi
+    """
+    # @ belgisini olib tashlash
+    clean_username = None
+    if username:
+        clean_username = username.strip().lstrip('@')
+        if not clean_username:  # Faqat @ yoki bo'sh string bo'lsa
+            clean_username = None
+    
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        # Avval mavjud username ni olish
+        current_username = await conn.fetchval(
+            'SELECT username FROM users WHERE telegram_id = $1',
+            telegram_id
+        )
+        
+        # Agar bir xil bo'lsa, UPDATE qilmaslik
+        if current_username == clean_username:
+            return True
+            
+        # Yangilash
+        result = await conn.execute(
+            'UPDATE users SET username = $1 WHERE telegram_id = $2',
+            clean_username, telegram_id
         )
         return result != 'UPDATE 0'
     finally:

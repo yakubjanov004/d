@@ -19,12 +19,18 @@ async def get_connection_orders(limit: int = 50, offset: int = 0) -> List[Dict[s
                 co.is_active,
                 co.created_at,
                 co.updated_at,
+                co.latitude,
+                co.longitude,
+                co.jm_notes,
                 u.full_name as client_name,
                 u.phone as client_phone,
-                t.name as tariff_name
+                u.username,
+                t.name as tariff_name,
+                mf.file_path as media
             FROM connection_orders co
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
+            LEFT JOIN media_files mf ON mf.related_table = 'connection_orders' AND mf.related_id = co.id AND mf.is_active = true
             ORDER BY co.created_at DESC
             LIMIT $1 OFFSET $2
             """,
@@ -41,20 +47,25 @@ async def get_technician_orders(limit: int = 50, offset: int = 0) -> List[Dict[s
         rows = await conn.fetch(
             """
             SELECT 
-                to.id,
-                to.application_number,
-                to.address,
-                to.region,
-                to.status,
-                to.is_active,
-                to.description,
-                to.created_at,
-                to.updated_at,
+                tech_orders.id,
+                tech_orders.application_number,
+                tech_orders.address,
+                tech_orders.region,
+                tech_orders.status,
+                tech_orders.is_active,
+                tech_orders.description,
+                tech_orders.created_at,
+                tech_orders.updated_at,
+                tech_orders.abonent_id,
+                tech_orders.media,
+                tech_orders.latitude,
+                tech_orders.longitude,
                 u.full_name as client_name,
-                u.phone as client_phone
-            FROM technician_orders to
-            LEFT JOIN users u ON u.id = to.user_id
-            ORDER BY to.created_at DESC
+                u.phone as client_phone,
+                u.username
+            FROM technician_orders tech_orders
+            LEFT JOIN users u ON u.id = tech_orders.user_id
+            ORDER BY tech_orders.created_at DESC
             LIMIT $1 OFFSET $2
             """,
             limit, offset
@@ -78,12 +89,18 @@ async def get_staff_orders(limit: int = 50, offset: int = 0) -> List[Dict[str, A
                 so.is_active,
                 so.description,
                 so.phone,
+                so.abonent_id,
+                so.type_of_zayavka,
+                so.problem_description,
                 so.created_at,
                 so.updated_at,
                 u.full_name as client_name,
-                u.phone as client_phone
+                u.phone as client_phone,
+                u.username,
+                t.name as tariff_name
             FROM staff_orders so
             LEFT JOIN users u ON u.id = so.user_id
+            LEFT JOIN tarif t ON t.id = so.tarif_id
             ORDER BY so.created_at DESC
             LIMIT $1 OFFSET $2
             """,

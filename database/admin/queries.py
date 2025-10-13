@@ -8,23 +8,36 @@ async def get_user_statistics() -> Dict[str, Any]:
     """Foydalanuvchilar statistikasi"""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get basic stats
         stats = await conn.fetchrow(
             """
             SELECT 
                 COUNT(*) as total_users,
-                COUNT(CASE WHEN role = 'client' THEN 1 END) as clients,
-                COUNT(CASE WHEN role = 'manager' THEN 1 END) as managers,
-                COUNT(CASE WHEN role = 'junior_manager' THEN 1 END) as junior_managers,
-                COUNT(CASE WHEN role = 'controller' THEN 1 END) as controllers,
-                COUNT(CASE WHEN role = 'technician' THEN 1 END) as technicians,
-                COUNT(CASE WHEN role = 'callcenter_operator' THEN 1 END) as operators,
-                COUNT(CASE WHEN role = 'callcenter_supervisor' THEN 1 END) as supervisors,
-                COUNT(CASE WHEN role = 'warehouse' THEN 1 END) as warehouse_staff,
+                COUNT(CASE WHEN is_blocked = FALSE THEN 1 END) as active_users,
                 COUNT(CASE WHEN is_blocked = TRUE THEN 1 END) as blocked_users
             FROM users
             """
         )
-        return dict(stats) if stats else {}
+        
+        # Get role statistics
+        role_stats = await conn.fetch(
+            """
+            SELECT 
+                role,
+                COUNT(*) as count
+            FROM users
+            GROUP BY role
+            ORDER BY count DESC
+            """
+        )
+        
+        result = dict(stats) if stats else {}
+        result['role_statistics'] = [dict(row) for row in role_stats]
+        
+        return result
+    except Exception as e:
+        print(f"Error in get_user_statistics: {e}")
+        return {'total_users': 0, 'active_users': 0, 'blocked_users': 0, 'role_statistics': []}
     finally:
         await conn.close()
 
@@ -35,15 +48,43 @@ async def get_system_overview() -> Dict[str, Any]:
         overview = await conn.fetchrow(
             """
             SELECT 
-                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE) as active_connections,
-                (SELECT COUNT(*) FROM technician_orders WHERE is_active = TRUE) as active_technician,
-                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE) as active_staff,
+                (SELECT COUNT(*) FROM users) as total_users,
+                (SELECT COUNT(*) FROM users WHERE is_blocked = FALSE) as active_users,
+                (SELECT COUNT(*) FROM users WHERE is_blocked = TRUE) as blocked_users,
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE) as total_connection_orders,
+                (SELECT COUNT(*) FROM technician_orders WHERE is_active = TRUE) as total_technician_orders,
+                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE) as total_staff_orders,
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE AND DATE(created_at) = CURRENT_DATE) as today_connection_orders,
+                (SELECT COUNT(*) FROM technician_orders WHERE is_active = TRUE AND DATE(created_at) = CURRENT_DATE) as today_technician_orders,
                 (SELECT COUNT(*) FROM materials) as total_materials,
                 (SELECT COUNT(*) FROM connections) as total_connections,
                 (SELECT COUNT(*) FROM akt_ratings) as total_ratings
             """
         )
-        return dict(overview) if overview else {}
+        
+        # Rollar bo'yicha statistika
+        role_stats = await conn.fetch(
+            """
+            SELECT 
+                role,
+                COUNT(*) as count
+            FROM users
+            GROUP BY role
+            ORDER BY count DESC
+            """
+        )
+        result = dict(overview) if overview else {}
+        
+        # Rollar bo'yicha statistikani qo'shish
+        users_by_role = {}
+        for row in role_stats:
+            users_by_role[row['role']] = row['count']
+        result['users_by_role'] = users_by_role
+        
+        return result
+    except Exception as e:
+        print(f"Error in get_system_overview: {e}")
+        return {}
     finally:
         await conn.close()
 
