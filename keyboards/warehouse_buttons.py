@@ -3,7 +3,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 def get_warehouse_main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     inbox = "📥 Inbox"
     inventory = "📦 Inventarizatsiya" if lang == "uz" else "📦 Инвентаризация"
-    orders = "📋 Buyurtmalar" if lang == "uz" else "📋 Заказы"
+    orders = "📋 Texnik ishlatgan materiallar" if lang == "uz" else "📋 Материалы использованные техником"
     statistics = "📊 Statistikalar" if lang == "uz" else "📊 Статистика"
     technician_material_to_give = "📦 Teknik xodimga mahsulot berish" if lang == "uz" else "📦 Отдать материал технику"
     technician_material_balance = "📦🔎 Teknikda qolgan mat." if lang == "uz" else "📦🔎 Остаток мат. у техника"

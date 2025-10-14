@@ -307,6 +307,24 @@ async def get_media(message: Message, state: FSMContext):
             media_id = message.photo[-1].file_id
             media_type = 'photo'
         elif message.video:
+            video_size = message.video.file_size or 0
+            max_size = 50 * 1024 * 1024
+            
+            if video_size > max_size:
+                error_text = (
+                    f"❌ Video hajmi juda katta!\n"
+                    f"📊 Hozirgi hajm: {video_size / (1024*1024):.1f} MB\n"
+                    f"📏 Maksimal hajm: 50 MB\n\n"
+                    f"💡 Kichikroq video yuboring yoki video sifati pastroq qiling."
+                    if lang == "uz" else
+                    f"❌ Размер видео слишком большой!\n"
+                    f"📊 Текущий размер: {video_size / (1024*1024):.1f} MB\n"
+                    f"📏 Максимальный размер: 50 MB\n\n"
+                    f"💡 Отправьте видео меньшего размера или снизьте качество."
+                )
+                await message.answer(error_text)
+                return
+            
             media_id = message.video.file_id
             media_type = 'video'
         else:

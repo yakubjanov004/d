@@ -30,6 +30,84 @@ router = Router()
 router.message.filter(RoleFilter("controller"))
 router.callback_query.filter(RoleFilter("controller"))
 
+# ========== Media Type Detection Helper Functions ==========
+
+def _detect_media_kind(file_id: str | None, media_type: str | None = None) -> str | None:
+    """
+    faqat aniq holatlarda qaytaradi: 'photo' / 'video' yoki None.
+    - DB dan kelgan media_type bo'lsa, shunga ishonamiz.
+    - Local fayl bo'lsa, kengaytmadan aniqlaymiz.
+    - Telegram file_id bo'lsa (local emas), taxmin qilmaymiz -> None.
+    """
+    if not file_id:
+        return None
+
+    if media_type in {"photo", "video"}:
+        return media_type
+
+    if "/" in file_id:
+        file_ext = file_id.lower().rsplit('.', 1)[-1] if '.' in file_id else ''
+        if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            return "photo"
+        if file_ext in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+            return "video"
+
+    return None  # Telegram file_id: turini taxmin qilmaymiz
+
+
+async def _send_media_strict(chat_id: int, file_id: str, caption: str, kb: InlineKeyboardMarkup, media_kind: str | None):
+    """
+    Media yuborish: media_kind aniq bo'lsa o'sha turdan boshlaymiz,
+    aniq bo'lmasa -> photo -> video -> document fallback.
+    """
+    # input tayyorlash
+    media_input = FSInputFile(file_id) if "/" in file_id else file_id
+
+    async def _as_photo():
+        return await bot.send_photo(chat_id=chat_id, photo=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
+
+    async def _as_video():
+        return await bot.send_video(chat_id=chat_id, video=media_input, caption=caption, parse_mode="HTML", reply_markup=kb, supports_streaming=True)
+
+    async def _as_document():
+        return await bot.send_document(chat_id=chat_id, document=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
+
+    async def _try_chain(chain):
+        last_err = None
+        for fn in chain:
+            try:
+                await fn()
+                return True
+            except TelegramBadRequest as e:
+                msg = str(e)
+                # maxsus xabarlar bo'yicha qarama-qarshi turga o'tish:
+                if "can't use file of type Video as Photo" in msg:
+                    last_err = e
+                    continue
+                elif "can't use file of type Photo as Video" in msg:
+                    last_err = e
+                    continue
+                else:
+                    last_err = e
+                    continue
+            except Exception as e:
+                last_err = e
+                continue
+        if last_err:
+            logger.warning(f"_send_media_strict all media attempts failed, fallback to text. Last error: {last_err}")
+        return False
+
+    # Boshlanish tartibi
+    if media_kind == "photo":
+        ok = await _try_chain([_as_photo, _as_video, _as_document])
+    elif media_kind == "video":
+        ok = await _try_chain([_as_video, _as_photo, _as_document])
+    else:
+        ok = await _try_chain([_as_photo, _as_video, _as_document])
+
+    if not ok:
+        await bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=kb)
+
 # ========== I18N ==========
 T = {
     "title": {"uz": "🎛️ <b>Controller Inbox</b>", "ru": "🎛️ <b>Входящие контроллера</b>"},
@@ -145,6 +223,10 @@ def build_tech_text(item: dict, idx: int | None, total: int | None, lang: str) -
     desc = item.get("description")
     created_dt = item.get("created_at")
     
+    # Media ma'lumotlari
+    media_file_id = item.get("media_file_id")
+    media_type = item.get("media_type")
+    
     text = (
         f"{t(lang,'title')}\n"
         f"{t(lang,'id')} {app_num}\n"
@@ -156,6 +238,15 @@ def build_tech_text(item: dict, idx: int | None, total: int | None, lang: str) -
     
     if desc:
         text += f"\n{t(lang,'desc')} {esc(desc)}"
+    
+    # Media mavjudligini ko'rsatish
+    if media_file_id and media_type:
+        if media_type == 'photo':
+            text += f"\n📷 <b>Rasm:</b> Mavjud"
+        elif media_type == 'video':
+            text += f"\n🎥 <b>Video:</b> Mavjud"
+        else:
+            text += f"\n📎 <b>Media:</b> Mavjud"
     
     if idx is not None and total is not None and total > 0:
         text += "\n\n" + t(lang, "order_idx", i=idx + 1, n=total)
@@ -175,35 +266,23 @@ async def render_staff_item(message_or_cb, items: list, idx: int, lang: str, sta
     media_type = item.get("media_type")
     
     try:
-        # profile.py dagi kabi media bilan yuborish
         if isinstance(message_or_cb, CallbackQuery):
-            # Callback query uchun - faqat matn yuborish
+            # Callback: mavjud xabarni media bilan almashtirishning keragi yo'q — matnni edit qilamiz
             await message_or_cb.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         else:
-            # Message uchun - media bilan yuborish
             if media_file_id and media_type:
-                # media_file_id is actually a Telegram file ID, not a file path
-                if media_type == 'photo':
-                    await message_or_cb.answer_photo(
-                        photo=media_file_id,
-                        caption=text,
-                        parse_mode='HTML',
-                        reply_markup=kb
-                    )
-                elif media_type == 'video':
-                    await message_or_cb.answer_video(
-                        video=media_file_id,
-                        caption=text,
-                        parse_mode='HTML',
-                        reply_markup=kb
-                    )
-                else:
-                    await message_or_cb.answer(text, parse_mode='HTML', reply_markup=kb)
+                kind = _detect_media_kind(media_file_id, media_type)
+                await _send_media_strict(
+                    chat_id=message_or_cb.chat.id,
+                    file_id=media_file_id,
+                    caption=text,
+                    kb=kb,
+                    media_kind=kind
+                )
             else:
                 await message_or_cb.answer(text, parse_mode='HTML', reply_markup=kb)
     except Exception as e:
         logger.error(f"Error sending staff item with media: {e}")
-        # Xatolik bo'lsa oddiy matn yuborish
         try:
             if isinstance(message_or_cb, CallbackQuery):
                 await message_or_cb.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
@@ -438,7 +517,7 @@ async def cat_staff_flow(cb: CallbackQuery, state: FSMContext):
     await render_staff_item(cb.message, items, 0, lang, state)
 
 async def render_tech_item(message, items: list, idx: int, lang: str, state: FSMContext):
-    """Texnik xizmat arizasini rasm bilan ko'rsatish"""
+    """Texnik xizmat arizasini media bilan ko'rsatish"""
     if idx < 0 or idx >= len(items):
         return
     
@@ -456,32 +535,15 @@ async def render_tech_item(message, items: list, idx: int, lang: str, state: FSM
         except:
             pass
         
-        # Yangi message yuborish
-        if media_file_id and media_type:
-            try:
-                # media_file_id is actually a Telegram file ID, not a file path
-                if media_type == 'photo':
-                    await bot.send_photo(
-                        chat_id=message.chat.id,
-                        photo=media_file_id,
-                        caption=text,
-                        parse_mode='HTML',
-                        reply_markup=kb
-                    )
-                elif media_type == 'video':
-                    await bot.send_video(
-                        chat_id=message.chat.id,
-                        video=media_file_id,
-                        caption=text,
-                        parse_mode='HTML',
-                        reply_markup=kb
-                    )
-                else:
-                    await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
-            except Exception as media_err:
-                logger.error(f"Error sending media (file_id: {media_file_id}): {media_err}")
-                # Agar media yuborishda xatolik bo'lsa, faqat text yuboramiz
-                await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        if media_file_id and media_type and media_file_id.strip():
+            kind = _detect_media_kind(media_file_id, media_type)
+            await _send_media_strict(
+                chat_id=message.chat.id,
+                file_id=media_file_id,
+                caption=text,
+                kb=kb,
+                media_kind=kind
+            )
         else:
             await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
     except Exception as e:

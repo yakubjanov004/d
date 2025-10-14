@@ -5,7 +5,8 @@ from datetime import datetime
 
 from database.basic.user import get_user_by_telegram_id, update_user_full_name
 from database.basic.language import get_user_language
-from database.client.queries import get_user_orders_paginated, get_region_display_name
+from database.client.material_info import get_user_orders_with_materials, get_materials_for_user_order
+from database.client.queries import get_region_display_name
 from keyboards.client_buttons import get_client_main_menu, get_client_profile_reply_keyboard
 from states.client_states import ProfileEditStates
 
@@ -80,7 +81,7 @@ async def my_orders_handler(message: Message, state: FSMContext):
 async def show_orders_with_state(message: Message, state: FSMContext, idx: int = 0):
     user_lang = await get_user_language(message.from_user.id)
     telegram_id = message.from_user.id
-    orders = await get_user_orders_paginated(telegram_id, offset=0, limit=1000)
+    orders = await get_user_orders_with_materials(telegram_id, offset=0, limit=1000)
 
     if not orders:
         text = (
@@ -124,6 +125,17 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
         if order.get('description'):
             text += f"📄 Описание: {order['description']}\n"
         text += f"📅 Создана: {_fmt_dt(order.get('created_at'))}\n"
+        
+        # Material ma'lumotlarini qo'shish
+        has_materials = order.get('has_materials_used', False)
+        materials_count = order.get('materials_count', 0)
+        materials_cost = order.get('materials_total_cost', 0)
+        
+        if has_materials and materials_count > 0:
+            text += f"📦 Использовано материалов: {materials_count}\n"
+            if materials_cost:
+                text += f"💰 Стоимость материалов: {materials_cost:,.0f} сум\n"
+        
         text += f"\n🗂️ <i>Заявка {idx + 1} / {len(orders)}</i>"
     else:
         order_type_text = "🔗 Ulanish" if is_conn else "🔧 Texnik ariza"
@@ -139,7 +151,23 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
         if order.get('description'):
             text += f"📄 Tavsif: {order['description']}\n"
         text += f"📅 Yaratildi: {_fmt_dt(order.get('created_at'))}\n"
-        text += f"\n🗂️ <i>Ariza {idx + 1} / {len(orders)}</i>"
+        
+        # Material ma'lumotlarini qo'shish
+    has_materials = order.get('has_materials_used', False)
+    materials_count = order.get('materials_count', 0)
+    materials_cost = order.get('materials_total_cost', 0)
+    
+    if has_materials and materials_count > 0:
+        if user_lang == "ru":
+            text += f"📦 Использовано материалов: {materials_count}\n"
+            if materials_cost:
+                text += f"💰 Стоимость материалов: {materials_cost:,.0f} сум\n"
+        else:
+            text += f"📦 Ishlatilgan materiallar: {materials_count}\n"
+            if materials_cost:
+                text += f"💰 Materiallar narxi: {materials_cost:,.0f} so'm\n"
+    
+    text += f"\n🗂️ <i>Ariza {idx + 1} / {len(orders)}</i>"
 
     # navigation
     keyboard = []
@@ -152,6 +180,14 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
         nav_buttons.append(InlineKeyboardButton(text=next_text, callback_data=f"client_orders_next_{idx}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
+    
+    # Material details button
+    if has_materials and materials_count > 0:
+        material_details_text = "📦 Materiallar tafsiloti" if user_lang == "uz" else "📦 Детали материалов"
+        keyboard.append([InlineKeyboardButton(
+            text=material_details_text, 
+            callback_data=f"client_material_details_{application_number}_{otype}"
+        )])
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
     
@@ -212,6 +248,81 @@ async def next_order_handler(callback: CallbackQuery, state: FSMContext):
         except:
             pass
         await render_order_card(callback.message, orders, idx, data.get("lang", "uz"))
+
+
+@router.callback_query(F.data.startswith("client_material_details_"))
+async def material_details_handler(callback: CallbackQuery):
+    await callback.answer()
+    
+    # Parse callback data: client_material_details_{application_number}_{order_type}
+    parts = callback.data.replace("client_material_details_", "").split("_", 1)
+    if len(parts) != 2:
+        await callback.message.answer("❌ Xatolik yuz berdi.")
+        return
+    
+    application_number = parts[0]
+    order_type = parts[1]
+    
+    user_lang = await get_user_language(callback.from_user.id)
+    
+    # Get material details
+    materials = await get_materials_for_user_order(application_number, order_type)
+    
+    if not materials:
+        text = "❌ Materiallar topilmadi." if user_lang == "uz" else "❌ Материалы не найдены."
+        await callback.message.answer(text)
+        return
+    
+    # Format material details
+    if user_lang == "ru":
+        text = f"📦 <b>Детали материалов</b>\n\n<b>Заявка: {application_number}</b>\n\n"
+        total_cost = 0
+        for i, material in enumerate(materials, 1):
+            text += f"{i}. <b>{material['material_name']}</b>\n"
+            text += f"   📊 Количество: {material['quantity']}\n"
+            text += f"   💰 Цена за единицу: {material['price']:,.0f} сум\n"
+            text += f"   💵 Общая стоимость: {material['total_price']:,.0f} сум\n"
+            text += f"   👤 Выдал: {material['technician_name']}\n"
+            text += f"   📅 Дата выдачи: {_fmt_dt(material['issued_at'])}\n\n"
+            total_cost += material['total_price']
+        
+        text += f"💰 <b>Общая стоимость: {total_cost:,.0f} сум</b>"
+    else:
+        text = f"📦 <b>Materiallar tafsiloti</b>\n\n<b>Ariza: {application_number}</b>\n\n"
+        total_cost = 0
+        for i, material in enumerate(materials, 1):
+            text += f"{i}. <b>{material['material_name']}</b>\n"
+            text += f"   📊 Miqdori: {material['quantity']}\n"
+            text += f"   💰 Birlik narxi: {material['price']:,.0f} so'm\n"
+            text += f"   💵 Jami narx: {material['total_price']:,.0f} so'm\n"
+            text += f"   👤 Bergan: {material['technician_name']}\n"
+            text += f"   📅 Berilgan sana: {_fmt_dt(material['issued_at'])}\n\n"
+            total_cost += material['total_price']
+        
+        text += f"💰 <b>Jami narx: {total_cost:,.0f} so'm</b>"
+    
+    # Add back button
+    back_text = "◀️ Orqaga" if user_lang == "uz" else "◀️ Назад"
+    keyboard = [[InlineKeyboardButton(text=back_text, callback_data="client_back_to_orders")]]
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    # Always send new message for material details to avoid media conflicts
+    # This ensures consistent behavior regardless of original message type
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+
+
+@router.callback_query(F.data == "client_back_to_orders")
+async def back_to_orders_handler(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    orders = data.get("orders", [])
+    idx = data.get("idx", 0)
+    user_lang = data.get("lang", "uz")
+    
+    if orders and 0 <= idx < len(orders):
+        # Always send new message when going back to avoid media conflicts
+        # This ensures consistent behavior regardless of original message type
+        await render_order_card(callback.message, orders, idx, user_lang)
 
 
 # === EDIT NAME ===

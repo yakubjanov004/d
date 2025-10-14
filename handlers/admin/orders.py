@@ -1,8 +1,10 @@
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaDocument
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaDocument, InputMediaVideo
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 import html
+import logging
 from database.admin.orders import (
     get_connection_orders,
     get_technician_orders,
@@ -15,7 +17,126 @@ from database.basic.language import get_user_language
 
 router = Router()
 
-router.message.filter(RoleFilter("admin")) 
+router.message.filter(RoleFilter("admin"))
+
+logger = logging.getLogger(__name__)
+
+# ========== Media Type Detection Helper Functions ==========
+
+def _detect_media_kind(file_id: str | None, media_type: str | None = None) -> str | None:
+    """
+    'photo' / 'video' / None qaytaradi.
+    Avval DB'dagi media_type ga ishonamiz, yo'q bo'lsa prefix orqali taxmin qilamiz.
+    """
+    if not file_id:
+        return None
+    if media_type in {"photo", "video"}:
+        return media_type
+
+    # Telegram file_id prefikslari bo'yicha konservativ taxmin
+    # AgAC... — photo (album photo)
+    # BAAC... — video
+    # (Boshqa hollarda type-ni majburlamaymiz)
+    if file_id.startswith("BAAC"):
+        return "video"
+    if file_id.startswith("AgAC"):
+        return "photo"
+    return None
+
+
+async def _send_media_strict(message: Message, file_id: str, caption: str, keyboard: InlineKeyboardMarkup, media_kind: str):
+    """
+    Media turiga qat'iy rioya qiladi. Agar server 'Video as Photo' kabi xatolik bersa,
+    mantiqan teskari turga bir marta retry qiladi. Aks holda matnga fallback qiladi.
+    """
+    try:
+        if media_kind == "photo":
+            await message.answer_photo(photo=file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        elif media_kind == "video":
+            await message.answer_video(video=file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        else:
+            # Noma'lum tur — darhol matn
+            await message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+            return
+    except TelegramBadRequest as e:
+        msg = str(e)
+        logger.error(f"_send_media_strict primary send failed: {msg}")
+
+        # Faqat TURI MOS EMAS degan aniq vaziyatda teskari turga harakat qilamiz
+        try_retry = None
+        if media_kind == "photo" and ("Video as Photo" in msg or "file of type Video as Photo" in msg):
+            try_retry = "video"
+        elif media_kind == "video" and ("Photo as Video" in msg or "file of type Photo as Video" in msg):
+            try_retry = "photo"
+
+        if try_retry:
+            try:
+                if try_retry == "photo":
+                    await message.answer_photo(photo=file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+                else:
+                    await message.answer_video(video=file_id, caption=caption, parse_mode="HTML", reply_markup=keyboard)
+                return
+            except Exception as e2:
+                logger.error(f"_send_media_strict retry as {try_retry} failed: {e2}")
+
+        # Aks holda matnga fallback
+        await message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"_send_media_strict unexpected error: {e}")
+        await message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def _edit_media_strict(callback: CallbackQuery, file_id: str, caption: str, keyboard: InlineKeyboardMarkup, media_kind: str):
+    """
+    Media turiga qat'iy rioya qiladi edit uchun.
+    """
+    try:
+        if media_kind == "photo":
+            await callback.message.edit_media(
+                media=InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"),
+                reply_markup=keyboard
+            )
+        elif media_kind == "video":
+            await callback.message.edit_media(
+                media=InputMediaVideo(media=file_id, caption=caption, parse_mode="HTML"),
+                reply_markup=keyboard
+            )
+        else:
+            # Noma'lum tur — darhol matn
+            await callback.message.edit_text(caption, parse_mode="HTML", reply_markup=keyboard)
+            return
+    except TelegramBadRequest as e:
+        msg = str(e)
+        logger.error(f"_edit_media_strict primary edit failed: {msg}")
+
+        # Faqat TURI MOS EMAS degan aniq vaziyatda teskari turga harakat qilamiz
+        try_retry = None
+        if media_kind == "photo" and ("Video as Photo" in msg or "file of type Video as Photo" in msg):
+            try_retry = "video"
+        elif media_kind == "video" and ("Photo as Video" in msg or "file of type Photo as Video" in msg):
+            try_retry = "photo"
+
+        if try_retry:
+            try:
+                if try_retry == "photo":
+                    await callback.message.edit_media(
+                        media=InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML"),
+                        reply_markup=keyboard
+                    )
+                else:
+                    await callback.message.edit_media(
+                        media=InputMediaVideo(media=file_id, caption=caption, parse_mode="HTML"),
+                        reply_markup=keyboard
+                    )
+                return
+            except Exception as e2:
+                logger.error(f"_edit_media_strict retry as {try_retry} failed: {e2}")
+
+        # Aks holda matnga fallback
+        await callback.message.edit_text(caption, parse_mode="HTML", reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"_edit_media_strict unexpected error: {e}")
+        await callback.message.edit_text(caption, parse_mode="HTML", reply_markup=keyboard) 
 
 def fmt_dt(dt: datetime) -> str:
     return dt.strftime("%d.%m.%Y %H:%M")
@@ -460,28 +581,71 @@ async def send_technician_order_with_media(message: Message, item: dict, lang: s
     """Send technician order with media if available"""
     text = technician_order_text(item, lang)
     media_file = item.get('media')
+    media_type = item.get('media_type')
     
     if media_file and media_file.strip():
-        try:
-            # Try to send as photo first
-            await message.answer_photo(
-                photo=media_file,
-                caption=text,
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-        except Exception:
+        # Media turiga qarab to'g'ri usuldan boshlaymiz
+        if media_type == 'video':
             try:
-                # Try to send as document if photo fails
-                await message.answer_document(
-                    document=media_file,
+                await message.answer_video(
+                    video=media_file,
                     caption=text,
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
-            except Exception:
-                # If both fail, send as text only
-                await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Video send failed, retrying as photo: {e}")
+                try:
+                    await message.answer_photo(
+                        photo=media_file,
+                        caption=text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                except Exception as e2:
+                    logger.error(f"Photo send also failed: {e2}")
+                    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        elif media_type == 'photo':
+            try:
+                await message.answer_photo(
+                    photo=media_file,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Photo send failed, retrying as video: {e}")
+                try:
+                    await message.answer_video(
+                        video=media_file,
+                        caption=text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                except Exception as e2:
+                    logger.error(f"Video send also failed: {e2}")
+                    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            # media_type yo'q yoki noma'lum - fallback zanjiri
+            try:
+                await message.answer_photo(
+                    photo=media_file,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Photo send failed, retrying as video: {e}")
+                try:
+                    await message.answer_video(
+                        video=media_file,
+                        caption=text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                except Exception as e2:
+                    logger.error(f"Video send also failed: {e2}")
+                    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     else:
         # No media, send as text only
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -490,32 +654,59 @@ async def send_technician_order_with_media_edit(callback: CallbackQuery, item: d
     """Edit technician order message with media if available"""
     text = technician_order_text(item, lang)
     media_file = item.get('media')
+    media_type = item.get('media_type')
     
     if media_file and media_file.strip():
-        try:
-            # Try to edit as photo first
-            await callback.message.edit_media(
-                media=InputMediaPhoto(
-                    media=media_file,
-                    caption=text,
-                    parse_mode="HTML"
-                ),
-                reply_markup=keyboard
-            )
-        except Exception:
+        # Media turiga qarab to'g'ri usuldan boshlaymiz
+        if media_type == 'video':
             try:
-                # Try to edit as document if photo fails
                 await callback.message.edit_media(
-                    media=InputMediaDocument(
-                        media=media_file,
-                        caption=text,
-                        parse_mode="HTML"
-                    ),
+                    media=InputMediaVideo(media=media_file, caption=text, parse_mode="HTML"),
                     reply_markup=keyboard
                 )
-            except Exception:
-                # If both fail, edit as text only
-                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Video edit failed, retrying as photo: {e}")
+                try:
+                    await callback.message.edit_media(
+                        media=InputMediaPhoto(media=media_file, caption=text, parse_mode="HTML"),
+                        reply_markup=keyboard
+                    )
+                except Exception as e2:
+                    logger.error(f"Photo edit also failed: {e2}")
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        elif media_type == 'photo':
+            try:
+                await callback.message.edit_media(
+                    media=InputMediaPhoto(media=media_file, caption=text, parse_mode="HTML"),
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                logger.error(f"Photo edit failed, retrying as video: {e}")
+                try:
+                    await callback.message.edit_media(
+                        media=InputMediaVideo(media=media_file, caption=text, parse_mode="HTML"),
+                        reply_markup=keyboard
+                    )
+                except Exception as e2:
+                    logger.error(f"Video edit also failed: {e2}")
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            # media_type yo'q yoki noma'lum - fallback zanjiri
+            try:
+                await callback.message.edit_media(
+                    media=InputMediaPhoto(media=media_file, caption=text, parse_mode="HTML"),
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                logger.error(f"Photo edit failed, retrying as video: {e}")
+                try:
+                    await callback.message.edit_media(
+                        media=InputMediaVideo(media=media_file, caption=text, parse_mode="HTML"),
+                        reply_markup=keyboard
+                    )
+                except Exception as e2:
+                    logger.error(f"Video edit also failed: {e2}")
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
         # No media, edit as text only
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

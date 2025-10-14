@@ -62,7 +62,11 @@ async def get_technician_orders(limit: int = 50, offset: int = 0) -> List[Dict[s
                 tech_orders.longitude,
                 u.full_name as client_name,
                 u.phone as client_phone,
-                u.username
+                u.username,
+                CASE 
+                    WHEN tech_orders.media IS NOT NULL THEN 'video'
+                    ELSE NULL
+                END as media_type
             FROM technician_orders tech_orders
             LEFT JOIN users u ON u.id = tech_orders.user_id
             ORDER BY tech_orders.created_at DESC

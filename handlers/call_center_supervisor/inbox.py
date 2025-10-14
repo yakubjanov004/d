@@ -1,6 +1,6 @@
 # handlers/call_center_supervisor/inbox.py
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaDocument
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaDocument, InputMediaVideo
 from aiogram.exceptions import TelegramBadRequest
 from typing import Optional, Dict, Any
 import html
@@ -32,6 +32,108 @@ logger = logging.getLogger(__name__)
 router = Router()
 router.message.filter(RoleFilter("callcenter_supervisor"))
 router.callback_query.filter(RoleFilter("callcenter_supervisor"))
+
+# ========== Media Type Detection Helper Functions ==========
+
+def _detect_media_kind(file_id: str | None, media_type: str | None = None) -> str | None:
+    """
+    'photo' / 'video' / None qaytaradi.
+    Avval DB'dagi media_type ga ishonamiz, yo'q bo'lsa Telegram API ga ishonamiz.
+    """
+    if not file_id:
+        return None
+    
+    # DB'dan kelgan media_type ni tekshiramiz
+    if media_type in {"photo", "video"}:
+        return media_type
+
+    # Agar file_path bo'lsa (media_files jadvalidan kelgan)
+    if "/" in file_id:
+        # Fayl kengaytmasi bo'yicha aniqlash
+        file_ext = file_id.lower().split('.')[-1] if '.' in file_id else ''
+        if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            return "photo"
+        elif file_ext in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+            return "video"
+    
+    # Telegram file_id uchun - API o'zi aniqlaydi, biz faqat mavjudligini tekshiramiz
+    # Agar file_id mavjud bo'lsa, uni yuborishga harakat qilamiz
+    if file_id and len(file_id) > 10:  # Minimal file_id uzunligi
+        return "photo"  # Default photo sifatida sinab ko'ramiz
+    
+    return None
+
+
+async def _send_media_strict(target, file_id: str, caption: str, kb: InlineKeyboardMarkup, media_kind: str):
+    """
+    Media turiga qat'iy rioya qiladi. Agar server 'Video as Photo' kabi xatolik bersa,
+    avtomatik ravishda teskari turga retry qiladi. Aks holda matnga fallback qiladi.
+    
+    file_id Telegram file_id yoki local file_path bo'lishi mumkin.
+    """
+    from aiogram.types import FSInputFile
+    
+    try:
+        # Agar file_id local file_path bo'lsa, FSInputFile ishlatamiz
+        media_input = None
+        if "/" in file_id:
+            # Local file_path
+            media_input = FSInputFile(file_id)
+        else:
+            # Telegram file_id
+            media_input = file_id
+            
+        if isinstance(target, Message):
+            if media_kind == "photo":
+                await target.answer_photo(photo=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
+            elif media_kind == "video":
+                await target.answer_video(video=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
+            else:
+                await target.answer(caption, parse_mode="HTML", reply_markup=kb)
+        else:
+            # CallbackQuery uchun
+            if media_kind == "photo":
+                await target.message.edit_media(
+                    media=InputMediaPhoto(media=media_input, caption=caption, parse_mode="HTML"),
+                    reply_markup=kb
+                )
+            elif media_kind == "video":
+                await target.message.edit_media(
+                    media=InputMediaVideo(media=media_input, caption=caption, parse_mode="HTML"),
+                    reply_markup=kb
+                )
+            else:
+                await target.message.edit_text(caption, parse_mode="HTML", reply_markup=kb)
+    except TelegramBadRequest as e:
+        msg = str(e)
+        logger.error(f"_send_media_strict primary send failed: {msg}")
+
+        # Avtomatik retry - agar photo bo'lsa video sifatida sinab ko'ramiz
+        if media_kind == "photo":
+            try:
+                logger.info(f"Retrying as video: {file_id}")
+                if isinstance(target, Message):
+                    await target.answer_video(video=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
+                else:
+                    await target.message.edit_media(
+                        media=InputMediaVideo(media=media_input, caption=caption, parse_mode="HTML"),
+                        reply_markup=kb
+                    )
+                return
+            except Exception as e2:
+                logger.error(f"_send_media_strict retry as video failed: {e2}")
+
+        # Aks holda matnga fallback
+        if isinstance(target, Message):
+            await target.answer(caption, parse_mode="HTML", reply_markup=kb)
+        else:
+            await target.message.edit_text(caption, parse_mode="HTML", reply_markup=kb)
+    except Exception as e:
+        logger.error(f"_send_media_strict unexpected error: {e}")
+        if isinstance(target, Message):
+            await target.answer(caption, parse_mode="HTML", reply_markup=kb)
+        else:
+            await target.message.edit_text(caption, parse_mode="HTML", reply_markup=kb)
 
 # =========================================================
 # Region mapping (id -> human title)
@@ -179,46 +281,98 @@ async def _show_technician_item_with_media(target, idx: int, user_id: int):
     
     if isinstance(target, Message):
         if media_path:
-            try:
-                # Try to send as photo first
-                return await target.answer_photo(
-                    photo=media_path,
-                    caption=text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except Exception:
+            # Media turiga qarab to'g'ri usuldan boshlaymiz
+            media_type = row.get("media_type", "")
+            if media_type == 'video':
                 try:
-                    # If photo fails, try as document
-                    return await target.answer_document(
-                        document=media_path,
+                    return await target.answer_video(
+                        video=media_path,
                         caption=text,
                         reply_markup=kb,
                         parse_mode="HTML"
                     )
                 except Exception:
-                    # If both fail, send as text
-                    return await target.answer(text, parse_mode="HTML", reply_markup=kb)
+                    try:
+                        return await target.answer_photo(
+                            photo=media_path,
+                            caption=text,
+                            reply_markup=kb,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        try:
+                            return await target.answer_document(
+                                document=media_path,
+                                caption=text,
+                                reply_markup=kb,
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            return await target.answer(text, parse_mode="HTML", reply_markup=kb)
+            elif media_type == 'photo':
+                try:
+                    return await target.answer_photo(
+                        photo=media_path,
+                        caption=text,
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    try:
+                        return await target.answer_video(
+                            video=media_path,
+                            caption=text,
+                            reply_markup=kb,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        try:
+                            return await target.answer_document(
+                                document=media_path,
+                                caption=text,
+                                reply_markup=kb,
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            return await target.answer(text, parse_mode="HTML", reply_markup=kb)
+            else:
+                # media_type yo'q yoki noma'lum - fallback zanjiri
+                try:
+                    return await target.answer_photo(
+                        photo=media_path,
+                        caption=text,
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    try:
+                        return await target.answer_video(
+                            video=media_path,
+                            caption=text,
+                            reply_markup=kb,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        try:
+                            return await target.answer_document(
+                                document=media_path,
+                                caption=text,
+                                reply_markup=kb,
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            return await target.answer(text, parse_mode="HTML", reply_markup=kb)
         else:
             return await target.answer(text, parse_mode="HTML", reply_markup=kb)
     else:
         # For CallbackQuery, we need to handle media differently
         if media_path:
-            try:
-                # Try to edit with photo
-                return await target.message.edit_media(
-                    media=InputMediaPhoto(
-                        media=media_path,
-                        caption=text,
-                        parse_mode="HTML"
-                    ),
-                    reply_markup=kb
-                )
-            except Exception:
+            # Media turiga qarab to'g'ri usuldan boshlaymiz
+            media_type = row.get("media_type", "")
+            if media_type == 'video':
                 try:
-                    # If photo fails, try as document
                     return await target.message.edit_media(
-                        media=InputMediaDocument(
+                        media=InputMediaVideo(
                             media=media_path,
                             caption=text,
                             parse_mode="HTML"
@@ -226,18 +380,119 @@ async def _show_technician_item_with_media(target, idx: int, user_id: int):
                         reply_markup=kb
                     )
                 except Exception:
-                    # If both fail, delete and send new message
                     try:
-                        await target.message.delete()
-                        return await target.message.answer_photo(
-                            photo=media_path,
-                            caption=text,
-                            reply_markup=kb,
-                            parse_mode="HTML"
+                        return await target.message.edit_media(
+                            media=InputMediaPhoto(
+                                media=media_path,
+                                caption=text,
+                                parse_mode="HTML"
+                            ),
+                            reply_markup=kb
                         )
                     except Exception:
-                        # If everything fails, send as text
-                        return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+                        try:
+                            return await target.message.edit_media(
+                                media=InputMediaDocument(
+                                    media=media_path,
+                                    caption=text,
+                                    parse_mode="HTML"
+                                ),
+                                reply_markup=kb
+                            )
+                        except Exception:
+                            try:
+                                await target.message.delete()
+                                return await target.message.answer_video(
+                                    video=media_path,
+                                    caption=text,
+                                    reply_markup=kb,
+                                    parse_mode="HTML"
+                                )
+                            except Exception:
+                                return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            elif media_type == 'photo':
+                try:
+                    return await target.message.edit_media(
+                        media=InputMediaPhoto(
+                            media=media_path,
+                            caption=text,
+                            parse_mode="HTML"
+                        ),
+                        reply_markup=kb
+                    )
+                except Exception:
+                    try:
+                        return await target.message.edit_media(
+                            media=InputMediaVideo(
+                                media=media_path,
+                                caption=text,
+                                parse_mode="HTML"
+                            ),
+                            reply_markup=kb
+                        )
+                    except Exception:
+                        try:
+                            return await target.message.edit_media(
+                                media=InputMediaDocument(
+                                    media=media_path,
+                                    caption=text,
+                                    parse_mode="HTML"
+                                ),
+                                reply_markup=kb
+                            )
+                        except Exception:
+                            try:
+                                await target.message.delete()
+                                return await target.message.answer_photo(
+                                    photo=media_path,
+                                    caption=text,
+                                    reply_markup=kb,
+                                    parse_mode="HTML"
+                                )
+                            except Exception:
+                                return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            else:
+                # media_type yo'q yoki noma'lum - fallback zanjiri
+                try:
+                    return await target.message.edit_media(
+                        media=InputMediaPhoto(
+                            media=media_path,
+                            caption=text,
+                            parse_mode="HTML"
+                        ),
+                        reply_markup=kb
+                    )
+                except Exception:
+                    try:
+                        return await target.message.edit_media(
+                            media=InputMediaVideo(
+                                media=media_path,
+                                caption=text,
+                                parse_mode="HTML"
+                            ),
+                            reply_markup=kb
+                        )
+                    except Exception:
+                        try:
+                            return await target.message.edit_media(
+                                media=InputMediaDocument(
+                                    media=media_path,
+                                    caption=text,
+                                    parse_mode="HTML"
+                                ),
+                                reply_markup=kb
+                            )
+                        except Exception:
+                            try:
+                                await target.message.delete()
+                                return await target.message.answer_photo(
+                                    photo=media_path,
+                                    caption=text,
+                                    reply_markup=kb,
+                                    parse_mode="HTML"
+                                )
+                            except Exception:
+                                return await target.message.answer(text, parse_mode="HTML", reply_markup=kb)
         else:
             # Check if current message has media, if so delete and send new text message
             try:

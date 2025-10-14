@@ -78,7 +78,7 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
                     ELSE NULL
                 END as media_file_id,
                 CASE 
-                    WHEN so.type_of_zayavka = 'technician' AND tech_ord.media IS NOT NULL THEN 'photo'
+                    WHEN so.type_of_zayavka = 'technician' AND tech_ord.media IS NOT NULL THEN 'media'
                     ELSE NULL
                 END as media_type
             FROM staff_orders so
@@ -411,6 +411,9 @@ async def fetch_controller_inbox_tech(limit: int = 50, offset: int = 0) -> List[
     Controller inbox - tech service orders (texnik xizmat arizalari).
     Client tomonidan yaratilgan, 'in_controller' statusdagi technician orders.
     media va description ni ham olamiz.
+    Ikkala usulni qo'llab-quvvatlaydi:
+    1. technician_orders.media ustunidagi eski usul
+    2. media_files jadvalidagi yangi usul
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -423,17 +426,37 @@ async def fetch_controller_inbox_tech(limit: int = 50, offset: int = 0) -> List[
                 tech_ord.region,
                 tech_ord.status,
                 tech_ord.description,
-                tech_ord.media AS media_file_id,
-                CASE 
-                    WHEN tech_ord.media IS NOT NULL THEN 'photo'
-                    ELSE NULL
-                END AS media_type,
                 tech_ord.created_at,
                 tech_ord.updated_at,
                 u.full_name AS client_name,
-                u.phone AS client_phone
+                u.phone AS client_phone,
+                
+                -- Eski usul: technician_orders.media ustunidan
+                tech_ord.media AS old_media_file_id,
+                
+                -- Yangi usul: media_files jadvalidan
+                mf.file_path AS new_media_file_id,
+                mf.file_type AS new_media_type,
+                
+                -- Media mavjudligini aniqlash
+                CASE 
+                    WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN tech_ord.media
+                    WHEN mf.file_path IS NOT NULL AND mf.file_path != '' THEN mf.file_path
+                    ELSE NULL
+                END AS media_file_id,
+                
+                CASE 
+                    WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN 
+                        'photo'  -- Default photo sifatida, Telegram API o'zi aniqlaydi
+                    WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
+                    ELSE NULL
+                END AS media_type
+                
             FROM technician_orders tech_ord
             LEFT JOIN users u ON u.id = tech_ord.user_id
+            LEFT JOIN media_files mf ON mf.related_table = 'technician_orders' 
+                                    AND mf.related_id = tech_ord.id 
+                                    AND mf.is_active = TRUE
             WHERE COALESCE(tech_ord.is_active, TRUE) = TRUE
               AND tech_ord.status = 'in_controller'
             ORDER BY tech_ord.created_at DESC, tech_ord.id DESC

@@ -14,6 +14,10 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+def _strip_id(full_id: str) -> str:
+    # "123_..." -> "123"
+    return full_id.split("_", 1)[0]
+
 
 async def get_current_status(application_id: int, mode: str = "connection") -> str:
     """Get current status of an application"""
@@ -910,17 +914,10 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
         
         # Yangi xabar yuborish
         sent_msg = None
-        if media_file_id and media_type:
-            try:
-                if media_type == 'photo':
-                    sent_msg = await bot.send_photo(
-                        chat_id=message.chat.id,
-                        photo=media_file_id,
-                        caption=text,
-                        parse_mode='HTML',
-                        reply_markup=kb
-                    )
-                elif media_type == 'video':
+        if media_file_id and media_file_id.strip():
+            # Media turiga qarab to'g'ri usuldan boshlaymiz
+            if media_type == 'video':
+                try:
                     sent_msg = await bot.send_video(
                         chat_id=message.chat.id,
                         video=media_file_id,
@@ -928,11 +925,64 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                         parse_mode='HTML',
                         reply_markup=kb
                     )
-                else:
-                    sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
-            except Exception:
-                # Agar media yuborishda xatolik bo'lsa, faqat matn yuboramiz
-                sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                except Exception as e:
+                    logger.error(f"Video send failed, retrying as photo: {e}")
+                    try:
+                        sent_msg = await bot.send_photo(
+                            chat_id=message.chat.id,
+                            photo=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=kb
+                        )
+                    except Exception as e2:
+                        logger.error(f"Photo send also failed: {e2}")
+                        sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            elif media_type == 'photo':
+                try:
+                    sent_msg = await bot.send_photo(
+                        chat_id=message.chat.id,
+                        photo=media_file_id,
+                        caption=text,
+                        parse_mode='HTML',
+                        reply_markup=kb
+                    )
+                except Exception as e:
+                    logger.error(f"Photo send failed, retrying as video: {e}")
+                    try:
+                        sent_msg = await bot.send_video(
+                            chat_id=message.chat.id,
+                            video=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=kb
+                        )
+                    except Exception as e2:
+                        logger.error(f"Video send also failed: {e2}")
+                        sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+            else:
+                # media_type yo'q yoki noma'lum - fallback zanjiri
+                try:
+                    sent_msg = await bot.send_photo(
+                        chat_id=message.chat.id,
+                        photo=media_file_id,
+                        caption=text,
+                        parse_mode='HTML',
+                        reply_markup=kb
+                    )
+                except Exception as e:
+                    logger.error(f"Photo send failed, retrying as video: {e}")
+                    try:
+                        sent_msg = await bot.send_video(
+                            chat_id=message.chat.id,
+                            video=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=kb
+                        )
+                    except Exception as e2:
+                        logger.error(f"Video send also failed: {e2}")
+                        sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         else:
             sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         
