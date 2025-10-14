@@ -34,6 +34,7 @@ T = {
     "tech": {"uz": "Technician", "ru": "Technician"},
     "active": {"uz": "Aktiv", "ru": "Активные"},
     "role_technician": {"uz": "Texnik", "ru": "Техник"},
+    "role_controller": {"uz": "Controller", "ru": "Контроллер"},
     "empty": {
         "uz": "Ma'lumot topilmadi.",
         "ru": "Данные не найдены.",
@@ -70,12 +71,19 @@ def _build_report(lang: str, items: list[dict]) -> str:
 
     for i, it in enumerate(items):
         name = it.get("full_name") or "—"
-        role = _t(lang, "role_technician")
+        role = it.get("role", "technician")
+        if role == "technician":
+            role_text = _t(lang, "role_technician")
+        elif role == "controller":
+            role_text = _t(lang, "role_controller")
+        else:
+            role_text = role
+            
         conn_c = int(it.get("conn_count", 0) or 0)
         tech_c = int(it.get("tech_count", 0) or 0)
         active_c = int(it.get("in_progress_orders", 0) or 0)
 
-        head = f"{i+1}. {_medal(i)} {name} ({role})"
+        head = f"{i+1}. {_medal(i)} {name} ({role_text})"
         lines.append(head)
         lines.append(f"├ {_t(lang,'conn')}: {conn_c} {unit}")
         lines.append(f"├ {_t(lang,'tech')}: {tech_c} {unit}")

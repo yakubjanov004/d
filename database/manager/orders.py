@@ -194,6 +194,22 @@ async def count_manager_orders(user_id: int) -> int:
 #  Manager Statistics funksiyalari
 # =========================================================
 
+async def get_all_total_connection_orders_count() -> int:
+    """Barcha faol ulanish arizalarining umumiy sonini qaytaradi (mijozlar va xodimlar ochgan)."""
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        total_count = await conn.fetchval(
+            """
+            SELECT 
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE)
+                +
+                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE AND type_of_zayavka = 'connection')
+            """
+        )
+        return total_count if total_count is not None else 0
+    finally:
+        await conn.close()
+
 async def get_total_orders_count(user_id: int) -> int:
     """Manager yaratgan jami arizalar soni."""
     return await count_manager_orders(user_id)
@@ -247,6 +263,22 @@ async def get_cancelled_count(user_id: int) -> int:
             """,
             user_id
         )
+    finally:
+        await conn.close()
+
+async def get_all_new_orders_count() -> int:
+    """Barcha manager'ga kelgan yangi arizalar soni (mijozlar va xodimlar ochgani)."""
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        total_count = await conn.fetchval(
+            """
+            SELECT 
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE AND status = 'in_manager')
+                +
+                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE AND status = 'in_manager' AND type_of_zayavka = 'connection')
+            """
+        )
+        return total_count if total_count is not None else 0
     finally:
         await conn.close()
 
@@ -304,35 +336,73 @@ async def list_new_orders(user_id: int, limit: int = 10) -> List[Dict[str, Any]]
     finally:
         await conn.close()
 
-async def list_in_progress_orders(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-    """Manager yaratgan ish jarayonidagi arizalar."""
+async def list_all_in_progress_orders(limit: int = 50) -> List[Dict[str, Any]]:
+    """Barcha jarayondagi ulanish arizalari - mijozlar va xodimlar ochgani."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
             SELECT
+                co.id,
+                co.application_number,
+                co.address,
+                co.status::text,
+                co.created_at,
+                co.updated_at,
+                u.full_name AS client_name,
+                u.phone AS client_phone,
+                t.name AS tariff,
+                'connection' as type_of_zayavka,
+                'client' as order_source
+            FROM connection_orders co
+            LEFT JOIN users u ON u.id = co.user_id
+            LEFT JOIN tarif t ON t.id = co.tarif_id
+            WHERE co.is_active = TRUE
+              AND co.status NOT IN ('cancelled', 'completed')
+            
+            UNION ALL
+            
+            SELECT
                 so.id,
                 so.application_number,
                 so.address,
-                so.status,
-                so.type_of_zayavka,
+                so.status::text,
                 so.created_at,
                 so.updated_at,
                 u.full_name AS client_name,
                 u.phone AS client_phone,
-                t.name AS tariff
+                t.name AS tariff,
+                so.type_of_zayavka,
+                'staff' as order_source
             FROM staff_orders so
             LEFT JOIN users u ON u.id = so.abonent_id::bigint
             LEFT JOIN tarif t ON t.id = so.tarif_id
-            WHERE so.user_id = $1
-              AND COALESCE(so.is_active, TRUE) = TRUE
-              AND so.status IN ('in_junior_manager', 'in_controller', 'in_technician')
-            ORDER BY so.created_at DESC
-            LIMIT $2
+            WHERE so.is_active = TRUE
+              AND so.status NOT IN ('cancelled', 'completed')
+              AND so.type_of_zayavka = 'connection'
+            
+            ORDER BY created_at DESC
+            LIMIT $1
             """,
-            user_id, limit
+            limit
         )
         return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+async def get_all_in_progress_count() -> int:
+    """Barcha jarayondagi ulanish arizalari soni."""
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        count = await conn.fetchval(
+            """
+            SELECT 
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE AND status NOT IN ('cancelled', 'completed'))
+                +
+                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE AND status NOT IN ('cancelled', 'completed') AND type_of_zayavka = 'connection')
+            """
+        )
+        return int(count or 0)
     finally:
         await conn.close()
 
@@ -625,7 +695,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                 COUNT(so.id) as total_orders,
                 COUNT(CASE WHEN so.type_of_zayavka = 'connection' THEN 1 END) as conn_count,
                 COUNT(CASE WHEN so.type_of_zayavka = 'technician' THEN 1 END) as tech_count,
-                COUNT(CASE WHEN so.status IN ('in_junior_manager', 'in_controller', 'in_technician') THEN 1 END) as active_count,
+                COUNT(CASE WHEN so.status NOT IN ('cancelled', 'completed') THEN 1 END) as active_count,
                 COUNT(CASE WHEN so.status = 'completed' THEN 1 END) as completed_orders,
                 COUNT(CASE WHEN so.status = 'cancelled' THEN 1 END) as cancelled_orders,
                 MAX(so.created_at) as last_order_date

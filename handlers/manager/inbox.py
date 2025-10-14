@@ -326,6 +326,7 @@ async def prev_item(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     inbox = data.get("inbox", [])
     idx = data.get("idx", 0)
+    mode = data.get("mode", "connection")
     lang = data.get("lang", "uz")
     
     if not inbox:

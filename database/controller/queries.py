@@ -447,7 +447,16 @@ async def fetch_controller_inbox_tech(limit: int = 50, offset: int = 0) -> List[
                 
                 CASE 
                     WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN 
-                        'photo'  -- Default photo sifatida, Telegram API o'zi aniqlaydi
+                        CASE 
+                            WHEN tech_ord.media LIKE 'BAACAgI%' THEN 'video'
+                            WHEN tech_ord.media LIKE 'BAADBAAD%' THEN 'video'
+                            WHEN tech_ord.media LIKE 'BAAgAgI%' THEN 'video'
+                            WHEN tech_ord.media LIKE 'AgACAgI%' THEN 'photo'
+                            WHEN tech_ord.media LIKE 'CAAQAgI%' THEN 'photo'
+                            WHEN tech_ord.media LIKE '%.mp4' OR tech_ord.media LIKE '%.avi' OR tech_ord.media LIKE '%.mov' THEN 'video'
+                            WHEN tech_ord.media LIKE '%.jpg' OR tech_ord.media LIKE '%.jpeg' OR tech_ord.media LIKE '%.png' THEN 'photo'
+                            ELSE 'video'  -- Default video sifatida
+                        END
                     WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
                     ELSE NULL
                 END AS media_type

@@ -34,79 +34,114 @@ router.callback_query.filter(RoleFilter("controller"))
 
 def _detect_media_kind(file_id: str | None, media_type: str | None = None) -> str | None:
     """
-    faqat aniq holatlarda qaytaradi: 'photo' / 'video' yoki None.
-    - DB dan kelgan media_type bo'lsa, shunga ishonamiz.
-    - Local fayl bo'lsa, kengaytmadan aniqlaymiz.
-    - Telegram file_id bo'lsa (local emas), taxmin qilmaymiz -> None.
+    Sodda media turini aniqlash
     """
     if not file_id:
         return None
 
+    # DB dan kelgan media_type bo'lsa, shunga ishonamiz
     if media_type in {"photo", "video"}:
         return media_type
 
-    if "/" in file_id:
+    # Telegram file_id prefixlarini tekshirish
+    if file_id.startswith('BAADBAAD'):  # Video note
+        return 'video'
+    elif file_id.startswith('BAACAgI'):  # Video
+        return 'video'
+    elif file_id.startswith('BAAgAgI'):  # Video
+        return 'video'
+    elif file_id.startswith('AgACAgI'):  # Photo
+        return 'photo'
+    elif file_id.startswith('CAAQAgI'):  # Photo
+        return 'photo'
+    
+    # Local fayl bo'lsa, kengaytmadan aniqlaymiz
+    if "/" in file_id or "." in file_id:
         file_ext = file_id.lower().rsplit('.', 1)[-1] if '.' in file_id else ''
         if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
             return "photo"
         if file_ext in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
             return "video"
 
-    return None  # Telegram file_id: turini taxmin qilmaymiz
+    # Default: video sifatida qabul qilamiz
+    return "video"
 
 
 async def _send_media_strict(chat_id: int, file_id: str, caption: str, kb: InlineKeyboardMarkup, media_kind: str | None):
     """
-    Media yuborish: media_kind aniq bo'lsa o'sha turdan boshlaymiz,
-    aniq bo'lmasa -> photo -> video -> document fallback.
+    Media yuborish: technician roli kabi sodda usul
     """
-    # input tayyorlash
-    media_input = FSInputFile(file_id) if "/" in file_id else file_id
-
-    async def _as_photo():
-        return await bot.send_photo(chat_id=chat_id, photo=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
-
-    async def _as_video():
-        return await bot.send_video(chat_id=chat_id, video=media_input, caption=caption, parse_mode="HTML", reply_markup=kb, supports_streaming=True)
-
-    async def _as_document():
-        return await bot.send_document(chat_id=chat_id, document=media_input, caption=caption, parse_mode="HTML", reply_markup=kb)
-
-    async def _try_chain(chain):
-        last_err = None
-        for fn in chain:
+    try:
+        if media_kind == 'video':
             try:
-                await fn()
-                return True
-            except TelegramBadRequest as e:
-                msg = str(e)
-                # maxsus xabarlar bo'yicha qarama-qarshi turga o'tish:
-                if "can't use file of type Video as Photo" in msg:
-                    last_err = e
-                    continue
-                elif "can't use file of type Photo as Video" in msg:
-                    last_err = e
-                    continue
-                else:
-                    last_err = e
-                    continue
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=file_id,
+                    caption=caption,
+                    parse_mode='HTML',
+                    reply_markup=kb
+                )
+                logger.info(f"Video sent successfully: {file_id}")
+                return
             except Exception as e:
-                last_err = e
-                continue
-        if last_err:
-            logger.warning(f"_send_media_strict all media attempts failed, fallback to text. Last error: {last_err}")
-        return False
-
-    # Boshlanish tartibi
-    if media_kind == "photo":
-        ok = await _try_chain([_as_photo, _as_video, _as_document])
-    elif media_kind == "video":
-        ok = await _try_chain([_as_video, _as_photo, _as_document])
-    else:
-        ok = await _try_chain([_as_photo, _as_video, _as_document])
-
-    if not ok:
-        await bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=kb)
+                logger.error(f"Video send failed, retrying as photo: {e}")
+                try:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=file_id,
+                        caption=caption,
+                        parse_mode='HTML',
+                        reply_markup=kb
+                    )
+                    logger.info(f"Video sent as photo successfully: {file_id}")
+                    return
+                except Exception as e2:
+                    logger.error(f"Photo send also failed: {e2}")
+        elif media_kind == 'photo':
+            try:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=file_id,
+                    caption=caption,
+                    parse_mode='HTML',
+                    reply_markup=kb
+                )
+                logger.info(f"Photo sent successfully: {file_id}")
+                return
+            except Exception as e:
+                logger.error(f"Photo send failed: {e}")
+        else:
+            # Aniq turi noma'lum bo'lsa, video sifatida sinab ko'ramiz
+            try:
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=file_id,
+                    caption=caption,
+                    parse_mode='HTML',
+                    reply_markup=kb
+                )
+                logger.info(f"Unknown media sent as video successfully: {file_id}")
+                return
+            except Exception as e:
+                logger.error(f"Video send failed, retrying as photo: {e}")
+                try:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=file_id,
+                        caption=caption,
+                        parse_mode='HTML',
+                        reply_markup=kb
+                    )
+                    logger.info(f"Unknown media sent as photo successfully: {file_id}")
+                    return
+                except Exception as e2:
+                    logger.error(f"Photo send also failed: {e2}")
+    except Exception as e:
+        logger.error(f"All media attempts failed: {e}")
+    
+    # Fallback: faqat matn yuborish
+    logger.warning(f"Falling back to text-only message for media: {file_id}")
+    await bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML", reply_markup=kb)
 
 # ========== I18N ==========
 T = {
@@ -240,7 +275,7 @@ def build_tech_text(item: dict, idx: int | None, total: int | None, lang: str) -
         text += f"\n{t(lang,'desc')} {esc(desc)}"
     
     # Media mavjudligini ko'rsatish
-    if media_file_id and media_type:
+    if media_file_id and media_file_id.strip():
         if media_type == 'photo':
             text += f"\n📷 <b>Rasm:</b> Mavjud"
         elif media_type == 'video':
@@ -267,29 +302,44 @@ async def render_staff_item(message_or_cb, items: list, idx: int, lang: str, sta
     
     try:
         if isinstance(message_or_cb, CallbackQuery):
-            # Callback: mavjud xabarni media bilan almashtirishning keragi yo'q — matnni edit qilamiz
+            # Callback: mavjud xabarni  bilan almashtirishning keragi yo'q — matnni edit qilamiz
             await message_or_cb.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         else:
-            if media_file_id and media_type:
+            try:
+                await message_or_cb.delete()
+            except:
+                pass
+            
+            # Media mavjudligini tekshirish va yuborish
+            if media_file_id and media_file_id.strip():
                 kind = _detect_media_kind(media_file_id, media_type)
-                await _send_media_strict(
-                    chat_id=message_or_cb.chat.id,
-                    file_id=media_file_id,
-                    caption=text,
-                    kb=kb,
-                    media_kind=kind
-                )
+                logger.info(f"Controller staff item media: file_id={media_file_id}, type={media_type}, kind={kind}")
+                
+                try:
+                    await _send_media_strict(
+                        chat_id=message_or_cb.chat.id,
+                        file_id=media_file_id,
+                        caption=text,
+                        kb=kb,
+                        media_kind=kind
+                    )
+                    return  # Muvaffaqiyatli yuborilgan bo'lsa, chiqamiz
+                except Exception as media_error:
+                    logger.error(f"Staff media send failed, falling back to text: {media_error}")
+                    # Media yuborishda xatolik bo'lsa, faqat matn yuboramiz
+                    await bot.send_message(message_or_cb.chat.id, text, parse_mode='HTML', reply_markup=kb)
             else:
-                await message_or_cb.answer(text, parse_mode='HTML', reply_markup=kb)
+                # Media yo'q bo'lsa, faqat matn yuboramiz
+                await bot.send_message(message_or_cb.chat.id, text, parse_mode='HTML', reply_markup=kb)
     except Exception as e:
         logger.error(f"Error sending staff item with media: {e}")
         try:
             if isinstance(message_or_cb, CallbackQuery):
                 await message_or_cb.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
             else:
-                await message_or_cb.answer(text, parse_mode='HTML', reply_markup=kb)
-        except:
-            pass
+                await bot.send_message(message_or_cb.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        except Exception as final_error:
+            logger.error(f"Final fallback failed: {final_error}")
 
 def build_staff_text(item: dict, idx: int | None, total: int | None, lang: str) -> str:
     """Xodim yaratgan arizalar uchun text"""
@@ -339,7 +389,7 @@ def build_staff_text(item: dict, idx: int | None, total: int | None, lang: str) 
         text += f"\n{t(lang,'desc')} {esc(desc)}"
     
     # Media fayl mavjudligini ko'rsatish
-    if media_file_id and media_type:
+    if media_file_id and media_file_id.strip():
         if media_type == 'photo':
             text += f"\n📷 <b>Rasm:</b> Mavjud"
         elif media_type == 'video':
@@ -479,42 +529,70 @@ async def cat_tech_flow(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     data = await state.get_data()
     lang = normalize_lang(data.get("lang"))
-    items = await fetch_controller_inbox_tech(limit=50, offset=0)
-    if not items:
+    
+    try:
+        items = await fetch_controller_inbox_tech(limit=50, offset=0)
+        logger.info(f"Fetched {len(items) if items else 0} tech items for controller")
+        
+        if not items:
+            try:
+                await cb.message.edit_text(t(lang, "empty_tech"), reply_markup=category_keyboard(lang))
+            except TelegramBadRequest:
+                pass
+            return
+        
+        await state.update_data(mode="tech", inbox=items, idx=0)
+        
+        # Eski messageni o'chirish
         try:
-            await cb.message.edit_text(t(lang, "empty_tech"), reply_markup=category_keyboard(lang))
-        except TelegramBadRequest:
+            await cb.message.delete()
+        except:
             pass
-        return
-    
-    await state.update_data(mode="tech", inbox=items, idx=0)
-    
-    # Birinchi itemni ko'rsatish (rasm bilan)
-    await render_tech_item(cb.message, items, 0, lang, state)
+        
+        # Birinchi itemni ko'rsatish (rasm bilan)
+        await render_tech_item(cb.message, items, 0, lang, state)
+        
+    except Exception as e:
+        logger.error(f"Error in cat_tech_flow: {e}")
+        try:
+            await cb.message.edit_text(f"❌ Xatolik yuz berdi: {str(e)}", reply_markup=category_keyboard(lang))
+        except:
+            pass
 
 @router.callback_query(F.data == "ctrl_inbox_cat_staff")
 async def cat_staff_flow(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     data = await state.get_data()
     lang = normalize_lang(data.get("lang"))
-    items = await fetch_controller_inbox_staff(limit=50, offset=0)
-    if not items:
-        try:
-            await cb.message.edit_text(t(lang, "empty_staff"), reply_markup=category_keyboard(lang))
-        except TelegramBadRequest:
-            pass
-        return
     
-    await state.update_data(mode="staff", inbox=items, idx=0)
-    
-    # Eski messageni o'chirish
     try:
-        await cb.message.delete()
-    except:
-        pass
-    
-    # Birinchi itemni ko'rsatish (rasm bilan)
-    await render_staff_item(cb.message, items, 0, lang, state)
+        items = await fetch_controller_inbox_staff(limit=50, offset=0)
+        logger.info(f"Fetched {len(items) if items else 0} staff items for controller")
+        
+        if not items:
+            try:
+                await cb.message.edit_text(t(lang, "empty_staff"), reply_markup=category_keyboard(lang))
+            except TelegramBadRequest:
+                pass
+            return
+        
+        await state.update_data(mode="staff", inbox=items, idx=0)
+        
+        # Eski messageni o'chirish
+        try:
+            await cb.message.delete()
+        except:
+            pass
+        
+        # Birinchi itemni ko'rsatish (rasm bilan)
+        await render_staff_item(cb.message, items, 0, lang, state)
+        
+    except Exception as e:
+        logger.error(f"Error in cat_staff_flow: {e}")
+        try:
+            await cb.message.edit_text(f"❌ Xatolik yuz berdi: {str(e)}", reply_markup=category_keyboard(lang))
+        except:
+            pass
 
 async def render_tech_item(message, items: list, idx: int, lang: str, state: FSMContext):
     """Texnik xizmat arizasini media bilan ko'rsatish"""
@@ -535,20 +613,34 @@ async def render_tech_item(message, items: list, idx: int, lang: str, state: FSM
         except:
             pass
         
-        if media_file_id and media_type and media_file_id.strip():
+        # Media mavjudligini tekshirish va yuborish
+        if media_file_id and media_file_id.strip():
             kind = _detect_media_kind(media_file_id, media_type)
-            await _send_media_strict(
-                chat_id=message.chat.id,
-                file_id=media_file_id,
-                caption=text,
-                kb=kb,
-                media_kind=kind
-            )
+            logger.info(f"Controller tech item media: file_id={media_file_id}, type={media_type}, kind={kind}")
+            
+            # Media yuborishni sinab ko'rish
+            try:
+                await _send_media_strict(
+                    chat_id=message.chat.id,
+                    file_id=media_file_id,
+                    caption=text,
+                    kb=kb,
+                    media_kind=kind
+                )
+                return  # Muvaffaqiyatli yuborilgan bo'lsa, chiqamiz
+            except Exception as media_error:
+                logger.error(f"Media send failed, falling back to text: {media_error}")
+                # Media yuborishda xatolik bo'lsa, faqat matn yuboramiz
+                await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         else:
+            # Media yo'q bo'lsa, faqat matn yuboramiz
             await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
     except Exception as e:
         logger.error(f"Error rendering tech item: {e}")
-        await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        try:
+            await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+        except Exception as final_error:
+            logger.error(f"Final fallback failed: {final_error}")
 
 @router.callback_query(F.data.startswith("ctrl_inbox_prev_"))
 async def prev_item(cb: CallbackQuery, state: FSMContext):
@@ -561,10 +653,12 @@ async def prev_item(cb: CallbackQuery, state: FSMContext):
     try:
         cur = int(cb.data.replace("ctrl_inbox_prev_", ""))
     except ValueError:
+        logger.error(f"Invalid prev callback data: {cb.data}")
         return
     
     idx = max(0, cur - 1)
     if not items or idx < 0 or idx >= len(items):
+        logger.warning(f"Invalid index for prev: idx={idx}, items_count={len(items)}")
         return
     
     await state.update_data(idx=idx)
@@ -576,14 +670,21 @@ async def prev_item(cb: CallbackQuery, state: FSMContext):
         pass
     
     # Yangi message yuborish
-    if mode == "connection":
-        text = build_connection_text(items[idx], idx, len(items), lang)
-        kb = nav_keyboard(idx, len(items), str(items[idx]["id"]), lang, mode)
-        await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
-    elif mode == "tech":
-        await render_tech_item(cb.message, items, idx, lang, state)
-    else:  # staff
-        await render_staff_item(cb.message, items, idx, lang, state)
+    try:
+        if mode == "connection":
+            text = build_connection_text(items[idx], idx, len(items), lang)
+            kb = nav_keyboard(idx, len(items), str(items[idx]["id"]), lang, mode)
+            await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        elif mode == "tech":
+            await render_tech_item(cb.message, items, idx, lang, state)
+        else:  # staff
+            await render_staff_item(cb.message, items, idx, lang, state)
+    except Exception as e:
+        logger.error(f"Error in prev_item: {e}")
+        try:
+            await cb.answer("❌ Xatolik yuz berdi", show_alert=True)
+        except:
+            pass
 
 @router.callback_query(F.data.startswith("ctrl_inbox_next_"))
 async def next_item(cb: CallbackQuery, state: FSMContext):
@@ -596,10 +697,12 @@ async def next_item(cb: CallbackQuery, state: FSMContext):
     try:
         cur = int(cb.data.replace("ctrl_inbox_next_", ""))
     except ValueError:
+        logger.error(f"Invalid next callback data: {cb.data}")
         return
     
     idx = min(cur + 1, len(items) - 1)
     if not items or idx < 0 or idx >= len(items):
+        logger.warning(f"Invalid index for next: idx={idx}, items_count={len(items)}")
         return
     
     await state.update_data(idx=idx)
@@ -611,14 +714,21 @@ async def next_item(cb: CallbackQuery, state: FSMContext):
         pass
     
     # Yangi message yuborish
-    if mode == "connection":
-        text = build_connection_text(items[idx], idx, len(items), lang)
-        kb = nav_keyboard(idx, len(items), str(items[idx]["id"]), lang, mode)
-        await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
-    elif mode == "tech":
-        await render_tech_item(cb.message, items, idx, lang, state)
-    else:  # staff
-        await render_staff_item(cb.message, items, idx, lang, state)
+    try:
+        if mode == "connection":
+            text = build_connection_text(items[idx], idx, len(items), lang)
+            kb = nav_keyboard(idx, len(items), str(items[idx]["id"]), lang, mode)
+            await bot.send_message(cb.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
+        elif mode == "tech":
+            await render_tech_item(cb.message, items, idx, lang, state)
+        else:  # staff
+            await render_staff_item(cb.message, items, idx, lang, state)
+    except Exception as e:
+        logger.error(f"Error in next_item: {e}")
+        try:
+            await cb.answer("❌ Xatolik yuz berdi", show_alert=True)
+        except:
+            pass
 
 @router.callback_query(F.data.startswith("ctrl_inbox_assign_"))
 async def assign_open(cb: CallbackQuery, state: FSMContext):

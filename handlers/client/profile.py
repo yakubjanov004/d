@@ -96,7 +96,7 @@ async def show_orders_with_state(message: Message, state: FSMContext, idx: int =
     await render_order_card(message, orders, idx, user_lang)
 
 
-async def render_order_card(target, orders: list, idx: int, user_lang: str):
+async def render_order_card(target, orders: list, idx: int, user_lang: str, edit_message: bool = False):
     if idx < 0 or idx >= len(orders):
         return
 
@@ -191,28 +191,97 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str):
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
     
+    # Helper function to detect media type from Telegram file ID
+    def detect_media_type_from_file_id(file_id: str) -> str:
+        """Detect media type from Telegram file ID prefix"""
+        if not file_id:
+            return None
+        
+        # Telegram file ID prefixes for different media types
+        if file_id.startswith('BAADBAAD'):  # Video note
+            return 'video'
+        elif file_id.startswith('BAACAgI'):  # Video
+            return 'video'
+        elif file_id.startswith('BAAgAgI'):  # Video
+            return 'video'
+        elif file_id.startswith('AgACAgI'):  # Photo
+            return 'photo'
+        elif file_id.startswith('CAAQAgI'):  # Photo
+            return 'photo'
+        else:
+            return None
+
     # Media faylini yuborish
-    if isinstance(target, CallbackQuery):
-        # Callback query uchun - faqat matn yuborish
-        await target.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    if isinstance(target, CallbackQuery) or edit_message:
+        # Callback query uchun yoki edit_message=True bo'lsa - faqat matn yuborish
+        if isinstance(target, CallbackQuery):
+            await target.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        else:
+            await target.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
     else:
         # Message uchun - media bilan yuborish
-        if media_file_id and media_type:
-            if media_type == 'photo':
-                await target.answer_photo(
-                    photo=media_file_id,
-                    caption=text,
-                    parse_mode='HTML',
-                    reply_markup=reply_markup
-                )
-            elif media_type == 'video':
-                await target.answer_video(
-                    video=media_file_id,
-                    caption=text,
-                    parse_mode='HTML',
-                    reply_markup=reply_markup
-                )
-            else:
+        if media_file_id:
+            # Detect actual media type from file ID if database type is wrong
+            actual_media_type = detect_media_type_from_file_id(media_file_id)
+            effective_media_type = actual_media_type or media_type
+            
+            print(f"Media file_id: {media_file_id}, db_type: {media_type}, detected_type: {actual_media_type}, effective_type: {effective_media_type}")
+            
+            try:
+                if effective_media_type == 'video':
+                    try:
+                        await target.answer_video(
+                            video=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e:
+                        print(f"Video send failed, retrying as photo: {e}")
+                        try:
+                            await target.answer_photo(
+                                photo=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e2:
+                            print(f"Photo send also failed: {e2}")
+                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                elif effective_media_type == 'photo':
+                    try:
+                        await target.answer_photo(
+                            photo=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e:
+                        print(f"Photo send failed: {e}")
+                        await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                else:
+                    # Aniq turi noma'lum bo'lsa, video sifatida sinab ko'ramiz
+                    try:
+                        await target.answer_video(
+                            video=media_file_id,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                    except Exception as e:
+                        print(f"Video send failed, retrying as photo: {e}")
+                        try:
+                            await target.answer_photo(
+                                photo=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e2:
+                            print(f"Photo send also failed: {e2}")
+                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+            except Exception as e:
+                print(f"All media attempts failed: {e}")
                 await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
         else:
             await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
@@ -226,12 +295,16 @@ async def prev_order_handler(callback: CallbackQuery, state: FSMContext):
     idx = int(callback.data.replace("client_orders_prev_", "")) - 1
     if 0 <= idx < len(orders):
         await state.update_data(idx=idx)
-        # Eski xabarni o'chirish
+        # Try to edit the existing message instead of deleting and sending new one
         try:
-            await callback.message.delete()
-        except:
-            pass
-        await render_order_card(callback.message, orders, idx, data.get("lang", "uz"))
+            await render_order_card(callback.message, orders, idx, data.get("lang", "uz"), edit_message=True)
+        except Exception:
+            # If editing fails, fallback to delete and send new message
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            await render_order_card(callback.message, orders, idx, data.get("lang", "uz"), edit_message=False)
 
 
 @router.callback_query(F.data.startswith("client_orders_next_"))
@@ -242,12 +315,16 @@ async def next_order_handler(callback: CallbackQuery, state: FSMContext):
     idx = int(callback.data.replace("client_orders_next_", "")) + 1
     if 0 <= idx < len(orders):
         await state.update_data(idx=idx)
-        # Eski xabarni o'chirish
+        # Try to edit the existing message instead of deleting and sending new one
         try:
-            await callback.message.delete()
-        except:
-            pass
-        await render_order_card(callback.message, orders, idx, data.get("lang", "uz"))
+            await render_order_card(callback.message, orders, idx, data.get("lang", "uz"), edit_message=True)
+        except Exception:
+            # If editing fails, fallback to delete and send new message
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            await render_order_card(callback.message, orders, idx, data.get("lang", "uz"), edit_message=False)
 
 
 @router.callback_query(F.data.startswith("client_material_details_"))
@@ -306,9 +383,12 @@ async def material_details_handler(callback: CallbackQuery):
     keyboard = [[InlineKeyboardButton(text=back_text, callback_data="client_back_to_orders")]]
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
-    # Always send new message for material details to avoid media conflicts
-    # This ensures consistent behavior regardless of original message type
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+    # Edit the existing message instead of sending a new one
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception:
+        # If editing fails (e.g., due to media conflicts), send new message as fallback
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
 
 
 @router.callback_query(F.data == "client_back_to_orders")
@@ -320,9 +400,12 @@ async def back_to_orders_handler(callback: CallbackQuery, state: FSMContext):
     user_lang = data.get("lang", "uz")
     
     if orders and 0 <= idx < len(orders):
-        # Always send new message when going back to avoid media conflicts
-        # This ensures consistent behavior regardless of original message type
-        await render_order_card(callback.message, orders, idx, user_lang)
+        # Try to edit the existing message first, fallback to new message if needed
+        try:
+            await render_order_card(callback.message, orders, idx, user_lang, edit_message=True)
+        except Exception:
+            # If editing fails, send new message as fallback
+            await render_order_card(callback.message, orders, idx, user_lang, edit_message=False)
 
 
 # === EDIT NAME ===

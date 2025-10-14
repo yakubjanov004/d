@@ -12,15 +12,17 @@ from typing import Optional, List, Dict, Any
 from filters.role_filter import RoleFilter
 from database.basic.user import get_user_by_telegram_id
 from database.manager.orders import (
-    get_connection_orders_count,
-    get_connection_orders_in_progress_count,
-    get_connection_orders_completed_today_count,
-    get_connection_orders_cancelled_count,
-    get_connection_orders_new_today_count,
-    list_connection_orders_new,
-    list_connection_orders_in_progress,
-    list_connection_orders_completed_today,
-    list_connection_orders_cancelled,
+    get_all_total_connection_orders_count,
+    get_all_new_orders_count,
+    get_in_progress_count,
+    get_completed_today_count,
+    get_cancelled_count,
+    get_new_orders_today_count,
+    list_new_orders,
+    list_all_in_progress_orders,
+    get_all_in_progress_count,
+    list_completed_today_orders,
+    list_cancelled_orders,
     list_my_created_orders_by_type,
 )
 
@@ -267,16 +269,19 @@ def _card_text(lang: str, total: int, new_today: int, in_progress: int, done_tod
     )
 
 def _item_card(lang: str, item: dict, index: int, total: int) -> str:
-    # ID formatini tuzatamiz - connection_orders uchun
+    # ID formatini tuzatamiz - connection_orders va staff_orders uchun
     app_number_raw = item.get("application_number", "")
     if app_number_raw and app_number_raw != "N/A" and app_number_raw.strip():
-        # Connection orders uchun application_number to'g'ridan-to'g'ri CONN-B2C-0001 formatida
         app_number = app_number_raw
     else:
         # Agar application_number bo'lmasa, id dan foydalanamiz
         item_id = item.get("id", "N/A")
         if item_id != "N/A":
-            app_number = f"CONN-B2C-{item_id:04d}"
+            order_source = item.get("order_source", "")
+            if order_source == "client":
+                app_number = f"CONN-B2C-{item_id:04d}"
+            else:
+                app_number = f"STAFF-CONN-B2C-{item_id:04d}"
         else:
             app_number = "N/A"
     
@@ -288,9 +293,19 @@ def _item_card(lang: str, item: dict, index: int, total: int) -> str:
     status_txt  = _esc(t_status(lang, status_raw))
     created_at  = _fmt_dt(item.get("created_at"), lang)
     updated_at  = _fmt_dt(item.get("updated_at"), lang)
+    order_source = item.get("order_source", "")
     
-    # Ariza turini ko'rsatamiz - connection_orders uchun har doim ulanish arizasi
-    type_text = "🔌 Ulanish arizasi"
+    # Ariza turini ko'rsatamiz
+    order_type = item.get("type_of_zayavka", "")
+    if order_type == "connection":
+        type_text = "🔌 Ulanish arizasi"
+    elif order_type == "technician":
+        type_text = "🛠️ Texnik xizmat arizasi"
+    else:
+        type_text = "📋 Ariza"
+    
+    # Ariza manbaini ko'rsatamiz
+    source_text = "👤 Mijoz" if order_source == "client" else "👨‍💼 Xodim"
     
     # Tarif uchun maxsus ko'rinish
     tariff_display = tariff if tariff != "N/A" else "❌ Tarif tanlanmagan"
@@ -308,21 +323,25 @@ def _item_card(lang: str, item: dict, index: int, total: int) -> str:
         f"{t(lang,'card_title')}\n\n"
         f"🪪 <b>ID:</b> {app_number}\n"
         f"📋 <b>Turi:</b> {type_text}\n"
+        f"👤 <b>Manbai:</b> {source_text}\n"
         f"📊 <b>Status:</b> {status_txt}\n"
-        f"👤 <b>Yaratgan:</b> {client_display}\n"
+        f"👤 <b>Mijoz:</b> {client_display}\n"
+        f"📞 <b>Telefon:</b> {phone_display}\n"
         f"🕘 <b>Yaratilgan:</b> {created_at}\n"
-        f"📍 <b>Manzil:</b> {address}\n\n"
+        f"📍 <b>Manzil:</b> {address}\n"
+        f"📊 <b>Tarif:</b> {tariff_display}\n\n"
         f"📈 <b>Umumiy:</b>\n"
         f"• Umumiy vaqt: {total_duration}\n"
         f"📄 <b>Ariza:</b> {index + 1}/{total}"
     )
 
 async def _load_stats(user_id: int):
-    total      = await get_connection_orders_count()
-    new_today  = await get_connection_orders_new_today_count()
-    in_prog    = await get_connection_orders_in_progress_count()
-    done_today = await get_connection_orders_completed_today_count()
-    cancelled  = await get_connection_orders_cancelled_count()
+    # Manager roli uchun statistika - barcha arizalar
+    total      = await get_all_total_connection_orders_count()  # Barcha ulanish arizalari
+    new_today  = await get_all_new_orders_count()  # Barcha manager'ga kelgan yangi arizalar
+    in_prog    = await get_all_in_progress_count()  # Barcha jarayondagi arizalar
+    done_today = await get_completed_today_count(user_id)
+    cancelled  = await get_cancelled_count(user_id)
     return total, new_today, in_prog, done_today, cancelled
 
 async def _safe_edit(call: CallbackQuery, lang: str, text: str, kb: InlineKeyboardMarkup):
@@ -366,13 +385,13 @@ CAT_MY_CREATED = "my_created"     # 🆕
 
 async def _load_items_by_cat(cat: str, manager_user_id: Optional[int] = None, my_type: Optional[str] = None) -> list[dict]:
     if cat == CAT_NEW:
-        return await list_connection_orders_new(limit=50)
+        return await list_new_orders(manager_user_id, limit=50)
     if cat == CAT_PROGRESS:
-        return await list_connection_orders_in_progress(limit=50)
+        return await list_all_in_progress_orders(limit=50)  # Barcha jarayondagi arizalar
     if cat == CAT_DONE_TODAY:
-        return await list_connection_orders_completed_today(limit=50)
+        return await list_completed_today_orders(manager_user_id, limit=50)
     if cat == CAT_CANCELLED:
-        return await list_connection_orders_cancelled(limit=50)
+        return await list_cancelled_orders(manager_user_id, limit=50)
     if cat == CAT_MY_CREATED and manager_user_id and my_type in {"connection", "technician"}:
         return await list_my_created_orders_by_type(manager_user_id, my_type, limit=50)
     return []

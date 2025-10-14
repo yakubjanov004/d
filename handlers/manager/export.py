@@ -95,13 +95,6 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         export_type = data.get("export_type", "orders")
         
-        # Show processing message
-        await callback.message.edit_text(
-            "⏳ <b>Hisobot tayyorlanmoqda...</b>\n\n"
-            "Iltimos, kuting...",
-            parse_mode="HTML"
-        )
-        
         # Get data based on export type
         if export_type == "orders":
             raw_data = await get_manager_connection_orders_for_export()
@@ -251,13 +244,11 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             logger.error(f"Error sending file: {e}")
             await callback.message.answer("❌ Fayl yuborishda xatolik yuz berdi")
             
-        # Show export types keyboard again
-        keyboard = get_manager_export_types_keyboard()
-        await callback.message.answer(
-            "✅ Hisobot muvaffaqiyatli yuklab olindi.\n"
-            "Yana qanday hisobot kerak?",
-            reply_markup=keyboard
-        )
+        # Remove the inline keyboard
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
             
     except Exception as e:
         log_error(e, "Manager export format handler", callback.from_user.id)

@@ -95,13 +95,6 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         export_type = data.get("export_type", "tech_requests")
         
-        # Show processing message
-        await callback.message.edit_text(
-            "⏳ <b>Hisobot tayyorlanmoqda...</b>\n\n"
-            "Iltimos, kuting...",
-            parse_mode="HTML"
-        )
-        
         # Get data based on export type
         if export_type == "tech_requests":
             orders_data = await get_controller_orders_for_export()
@@ -287,6 +280,12 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                    f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
                    f"✅ Muvaffaqiyatli yuklab olindi!"
         )
+        
+        # Remove the inline keyboard
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
         
         await state.clear()
         

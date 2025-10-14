@@ -187,62 +187,65 @@ async def list_my_created_orders_by_type(user_id: int, order_type: str, limit: i
         await conn.close()
 
 async def fetch_staff_activity() -> List[Dict[str, Any]]:
-    """Xodimlar faoliyati - faqat texniklar va ularning bajargan arizalari."""
+    """Xodimlar faoliyati - texniklar va ularning barcha arizalari (client va xodim yaratgan)."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            WITH connection_latest AS (
-                -- Connection orders uchun oxirgi texnik assignments
-                SELECT DISTINCT ON (c.connection_id)
-                    c.connection_id,
-                    c.recipient_id as technician_id,
-                    'connection' as type_of_zayavka,
-                    c.recipient_status::text as status,
-                    co.created_at
-                FROM connections c
-                JOIN connection_orders co ON co.id = c.connection_id
-                WHERE c.recipient_id IS NOT NULL
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse', 'completed')
-                  AND COALESCE(co.is_active, TRUE) = TRUE
-                ORDER BY c.connection_id, c.created_at DESC
-            ),
-            technician_latest AS (
-                -- Technician orders uchun oxirgi texnik assignments  
-                SELECT DISTINCT ON (c.technician_id)
-                    c.technician_id,
-                    c.recipient_id as technician_id,
+            WITH all_orders AS (
+                -- Client yaratgan technician orders
+                SELECT 
+                    to_orders.id,
                     'technician' as type_of_zayavka,
-                    c.recipient_status::text as status,
-                    tech_ord.created_at
-                FROM connections c
-                JOIN technician_orders tech_ord ON tech_ord.id = c.technician_id
-                WHERE c.recipient_id IS NOT NULL
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse', 'completed')
-                  AND COALESCE(tech_ord.is_active, TRUE) = TRUE
-                ORDER BY c.technician_id, c.created_at DESC
-            ),
-            staff_latest AS (
-                -- Staff orders uchun oxirgi texnik assignments
-                SELECT DISTINCT ON (c.staff_id)
-                    c.staff_id,
+                    to_orders.status::text,
+                    to_orders.created_at,
+                    to_orders.updated_at,
+                    -- Texnik assignments
                     c.recipient_id as technician_id,
-                    so.type_of_zayavka::text,
-                    c.recipient_status::text as status,
-                    so.created_at
-                FROM connections c
-                JOIN staff_orders so ON so.id = c.staff_id
-                WHERE c.recipient_id IS NOT NULL
-                  AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse', 'completed')
+                    c.recipient_status::text as tech_status,
+                    -- Controller assignments (yaratgan)
+                    to_orders.user_id as controller_id
+                FROM technician_orders to_orders
+                LEFT JOIN connections c ON c.technician_id = to_orders.id
+                WHERE COALESCE(to_orders.is_active, TRUE) = TRUE
+                
+                UNION ALL
+                
+                -- Staff yaratgan connection orders
+                SELECT 
+                    so.id,
+                    'connection' as type_of_zayavka,
+                    so.status::text,
+                    so.created_at,
+                    so.updated_at,
+                    -- Texnik assignments
+                    c.recipient_id as technician_id,
+                    c.recipient_status::text as tech_status,
+                    -- Controller assignments (yaratgan)
+                    so.user_id as controller_id
+                FROM staff_orders so
+                LEFT JOIN connections c ON c.staff_id = so.id
+                WHERE so.type_of_zayavka = 'connection'
                   AND COALESCE(so.is_active, TRUE) = TRUE
-                ORDER BY c.staff_id, c.created_at DESC
-            ),
-            latest_assignments AS (
-                SELECT * FROM connection_latest
+                
                 UNION ALL
-                SELECT * FROM technician_latest
-                UNION ALL
-                SELECT * FROM staff_latest
+                
+                -- Staff yaratgan technician orders
+                SELECT 
+                    so.id,
+                    'technician' as type_of_zayavka,
+                    so.status::text,
+                    so.created_at,
+                    so.updated_at,
+                    -- Texnik assignments
+                    c.recipient_id as technician_id,
+                    c.recipient_status::text as tech_status,
+                    -- Controller assignments (yaratgan)
+                    so.user_id as controller_id
+                FROM staff_orders so
+                LEFT JOIN connections c ON c.staff_id = so.id
+                WHERE so.type_of_zayavka = 'technician'
+                  AND COALESCE(so.is_active, TRUE) = TRUE
             )
             SELECT
                 u.id,
@@ -250,20 +253,35 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                 u.phone,
                 u.role,
                 u.created_at,
-                COUNT(CASE WHEN ta.type_of_zayavka = 'connection' THEN 1 END) as conn_count,
-                COUNT(CASE WHEN ta.type_of_zayavka = 'technician' THEN 1 END) as tech_count,
-                COUNT(ta.technician_id) as total_count,
-                COUNT(CASE WHEN ta.status = 'in_controller' THEN 1 END) as new_orders,
-                COUNT(CASE WHEN ta.status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') THEN 1 END) as in_progress_orders,
-                COUNT(CASE WHEN ta.status = 'completed' THEN 1 END) as completed_orders,
-                COUNT(CASE WHEN ta.status = 'cancelled' THEN 1 END) as cancelled_orders,
-                MAX(ta.created_at) as last_order_date
+                -- Connection arizalar soni
+                COUNT(CASE WHEN ao.type_of_zayavka = 'connection' THEN 1 END) as conn_count,
+                -- Technician arizalar soni
+                COUNT(CASE WHEN ao.type_of_zayavka = 'technician' THEN 1 END) as tech_count,
+                -- Jami arizalar soni
+                COUNT(ao.id) as total_count,
+                -- Aktiv arizalar (texnikga yuborilgan va hali tugallanmagan)
+                COUNT(CASE WHEN ao.technician_id = u.id 
+                           AND ao.tech_status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') 
+                      THEN 1 END) as in_progress_orders,
+                -- Tugallangan arizalar
+                COUNT(CASE WHEN ao.technician_id = u.id 
+                           AND ao.tech_status = 'completed' 
+                      THEN 1 END) as completed_orders,
+                -- Bekor qilingan arizalar
+                COUNT(CASE WHEN ao.technician_id = u.id 
+                           AND ao.tech_status = 'cancelled' 
+                      THEN 1 END) as cancelled_orders,
+                -- Oxirgi ariza sanasi
+                MAX(ao.created_at) as last_order_date
             FROM users u
-            LEFT JOIN latest_assignments ta ON ta.technician_id = u.id
-            WHERE u.role = 'technician'
+            LEFT JOIN all_orders ao ON (
+                (u.role = 'technician' AND ao.technician_id = u.id) OR
+                (u.role = 'controller' AND ao.controller_id = u.id)
+            )
+            WHERE u.role IN ('technician', 'controller')
               AND COALESCE(u.is_blocked, FALSE) = FALSE
             GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
-            ORDER BY total_count DESC, u.full_name
+            ORDER BY u.role, total_count DESC, u.full_name
             """
         )
         return [dict(r) for r in rows]
