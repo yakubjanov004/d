@@ -3,8 +3,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from database.basic.language import update_user_language, get_user_language
 from filters.role_filter import RoleFilter
 from keyboards.warehouse_buttons import get_warehouse_main_menu
+import logging
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(RoleFilter("warehouse"), F.text.in_(["🌐 Tilni o'zgartirish", "🌐 Изменить язык"]))
 async def language_handler(message: Message):

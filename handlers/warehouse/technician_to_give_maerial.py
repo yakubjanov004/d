@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+import logging
 
 from database.warehouse.materials import get_all_materials, search_materials, get_material_by_id
 from database.technician.materials import fetch_technician_materials, fetch_assigned_qty
@@ -12,6 +13,7 @@ from states.warehouse_states import TechnicianMaterialStates
 from database.basic.language import get_user_language
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(RoleFilter("warehouse"), F.text.in_(["📦 Teknik xodimga mahsulot berish", "📦 Отдать материал технику"]))
 async def technician_material_menu(message: Message, state: FSMContext):
@@ -23,10 +25,16 @@ async def technician_material_menu(message: Message, state: FSMContext):
     technicians = await get_users_by_role("technician")
     
     if not technicians:
-        await message.answer(
-            ("❌ Hozirda tizimda texnik xodimlar mavjud emas." if lang == "uz" else "❌ В системе сейчас нет технических сотрудников."),
-            reply_markup=get_warehouse_main_menu(lang)
-        )
+        if lang == "ru":
+            await message.answer(
+                "❌ В системе сейчас нет технических сотрудников.",
+                reply_markup=get_warehouse_main_menu("ru")
+            )
+        else:
+            await message.answer(
+                "❌ Hozirda tizimda texnik xodimlar mavjud emas.",
+                reply_markup=get_warehouse_main_menu("uz")
+            )
         await state.clear()
         return
     
@@ -50,12 +58,16 @@ async def technician_material_menu(message: Message, state: FSMContext):
     
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     
-    await message.answer(
-        ("👨‍🔧 Qaysi texnik xodimga material berishni xohlaysiz?\n\nTexnik xodimni tanlang:"
-         if lang == "uz" else
-         "👨‍🔧 Кому из техников выдать материал?\n\nВыберите технического сотрудника:"),
-        reply_markup=reply_markup
-    )
+    if lang == "ru":
+        await message.answer(
+            "👨‍🔧 Кому из техников выдать материал?\n\nВыберите технического сотрудника:",
+            reply_markup=reply_markup
+        )
+    else:
+        await message.answer(
+            "👨‍🔧 Qaysi texnik xodimga material berishni xohlaysiz?\n\nTexnik xodimni tanlang:",
+            reply_markup=reply_markup
+        )
 
 @router.callback_query(F.data.startswith("select_tech_"))
 async def select_technician(callback: CallbackQuery, state: FSMContext):

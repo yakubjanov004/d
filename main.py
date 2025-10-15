@@ -4,20 +4,17 @@ import logging
 from loader import dp, bot
 from handlers import router as handlers_router
 from utils.directory_utils import setup_media_structure, setup_static_structure
-from utils.universal_error_logger import get_universal_logger
-from utils.terminal_error_handler import setup_terminal_error_handler
 
-logger = get_universal_logger("AlfaConnectBot")
-
-# Terminal error handler'ni sozlash
-terminal_error_handler = setup_terminal_error_handler()
+# Logger'ni olish
+logger = logging.getLogger(__name__)
 
 # Setup media and static directory structures
 try:
     setup_media_structure()
     setup_static_structure()
+    logger.info("Media va static papkalar muvaffaqiyatli yaratildi")
 except Exception as e:
-    logger.error(f"Directory setup failed: {e}")
+    logger.exception("Directory setup failed", exc_info=True)
     sys.exit(1)
 
 async def main():
@@ -30,7 +27,7 @@ async def main():
         logger.info("Bot stopped by user")
         pass
     except Exception as e:
-        logger.error(f"Bot error: {e}")
+        logger.exception("Bot error", exc_info=True)
         raise
     finally:
         await bot.session.close()
@@ -43,5 +40,5 @@ if __name__ == "__main__":
         logger.info("Bot stopped by user (KeyboardInterrupt)")
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Main error: {e}")
+        logger.exception("Main error", exc_info=True)
         sys.exit(1)

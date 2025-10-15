@@ -2,10 +2,12 @@ from aiogram import Router, F
 from aiogram.types import Message, FSInputFile
 from aiogram.enums.parse_mode import ParseMode
 import os
+import logging
 
 from database.basic.language import get_user_language
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 # --- Lokalizatsiya helper ---
 def text_by_lang(lang: str) -> str:

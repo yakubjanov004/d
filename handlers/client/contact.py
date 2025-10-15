@@ -2,8 +2,10 @@ from aiogram import Router, F
 from aiogram.types import Message
 from keyboards.client_buttons import get_contact_options_keyboard, get_client_main_menu
 from database.basic.language import get_user_language
+import logging
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(F.text.in_(["📞 Operator bilan bog'lanish", "📞 Связаться с оператором"]))
 async def contact_handler(message: Message):

@@ -534,7 +534,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     f"🔧 <b>YANGI TEXNIK XIZMAT ARIZASI</b>\n"
                     f"{'='*30}\n"
                     f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
-                    f"👤 <b>Mijoz:</b> {user.get('full_name', '-')}\n"
+                    f"👤 <b>Mijoz:</b> {user.get('full_name') or message.from_user.full_name or '-'}\n"
                     f"📞 <b>Tel:</b> {phone_for_msg}\n"
                     f"🏢 <b>Region:</b> {region_name}\n"
                     f"🏢 <b>Abonent:</b> {data.get('abonent_type')} - {data.get('abonent_id')}\n"

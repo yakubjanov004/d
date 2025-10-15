@@ -3,6 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
+import logging
 
 from filters.role_filter import RoleFilter
 from database.basic.user import find_user_by_telegram_id
@@ -17,6 +18,7 @@ from keyboards.warehouse_buttons import get_warehouse_main_menu
 from database.basic.language import get_user_language
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("warehouse"))
 router.callback_query.filter(RoleFilter("warehouse"))
 
@@ -46,9 +48,9 @@ async def technician_used_materials_menu(message: Message, state: FSMContext):
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Ulanish arizalari", callback_data="used_mat_type_connection")],
-        [InlineKeyboardButton(text="🔧 Texnik xizmat arizalari", callback_data="used_mat_type_technician")],
-        [InlineKeyboardButton(text="👥 Xodim arizalari", callback_data="used_mat_type_staff")]
+        [InlineKeyboardButton(text="🔗 Ulanish arizalari" if lang == "uz" else "🔗 Заявки на подключение", callback_data="used_mat_type_connection")],
+        [InlineKeyboardButton(text="🔧 Texnik xizmat arizalari" if lang == "uz" else "🔧 Заявки на техническое обслуживание", callback_data="used_mat_type_technician")],
+        [InlineKeyboardButton(text="👥 Xodim arizalari" if lang == "uz" else "👥 Заявки сотрудников", callback_data="used_mat_type_staff")]
     ])
     
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -73,17 +75,20 @@ async def show_materials_by_type(callback: CallbackQuery, state: FSMContext):
     type_text = type_texts.get(request_type, request_type)
     
     if not materials:
-        text = (
-            f"📋 <b>{type_text}</b>\n\n❌ Hozirda bu turdagi arizalar yo'q."
-            if lang == "uz" else
-            f"📋 <b>{type_text}</b>\n\n❌ В настоящее время нет заявок этого типа."
-        )
+        if lang == "ru":
+            text = (
+                f"📋 <b>{type_text}</b>\n\n❌ В настоящее время нет заявок этого типа."
+            )
+        else:
+            text = (
+                f"📋 <b>{type_text}</b>\n\n❌ Hozirda bu turdagi arizalar yo'q."
+            )
         await callback.message.edit_text(text, parse_mode="HTML")
         return
     
     material = materials[0]
     text = format_used_material(material, 0, total_count, lang)
-    keyboard = get_used_materials_navigation_keyboard(0, total_count, material.get('application_number', ''), material.get('request_type', ''))
+    keyboard = get_used_materials_navigation_keyboard(0, total_count, material.get('application_number', ''), material.get('request_type', ''), lang)
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -128,7 +133,7 @@ def format_used_material(material: dict, index: int, total: int, lang: str) -> s
     
     return text
 
-def get_used_materials_navigation_keyboard(index: int, total: int, application_number: str, request_type: str) -> InlineKeyboardMarkup:
+def get_used_materials_navigation_keyboard(index: int, total: int, application_number: str, request_type: str, lang: str = "uz") -> InlineKeyboardMarkup:
     """Get navigation keyboard for used materials"""
     keyboard = []
     
@@ -145,14 +150,14 @@ def get_used_materials_navigation_keyboard(index: int, total: int, application_n
     # View details button
     keyboard.append([
         InlineKeyboardButton(
-            text="📋 Tafsilotlarni ko'rish",
+            text="📋 Tafsilotlarni ko'rish" if lang == "uz" else "📋 Посмотреть детали",
             callback_data=f"used_mat_details_{application_number}_{request_type}"
         )
     ])
     
     # Back button
     keyboard.append([
-        InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back_to_main")
+        InlineKeyboardButton(text="🔙 Orqaga" if lang == "uz" else "🔙 Назад", callback_data="warehouse_back_to_main")
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -173,7 +178,7 @@ async def prev_used_material(callback: CallbackQuery, state: FSMContext):
         material = materials[0]
         lang = await get_user_language(callback.from_user.id) or "uz"
         text = format_used_material(material, index, total_count, lang)
-        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''))
+        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''), lang)
         
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         await state.update_data(current_index=index)
@@ -194,7 +199,7 @@ async def next_used_material(callback: CallbackQuery, state: FSMContext):
         material = materials[0]
         lang = await get_user_language(callback.from_user.id) or "uz"
         text = format_used_material(material, index, total_count, lang)
-        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''))
+        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''), lang)
         
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         await state.update_data(current_index=index)
@@ -216,7 +221,10 @@ async def show_material_details(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
     
     if not materials:
-        text = "❌ Materiallar topilmadi" if lang == "uz" else "❌ Материалы не найдены"
+        if lang == "ru":
+            text = "❌ Материалы не найдены"
+        else:
+            text = "❌ Materiallar topilmadi"
         await callback.message.edit_text(text)
         return
     
@@ -260,7 +268,7 @@ async def show_material_details(callback: CallbackQuery, state: FSMContext):
     
     # Back button
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="used_mat_back_to_list")]
+        [InlineKeyboardButton(text="🔙 Orqaga" if lang == "uz" else "🔙 Назад", callback_data="used_mat_back_to_list")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -280,7 +288,7 @@ async def back_to_used_materials_list(callback: CallbackQuery, state: FSMContext
         material = materials[0]
         lang = await get_user_language(callback.from_user.id) or "uz"
         text = format_used_material(material, index, total_count, lang)
-        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''))
+        keyboard = get_used_materials_navigation_keyboard(index, total_count, material.get('application_number', ''), material.get('request_type', ''), lang)
         
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -299,9 +307,9 @@ async def back_to_warehouse_main(callback: CallbackQuery, state: FSMContext):
     )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Ulanish arizalari", callback_data="used_mat_type_connection")],
-        [InlineKeyboardButton(text="🔧 Texnik xizmat arizalari", callback_data="used_mat_type_technician")],
-        [InlineKeyboardButton(text="👥 Xodim arizalari", callback_data="used_mat_type_staff")]
+        [InlineKeyboardButton(text="🔗 Ulanish arizalari" if lang == "uz" else "🔗 Заявки на подключение", callback_data="used_mat_type_connection")],
+        [InlineKeyboardButton(text="🔧 Texnik xizmat arizalari" if lang == "uz" else "🔧 Заявки на техническое обслуживание", callback_data="used_mat_type_technician")],
+        [InlineKeyboardButton(text="👥 Xodim arizalari" if lang == "uz" else "👥 Заявки сотрудников", callback_data="used_mat_type_staff")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

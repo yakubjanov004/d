@@ -7,6 +7,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.state import StatesGroup, State
 import html
 import re
+import logging
 
 from filters.role_filter import RoleFilter
 from database.basic.user import get_user_by_telegram_id, find_user_by_phone
@@ -16,6 +17,7 @@ from database.junior_manager.orders import (
 )
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("junior_manager"))
 router.callback_query.filter(RoleFilter("junior_manager"))
 
@@ -26,7 +28,7 @@ class JMClientSearchStates(StatesGroup):
 
 # --- i18n helpers ---
 def _norm_lang(v: str | None) -> str:
-    v = (v or "uz").lower()
+    v = (v or "ru").lower()
     return "ru" if v.startswith("ru") else "uz"
 
 TR = {
@@ -49,7 +51,7 @@ TR = {
     "username": {"uz": "🌐 Username", "ru": "🌐 Username"},
     "region": {"uz": "📍 Region", "ru": "📍 Регион"},
     "address": {"uz": "🏠 Manzil", "ru": "🏠 Адрес"},
-    "abonent": {"uz": "🔑 Abonent ID", "ru": "🔑 Abonent ID"},
+    "abonent": {"uz": "🔑 Abonent ID", "ru": "🔑 ID абонента"},
     "order_stats": {"uz": "📊 Ariza statistikasi:", "ru": "📊 Статистика заявок:"},
     "total_orders": {"uz": "Jami arizalar", "ru": "Всего заявок"},
     "connection_orders": {"uz": "Ulanishlar", "ru": "Подключения"},

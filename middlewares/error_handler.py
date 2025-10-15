@@ -1,7 +1,7 @@
 from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import TelegramObject, Message, CallbackQuery
-from utils.universal_error_logger import log_error
+import logging
 import traceback
 
 class ErrorHandlingMiddleware(BaseMiddleware):
@@ -21,6 +21,9 @@ class ErrorHandlingMiddleware(BaseMiddleware):
             # Asosiy handler'ni chaqirish
             return await handler(event, data)
         except Exception as e:
+            # Logger'ni olish
+            logger = logging.getLogger(__name__)
+            
             # Xatolikni log qilish
             user_id = None
             chat_id = None
@@ -37,15 +40,10 @@ class ErrorHandlingMiddleware(BaseMiddleware):
             else:
                 context = f"Unknown event type: {type(event).__name__}"
             
-            # Xatolikni log qilish
-            log_error(
-                error=e,
-                context=context,
-                user_id=user_id,
-                additional_data={
-                    "event_type": type(event).__name__,
-                    "traceback": traceback.format_exc()
-                }
+            # Xatolikni log qilish - logger.exception() ishlatish
+            logger.exception(
+                f"Handler error - {context} | User: {user_id} | Chat: {chat_id}",
+                exc_info=True
             )
             
             # Foydalanuvchiga xatolik haqida xabar berish
@@ -72,10 +70,9 @@ class ErrorHandlingMiddleware(BaseMiddleware):
                             )
             except Exception as notify_error:
                 # Foydalanuvchiga xabar berishda ham xatolik yuz bersa, uni ham log qilamiz
-                log_error(
-                    error=notify_error,
-                    context="Error while notifying user about error",
-                    user_id=user_id
+                logger.exception(
+                    f"Error while notifying user about error | User: {user_id}",
+                    exc_info=True
                 )
             
             # Xatolikni qayta ko'tarmaslik uchun None qaytaramiz

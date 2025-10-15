@@ -30,7 +30,7 @@ router.callback_query.filter(RoleFilter("junior_manager"))
 # I18N helper
 # =========================
 def _norm_lang(v: str | None) -> str:
-    v = (v or "uz").lower()
+    v = (v or "ru").lower()
     return "ru" if v.startswith("ru") else "uz"
 
 TR = {
@@ -170,6 +170,38 @@ TR = {
         "uz": "✅ Saqlandi.",
         "ru": "✅ Сохранено.",
     },
+    "client_id_label": {
+        "uz": "Mijoz ID",
+        "ru": "ID клиента",
+    },
+    "abonent_id_label": {
+        "uz": "Abonent ID",
+        "ru": "ID абонента",
+    },
+    "order_type_label": {
+        "uz": "Ariza turi",
+        "ru": "Тип заявки",
+    },
+    "business_type_label": {
+        "uz": "Business turi",
+        "ru": "Тип бизнеса",
+    },
+    "status_label": {
+        "uz": "Holat",
+        "ru": "Статус",
+    },
+    "description_label": {
+        "uz": "Tavsif",
+        "ru": "Описание",
+    },
+    "created_label": {
+        "uz": "Yaratilgan",
+        "ru": "Создано",
+    },
+    "updated_label": {
+        "uz": "Yangilangan",
+        "ru": "Обновлено",
+    },
 }
 
 def _t(lang: str, key: str) -> str:
@@ -216,8 +248,8 @@ def _fmt_dt(dt) -> str:
 async def handle_inbox(msg: Message, state: FSMContext):
     user = await get_user_by_telegram_id(msg.from_user.id)
     if not user:
-        # til ma'lum bo'lmagani uchun UZ default
-        return await msg.answer(_t("uz", "user_not_found"))
+        # til ma'lum bo'lmagani uchun RU default
+        return await msg.answer(_t("ru", "user_not_found"))
     lang = _norm_lang(user.get("language"))
 
     if user.get("is_blocked"):
@@ -261,7 +293,7 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     # Get client information - handle staff orders differently
     if is_staff_order:
         # For staff orders, use the actual client information
-        client_name_raw = it.get("client_name") or f"Client ID: {it.get('abonent_id')}"
+        client_name_raw = it.get("client_name") or (_t(lang, "client_id_label") + f": {it.get('abonent_id')}")
         client_phone_raw = it.get("client_phone_number") or it.get("phone")
     else:
         # For connection orders, user_name is the actual client
@@ -324,13 +356,13 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         f"{_t(lang,'card_phone')} {client_phone}\n"
         f"{_t(lang,'card_region')} {region}\n"
         f"{_t(lang,'card_address')} {address}\n"
-        f"🆔 <b>Abonent ID:</b> {order_id_txt}\n"
-        f"📋 <b>Ariza turi:</b> {service_type}\n"
-        f"🏢 <b>Business turi:</b> B2C\n"
-        f"📊 <b>Holat:</b> {it.get('status', 'Noma\'lum')}\n"
-        f"📝 <b>Tavsif:</b> {_esc(it.get('description', '-'))}\n"
-        f"🕒 <b>Yaratilgan:</b> {order_created}\n"
-        f"🔄 <b>Yangilangan:</b> {_fmt_dt(it.get('updated_at'))}\n"
+        f"🆔 <b>{_t(lang,'abonent_id_label')}:</b> {order_id_txt}\n"
+        f"📋 <b>{_t(lang,'order_type_label')}:</b> {service_type}\n"
+        f"🏢 <b>{_t(lang,'business_type_label')}:</b> B2C\n"
+        f"📊 <b>{_t(lang,'status_label')}:</b> {it.get('status', 'Noma\'lum')}\n"
+        f"📝 <b>{_t(lang,'description_label')}:</b> {_esc(it.get('description', '-'))}\n"
+        f"🕒 <b>{_t(lang,'created_label')}:</b> {order_created}\n"
+        f"🔄 <b>{_t(lang,'updated_label')}:</b> {_fmt_dt(it.get('updated_at'))}\n"
         f"{tariff_label} {tariff_or_problem}\n"
         f"{notes_block}\n\n"
         f"{_t(lang,'card_pager').format(idx=idx+1, total=total)}"
@@ -413,7 +445,7 @@ async def jm_contact_client(cb: CallbackQuery, state: FSMContext):
     # Get user language
     jm_user = await get_user_by_telegram_id(cb.from_user.id)
     if not jm_user:
-        return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
+        return await cb.answer(_t("ru", "user_not_found"), show_alert=True)
     lang = _norm_lang(jm_user.get("language"))
     
     # Set state and ask for message
@@ -486,7 +518,7 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
     # JM foydalanuvchi ID sini olamiz
     jm_user = await get_user_by_telegram_id(cb.from_user.id)
     if not jm_user:
-        return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
+        return await cb.answer(_t("ru", "user_not_found"), show_alert=True)
     lang = _norm_lang(jm_user.get("language"))
 
     try:
@@ -633,7 +665,7 @@ async def jm_note_confirm(cb: CallbackQuery, state: FSMContext):
     # JM foydalanuvchini tekshiramiz
     jm_user = await get_user_by_telegram_id(cb.from_user.id)
     if not jm_user:
-        return await cb.answer(_t("uz", "user_not_found"), show_alert=True)
+        return await cb.answer(_t("ru", "user_not_found"), show_alert=True)
 
     ok = await set_jm_notes(order_id=order_id, notes=note)
     if not ok:

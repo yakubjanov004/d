@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from filters.role_filter import RoleFilter
 from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
+import logging
 
 from database.call_center.statistics import (
     get_user_id_by_telegram_id,
@@ -11,6 +12,7 @@ from database.call_center.statistics import (
 )
 from database.basic.language import get_user_language
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("callcenter_operator"))
 router.callback_query.filter(RoleFilter("callcenter_operator"))
 

@@ -5,6 +5,7 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
+import logging
 
 from filters.role_filter import RoleFilter
 from database.manager.orders import fetch_staff_activity
@@ -12,6 +13,7 @@ from database.manager.orders import fetch_staff_activity
 from database.basic.user import get_user_by_telegram_id
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("manager"))
 
 # ---------------- I18N ----------------

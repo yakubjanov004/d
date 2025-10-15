@@ -3,6 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 import html
+import logging
 
 from states.warehouse_states import MaterialRequestsStates
 from filters.role_filter import RoleFilter
@@ -94,15 +95,26 @@ async def material_requests_handler(message: Message, state: FSMContext):
     # Get counts for each material request type
     counts = await get_all_material_requests_count()
     
-    text = (
-        f"📋 <b>Material so'rovlari</b>\n\n"
-        f"O'rnatilgan materiallar bo'yicha ma'lumot:\n\n"
-        f"🔗 <b>Ulanish arizalari materiallari:</b> {counts['connection_orders']}\n"
-        f"🔧 <b>Texnik xizmat materiallari:</b> {counts['technician_orders']}\n"
-        f"👥 <b>Xodim arizalari materiallari:</b> {counts['staff_orders']}\n\n"
-        f"📊 <b>Jami:</b> {counts['total']}\n\n"
-        f"Quyidagi tugmalardan birini tanlang:"
-    )
+    if lang == "ru":
+        text = (
+            f"📋 <b>Запросы материалов</b>\n\n"
+            f"Информация по установленным материалам:\n\n"
+            f"🔗 <b>Материалы заявок на подключение:</b> {counts['connection_orders']}\n"
+            f"🔧 <b>Материалы технического обслуживания:</b> {counts['technician_orders']}\n"
+            f"👥 <b>Материалы заявок сотрудников:</b> {counts['staff_orders']}\n\n"
+            f"📊 <b>Всего:</b> {counts['total']}\n\n"
+            f"Выберите одну из кнопок ниже:"
+        )
+    else:
+        text = (
+            f"📋 <b>Material so'rovlari</b>\n\n"
+            f"O'rnatilgan materiallar bo'yicha ma'lumot:\n\n"
+            f"🔗 <b>Ulanish arizalari materiallari:</b> {counts['connection_orders']}\n"
+            f"🔧 <b>Texnik xizmat materiallari:</b> {counts['technician_orders']}\n"
+            f"👥 <b>Xodim arizalari materiallari:</b> {counts['staff_orders']}\n\n"
+            f"📊 <b>Jami:</b> {counts['total']}\n\n"
+            f"Quyidagi tugmalardan birini tanlang:"
+        )
     
     keyboard = get_warehouse_material_requests_keyboard(lang)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")

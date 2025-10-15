@@ -5,6 +5,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.state import State, StatesGroup
 import asyncpg
 import re
+import logging
 from config import settings
 from typing import Optional
 from filters.role_filter import RoleFilter

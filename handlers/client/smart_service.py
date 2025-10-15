@@ -26,35 +26,33 @@ import logging
 logger = logging.getLogger(__name__)
 router = Router()
 
-# SmartService kategoriya mapping - language-aware
 CATEGORY_MAPPING = {
     "cat_smart_home": {
         "uz": "aqlli_avtomatlashtirilgan_xizmatlar",
-        "ru": "umnye_avtomatizirovannye_uslugi"
+        "ru": "aqlli_avtomatlashtirilgan_xizmatlar"  
     },
     "cat_security": {
         "uz": "xavfsizlik_kuzatuv_tizimlari", 
-        "ru": "sistemy_bezopasnosti_nablyudeniya"
+        "ru": "xavfsizlik_kuzatuv_tizimlari"  
     },
     "cat_internet": {
         "uz": "internet_tarmoq_xizmatlari",
-        "ru": "internet_setevye_uslugi"
+        "ru": "internet_tarmoq_xizmatlari"  
     },
     "cat_energy": {
         "uz": "energiya_yashil_texnologiyalar",
-        "ru": "energiya_zelenye_texnologii"
+        "ru": "energiya_yashil_texnologiyalar" 
     },
     "cat_multimedia": {
         "uz": "multimediya_aloqa_tizimlari",
-        "ru": "multimedia_sistemy_svyazi"
+        "ru": "multimediya_aloqa_tizimlari"  
     },
     "cat_special": {
         "uz": "maxsus_qoshimcha_xizmatlar",
-        "ru": "specialnye_dopolnitelnye_uslugi"
+        "ru": "maxsus_qoshimcha_xizmatlar"  
     },
 }
 
-# ===== Local bilingual label resolvers (mirrors keyboards/client_buttons.py) =====
 def resolve_category_label(category_key: str, lang: str) -> str:
     if lang == "uz":
         labels = {
@@ -190,8 +188,7 @@ def map_category_key_to_db_value(category_key: str, language: str = 'uz') -> str
 
 def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
     """Map service key to database value based on user language"""
-    # Uzbek mappings
-    uz_mapping = {
+    mapping = {
         # Smart Home
         "srv_smart_home_setup": "aqlli_uy_tizimlarini_ornatish_sozlash",
         "srv_smart_lighting": "aqlli_yoritish_smart_lighting_tizimlari",
@@ -202,7 +199,7 @@ def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
         "srv_smart_curtains": "aqlli_pardalari_jaluz_tizimlari",
         "srv_appliance_integration": "aqlli_malahiy_texnika_integratsiyasi",
         # Security
-        "srv_cctv_cameras": "videokuzatuv_kameralari_ornatish_ip_va_analog",
+        "srv_cctv_cameras": "videokuzatuv_kameralarini_ornatish_ip_va_analog",
         "srv_camera_storage": "kamera_arxiv_tizimlari_bulutli_saqlash_xizmatlari",
         "srv_intercom": "domofon_tizimlari_ornatish",
         "srv_security_alarm": "xavfsizlik_signalizatsiyasi_harakat_sensorlarini_ornatish",
@@ -242,64 +239,8 @@ def map_service_key_to_db_value(service_key: str, language: str = 'uz') -> str:
         "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv_tizimlari",
     }
     
-    # Russian mappings
-    ru_mapping = {
-        # Smart Home
-        "srv_smart_home_setup": "ustanovka_nastroyka_sistem_umnogo_doma",
-        "srv_smart_lighting": "umnoe_osveshchenie_smart_lighting_sistemy",
-        "srv_smart_thermostat": "umnyy_termostat_sistemy_klimat_kontrolya",
-        "srv_smart_lock": "smart_lock_internet_upravlyaemyy_zamok_dveri",
-        "srv_smart_outlets": "umnye_rozetki_sistemy_monitoring_energii",
-        "srv_remote_control": "distantsionnoe_upravlenie_domom_ustroystv",
-        "srv_smart_curtains": "umnye_shtory_zhalyuzi_sistemy",
-        "srv_appliance_integration": "integratsiya_umnoy_bytovoy_texniki",
-        # Security
-        "srv_cctv_cameras": "ustanovka_kamer_videonablyudeniya_ip_analog",
-        "srv_camera_storage": "sistemy_arxiva_kamer_oblachnoe_xranenie",
-        "srv_intercom": "ustanovka_sistem_domofona",
-        "srv_security_alarm": "oxrannaya_signalizatsiya_datchiki_dvizheniya",
-        "srv_fire_alarm": "pozharnaya_signalizatsiya_sistemy",
-        "srv_gas_flood_protection": "sistemy_protiv_utechki_gaza_vody_potopa",
-        "srv_face_recognition": "sistemy_raspoznavaniya_lits_face_recognition",
-        "srv_automatic_gates": "avtomaticheskie_sistemy_upravleniya_dver_vorot",
-        # Internet
-        "srv_wifi_setup": "ustanovka_nastroyka_wi_fi_setey",
-        "srv_wifi_extender": "rasshirenie_zony_pokrytiya_wi_fi_access_point",
-        "srv_signal_booster": "usilenie_signala_mobilnoy_svyazi_repeater",
-        "srv_lan_setup": "postroenie_lokalnoy_seti_lan_dlya_ofisa_doma",
-        "srv_internet_provider": "podklyuchenie_uslug_internet_provaydera",
-        "srv_server_nas": "ustanovka_serverov_nas_ustroystv",
-        "srv_cloud_storage": "oblachnye_sistemy_obmena_rezervnogo_kopir",
-        "srv_vpn_setup": "organizatsiya_vpn_bezopasnyx_internet_soedineniy",
-        # Energy
-        "srv_solar_panels": "ustanovka_podklyuchenie_solnechnyx_paneley",
-        "srv_solar_batteries": "nakoplenie_energii_cherez_solnechnye_batarei",
-        "srv_wind_generators": "ustanovka_vetryanyx_generatorov",
-        "srv_energy_saving_lighting": "energosberegayushchie_sistemy_osveshcheniya",
-        "srv_smart_irrigation": "avtomaticheskie_sistemy_poliva_smart_irrigation",
-        # Multimedia
-        "srv_smart_tv": "ustanovka_podklyuchenie_smart_tv",
-        "srv_home_cinema": "ustanovka_sistem_domashnego_kinoteatr",
-        "srv_multiroom_audio": "audio_sistemy_multiroom",
-        "srv_ip_telephony": "organizatsiya_ip_telefonii_mini_ats_sistem",
-        "srv_video_conference": "sistemy_videokonferentsiy",
-        "srv_presentation_systems": "interaktivnye_prezentatsionnye_sistemy_proyektor_led",
-        # Special
-        "srv_smart_office": "ustanovka_sistem_umnogo_ofisa",
-        "srv_data_center": "proektirovanie_montazh_data_tsentr_server_room",
-        "srv_technical_support": "texnicheskoe_obsluzhivanie_ustroystv_sistem",
-        "srv_software_install": "ustanovka_obnovlenie_programmnogo_obespecheniya",
-        "srv_iot_integration": "integratsiya_iot_internet_of_things_ustroystv",
-        "srv_remote_management": "nastroyka_sistem_distantsionnogo_upravleniya_ustroystv",
-        "srv_ai_management": "upravlenie_domom_ofisom_na_osnove_ii",
-    }
-    
-    if language == 'ru':
-        return ru_mapping.get(service_key, service_key)
-    else:
-        return uz_mapping.get(service_key, service_key)
+    return mapping.get(service_key, service_key)
 
-# Service type mapping
 SERVICE_TYPE_MAPPING = {
     # Smart Home Services
     "srv_smart_home_setup": "aqlli_uy_tizimlarini_ornatish_sozlash",
@@ -356,13 +297,11 @@ SERVICE_TYPE_MAPPING = {
     "srv_ai_management": "suniy_intellekt_asosidagi_uy_ofis_boshqaruv_tizimlari"
 }
 
-# SmartService boshlash
 @router.message(F.text.in_(["🛜 Smart Service"]))
 async def start_smart_service(message: Message, state: FSMContext):
     try:
         await state.update_data(telegram_id=message.from_user.id)
         
-        # Foydalanuvchi tilini olish
         user_lang = await get_user_language(message.from_user.id)
         await state.update_data(user_lang=user_lang)
         
@@ -806,7 +745,7 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
                     f"🛜 <b>YANGI SMARTSERVICE ARIZASI</b>\n"
                     f"{'='*30}\n"
                     f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
-                    f"👤 <b>Mijoz:</b> {user.get('full_name', 'Noma\'lum')}\n"
+                    f"👤 <b>Mijoz:</b> {user.get('full_name') or message.from_user.full_name or 'Noma\'lum'}\n"
                     f"📞 <b>Telefon:</b> {user.get('phone', 'Noma\'lum')}\n"
                     f"📂 <b>Kategoriya:</b> {category_name}\n"
                     f"🔧 <b>Xizmat turi:</b> {service_name}\n"

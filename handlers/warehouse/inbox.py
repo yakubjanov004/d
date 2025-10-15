@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 import html
+import logging
 
 from filters.role_filter import RoleFilter
 from database.basic.user import find_user_by_telegram_id
@@ -50,22 +51,34 @@ def esc(v) -> str:
     """Escape HTML and handle None values"""
     return "-" if v is None else html.escape(str(v), quote=False)
 
-def _get_source_indicator(material: dict) -> str:
+def _get_source_indicator(material: dict, lang: str = "uz") -> str:
     """Get source indicator for material display"""
     source_type = material.get('source_type', 'warehouse')
     warehouse_approved = material.get('warehouse_approved', False)
     
     if source_type == 'technician_stock':
-        return "✅ [Texnik o'zida - tasdiqlash shart emas]"
+        if lang == "ru":
+            return "✅ [У техника - подтверждение не требуется]"
+        else:
+            return "✅ [Texnik o'zida - tasdiqlash shart emas]"
     elif source_type == 'warehouse':
         if warehouse_approved:
-            return "✅ [Ombordan - tasdiqlangan]"
+            if lang == "ru":
+                return "✅ [Со склада - подтверждено]"
+            else:
+                return "✅ [Ombordan - tasdiqlangan]"
         else:
-            return "🏢 [Ombordan - tasdiqlash kerak]"
+            if lang == "ru":
+                return "🏢 [Со склада - требует подтверждения]"
+            else:
+                return "🏢 [Ombordan - tasdiqlash kerak]"
     else:
-        return "❓ [Noma'lum manba]"
+        if lang == "ru":
+            return "❓ [Неизвестный источник]"
+        else:
+            return "❓ [Noma'lum manba]"
 
-def format_connection_order(order: dict, index: int, total: int) -> str:
+def format_connection_order(order: dict, index: int, total: int, lang: str = "uz") -> str:
     """Format connection order for display"""
     # Fallbacks for client fields in case LEFT JOIN returns NULL or different key names are used
     client_name_value = (
@@ -79,19 +92,35 @@ def format_connection_order(order: dict, index: int, total: int) -> str:
         or order.get('phone')
         or order.get('client_phone_number')
     )
-    return (
-        f"📦 <b>Ombor - Ulanish arizasi</b>\n\n"
-        f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
-        f"👤 <b>Mijoz:</b> {esc(client_name_value)}\n"
-        f"📞 <b>Telefon:</b> {esc(client_phone_value)}\n"
-        f"📍 <b>Manzil:</b> {esc(order.get('address'))}\n"
-        f"🌍 <b>Hudud:</b> {esc(order.get('region'))}\n"
-        f"📊 <b>Tarif:</b> {esc(order.get('tariff_name'))}\n"
-        f"📋 <b>JM izohi:</b> {esc(order.get('jm_notes'))}\n"
-        f"📅 <b>Yaratilgan:</b> {fmt_dt(order.get('created_at'))}\n"
-        f"🔄 <b>Yangilangan:</b> {fmt_dt(order.get('updated_at'))}\n\n"
-        f"📄 <b>{index + 1}/{total}</b>"
-    )
+    
+    if lang == "ru":
+        return (
+            f"📦 <b>Склад - Заявка на подключение</b>\n\n"
+            f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
+            f"👤 <b>Клиент:</b> {esc(client_name_value)}\n"
+            f"📞 <b>Телефон:</b> {esc(client_phone_value)}\n"
+            f"📍 <b>Адрес:</b> {esc(order.get('address'))}\n"
+            f"🌍 <b>Регион:</b> {esc(order.get('region'))}\n"
+            f"📊 <b>Тариф:</b> {esc(order.get('tariff_name'))}\n"
+            f"📋 <b>Комментарий JM:</b> {esc(order.get('jm_notes'))}\n"
+            f"📅 <b>Создано:</b> {fmt_dt(order.get('created_at'))}\n"
+            f"🔄 <b>Обновлено:</b> {fmt_dt(order.get('updated_at'))}\n\n"
+            f"📄 <b>{index + 1}/{total}</b>"
+        )
+    else:
+        return (
+            f"📦 <b>Ombor - Ulanish arizasi</b>\n\n"
+            f"🆔 <b>ID:</b> {esc(order.get('application_number') or order.get('id'))}\n"
+            f"👤 <b>Mijoz:</b> {esc(client_name_value)}\n"
+            f"📞 <b>Telefon:</b> {esc(client_phone_value)}\n"
+            f"📍 <b>Manzil:</b> {esc(order.get('address'))}\n"
+            f"🌍 <b>Hudud:</b> {esc(order.get('region'))}\n"
+            f"📊 <b>Tarif:</b> {esc(order.get('tariff_name'))}\n"
+            f"📋 <b>JM izohi:</b> {esc(order.get('jm_notes'))}\n"
+            f"📅 <b>Yaratilgan:</b> {fmt_dt(order.get('created_at'))}\n"
+            f"🔄 <b>Yangilangan:</b> {fmt_dt(order.get('updated_at'))}\n\n"
+            f"📄 <b>{index + 1}/{total}</b>"
+        )
 
 def format_technician_order(order: dict, index: int, total: int) -> str:
     """Format technician order for display"""
@@ -164,15 +193,26 @@ async def inbox_handler(message: Message, state: FSMContext):
     # Get counts for each order type
     counts = await get_all_warehouse_orders_count()
     
-    text = (
-        f"📦 <b>Ombor - Inbox</b>\n\n"
-        f"Omborda turgan arizalar:\n\n"
-        f"🔗 <b>Ulanish arizalari:</b> {counts['connection_orders']}\n"
-        f"🔧 <b>Texnik xizmat:</b> {counts['technician_orders']}\n"
-        f"👥 <b>Xodim arizalari:</b> {counts['staff_orders']}\n\n"
-        f"📊 <b>Jami:</b> {counts['total']}\n\n"
-        f"Quyidagi tugmalardan birini tanlang:"
-    )
+    if lang == "ru":
+        text = (
+            f"📦 <b>Склад - Входящие</b>\n\n"
+            f"Заявки на складе:\n\n"
+            f"🔗 <b>Заявки на подключение:</b> {counts['connection_orders']}\n"
+            f"🔧 <b>Техническое обслуживание:</b> {counts['technician_orders']}\n"
+            f"👥 <b>Заявки сотрудников:</b> {counts['staff_orders']}\n\n"
+            f"📊 <b>Всего:</b> {counts['total']}\n\n"
+            f"Выберите одну из кнопок ниже:"
+        )
+    else:
+        text = (
+            f"📦 <b>Ombor - Inbox</b>\n\n"
+            f"Omborda turgan arizalar:\n\n"
+            f"🔗 <b>Ulanish arizalari:</b> {counts['connection_orders']}\n"
+            f"🔧 <b>Texnik xizmat:</b> {counts['technician_orders']}\n"
+            f"👥 <b>Xodim arizalari:</b> {counts['staff_orders']}\n\n"
+            f"📊 <b>Jami:</b> {counts['total']}\n\n"
+            f"Quyidagi tugmalardan birini tanlang:"
+        )
     
     keyboard = get_warehouse_inbox_keyboard(lang)
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -197,8 +237,8 @@ async def show_connection_orders(callback: CallbackQuery, state: FSMContext):
     
     order = orders[0]
     mats = await fetch_materials_for_connection_order(order.get('id'))
-    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
-    text = format_connection_order(order, 0, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
+    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m, lang)}" for m in mats]) if mats else "—"
+    text = format_connection_order(order, 0, total_count, lang) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
     keyboard = get_connection_inbox_controls(0, total_count, order.get('id'))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

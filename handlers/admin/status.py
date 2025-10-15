@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
+import logging
 
 from database.admin.queries import (
     get_system_overview,
@@ -13,6 +14,7 @@ from keyboards.admin_buttons import get_system_status_keyboard
 from database.basic.language import get_user_language
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(F.text.in_( ["🔧 Tizim holati", "🔧 Состояние системы"]))
 async def status_handler(message: Message, state: FSMContext = None):

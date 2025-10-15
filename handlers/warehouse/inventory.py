@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import StatesGroup, State
 from decimal import Decimal, InvalidOperation
+import logging
 
 from filters.role_filter import RoleFilter
 from keyboards.warehouse_buttons import (
@@ -22,6 +23,7 @@ from database.warehouse.materials import (
     get_low_stock_materials,
     get_out_of_stock_materials
 )
+from database.basic.language import get_user_language
 
 router = Router()
 router.message.filter(RoleFilter("warehouse"))
@@ -29,9 +31,10 @@ router.message.filter(RoleFilter("warehouse"))
 class SearchMaterialStates(StatesGroup):
     query = State()
 
-def cancel_kb() -> ReplyKeyboardMarkup:
+def cancel_kb(lang: str = "uz") -> ReplyKeyboardMarkup:
+    cancel_text = "❌ Отмена" if lang == "ru" else "❌ Bekor qilish"
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Bekor qilish")]],
+        keyboard=[[KeyboardButton(text=cancel_text)]],
         resize_keyboard=True
     )
 
@@ -43,104 +46,186 @@ def fmt_sum(val: Decimal | int | float | None) -> str:
 # Inventarizatsiya menyusiga kirish
 @router.message(F.text.in_(["📦 Inventarizatsiya", "📦 Инвентаризация"]))
 async def inventory_handler(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     await state.set_state(WarehouseStates.inventory_menu)
-    await message.answer("📦 Inventarizatsiya boshqaruvi", reply_markup=get_inventory_actions_keyboard("uz"))
+    
+    if lang == "ru":
+        await message.answer("📦 Управление инвентаризацией", reply_markup=get_inventory_actions_keyboard("ru"))
+    else:
+        await message.answer("📦 Inventarizatsiya boshqaruvi", reply_markup=get_inventory_actions_keyboard("uz"))
 
 # Orqaga (faqat inventarizatsiya holatida)
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["◀️ Orqaga", "🔙 Orqaga", "◀️ Назад", "Orqaga"]))
 async def inventory_back(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     await state.clear()
-    await message.answer("⬅️ Asosiy menyu", reply_markup=get_warehouse_main_menu("uz"))
+    
+    if lang == "ru":
+        await message.answer("⬅️ Главное меню", reply_markup=get_warehouse_main_menu("ru"))
+    else:
+        await message.answer("⬅️ Asosiy menyu", reply_markup=get_warehouse_main_menu("uz"))
 
 # ============== ➕ Mahsulot qo'shish oqimi ==============
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["➕ Mahsulot qo'shish", "➕ Добавить товар"]))
 async def inv_add_start(message: Message, state: FSMContext):
-    # Tanlov menyusini ko'rsatish
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🆕 Yangi mahsulot qo'shish")],
-            [KeyboardButton(text="📦 Mavjud mahsulot sonini o'zgartirish")],
-            [KeyboardButton(text="❌ Bekor qilish")]
-        ],
-        resize_keyboard=True
-    )
-    await message.answer(
-        "➕ Mahsulot qo'shish\n\n"
-        "Quyidagilardan birini tanlang:",
-        reply_markup=keyboard
-    )
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if lang == "ru":
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🆕 Добавить новый товар")],
+                [KeyboardButton(text="📦 Изменить количество товара")],
+                [KeyboardButton(text="❌ Отмена")]
+            ],
+            resize_keyboard=True
+        )
+        await message.answer(
+            "➕ Добавление товара\n\n"
+            "Выберите один из вариантов:",
+            reply_markup=keyboard
+        )
+    else:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🆕 Yangi mahsulot qo'shish")],
+                [KeyboardButton(text="📦 Mavjud mahsulot sonini o'zgartirish")],
+                [KeyboardButton(text="❌ Bekor qilish")]
+            ],
+            resize_keyboard=True
+        )
+        await message.answer(
+            "➕ Mahsulot qo'shish\n\n"
+            "Quyidagilardan birini tanlang:",
+            reply_markup=keyboard
+        )
 
 # Yangi mahsulot qo'shish
-@router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["🆕 Yangi mahsulot qo'shish"]))
+@router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["🆕 Yangi mahsulot qo'shish", "🆕 Добавить новый товар"]))
 async def inv_add_new_start(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     await state.set_state(AddMaterialStates.name)
-    await message.answer("🏷️ Mahsulot nomini kiriting:", reply_markup=cancel_kb())
+    
+    if lang == "ru":
+        await message.answer("🏷️ Введите название товара:", reply_markup=cancel_kb("ru"))
+    else:
+        await message.answer("🏷️ Mahsulot nomini kiriting:", reply_markup=cancel_kb())
 
 # Mavjud mahsulot sonini o'zgartirish
-@router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["📦 Mavjud mahsulot sonini o'zgartirish"]))
+@router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["📦 Mavjud mahsulot sonini o'zgartirish", "📦 Изменить количество товара"]))
 async def inv_update_existing_start(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     await state.set_state(UpdateMaterialStates.search)
-    await message.answer("🔎 Miqdorini o'zgartirmoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
+    
+    if lang == "ru":
+        await message.answer("🔎 Введите название товара, количество которого хотите изменить:", reply_markup=cancel_kb("ru"))
+    else:
+        await message.answer("🔎 Miqdorini o'zgartirmoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
 
 @router.message(StateFilter(AddMaterialStates.name))
 async def inv_add_name(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     name = message.text.strip()
     if len(name) < 2:
-        return await message.answer("❗ Nomi juda qisqa. Qaytadan kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Название слишком короткое. Введите заново:")
+        else:
+            return await message.answer("❗ Nomi juda qisqa. Qaytadan kiriting:")
 
     await state.update_data(name=name)
     await state.set_state(AddMaterialStates.quantity)
-    await message.answer("📦 Miqdorni kiriting (butun son):")
+    
+    if lang == "ru":
+        await message.answer("📦 Введите количество (целое число):")
+    else:
+        await message.answer("📦 Miqdorni kiriting (butun son):")
 
 @router.message(StateFilter(AddMaterialStates.quantity))
 async def inv_add_quantity(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     txt = message.text.strip()
-    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    
+    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     if not txt.isdigit():
-        return await message.answer("❗ Faqat butun son kiriting. Qayta kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Введите только целое число. Попробуйте снова:")
+        else:
+            return await message.answer("❗ Faqat butun son kiriting. Qayta kiriting:")
 
     qty = int(txt)
     if qty < 0:
-        return await message.answer("❗ Miqdor manfiy bo‘lishi mumkin emas. Qayta kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Количество не может быть отрицательным. Попробуйте снова:")
+        else:
+            return await message.answer("❗ Miqdor manfiy bo'lishi mumkin emas. Qayta kiriting:")
 
     await state.update_data(quantity=qty)
     await state.set_state(AddMaterialStates.price)
-    await message.answer("💰 Narxni kiriting (so'm) — butun son yoki 100000.00 ko‘rinishida:")
+    
+    if lang == "ru":
+        await message.answer("💰 Введите цену (сум) — целое число или в формате 100000.00:")
+    else:
+        await message.answer("💰 Narxni kiriting (so'm) — butun son yoki 100000.00 ko'rinishida:")
 
 @router.message(StateFilter(AddMaterialStates.price))
 async def inv_add_price(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     txt = message.text.strip()
-    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    
+    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
-    # vergul/bo‘shliqni tozalash
+    # vergul/bo'shliqni tozalash
     norm = txt.replace(" ", "").replace(",", ".")
     try:
         price = Decimal(norm)
         if price < 0:
-            return await message.answer("❗ Narx manfiy bo‘lishi mumkin emas. Qayta kiriting:")
+            if lang == "ru":
+                return await message.answer("❗ Цена не может быть отрицательной. Попробуйте снова:")
+            else:
+                return await message.answer("❗ Narx manfiy bo'lishi mumkin emas. Qayta kiriting:")
     except InvalidOperation:
-        return await message.answer("❗ Noto‘g‘ri format. Masalan: 500000 yoki 500000.00. Qayta kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Неверный формат. Например: 500000 или 500000.00. Попробуйте снова:")
+        else:
+            return await message.answer("❗ Noto'g'ri format. Masalan: 500000 yoki 500000.00. Qayta kiriting:")
 
     await state.update_data(price=price)
     await state.set_state(AddMaterialStates.description)
-    await message.answer("📝 Mahsulot tavsifi kiriting (ixtiyoriy, o‘tkazib yuborish uchun “-” yozing):")
+    
+    if lang == "ru":
+        await message.answer("📝 Введите описание товара (необязательно, для пропуска напишите \"-\"):")
+    else:
+        await message.answer("📝 Mahsulot tavsifi kiriting (ixtiyoriy, o'tkazib yuborish uchun \"-\" yozing):")
 
 @router.message(StateFilter(AddMaterialStates.description))
 async def inv_add_description(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     txt = message.text.strip()
-    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    
+    if txt.lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     description = None if txt in ("-", "") else txt
 
@@ -160,82 +245,136 @@ async def inv_add_description(message: Message, state: FSMContext):
     except Exception as e:
         # DB xatosi
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer(f"❌ Xatolik: ma'lumot bazaga yozilmadi.\nDetails: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer(f"❌ Ошибка: данные не записаны в базу.\nДетали: {e}\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer(f"❌ Xatolik: ma'lumot bazaga yozilmadi.\nDetails: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     # Muvaffaqiyat
     await state.set_state(WarehouseStates.inventory_menu)
-    await message.answer(
-        "✅ Mahsulot muvaffaqiyatli qo‘shildi!\n"
-        f"🏷️ Nom: <b>{created['name']}</b>\n"
-        f"📦 Miqdor: <b>{created['quantity']}</b>\n"
-        f"💰 Narx: <b>{fmt_sum(created['price'])} so'm</b>",
-        parse_mode="HTML",
-    )
-    await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+    if lang == "ru":
+        await message.answer(
+            "✅ Товар успешно добавлен!\n"
+            f"🏷️ Название: <b>{created['name']}</b>\n"
+            f"📦 Количество: <b>{created['quantity']}</b>\n"
+            f"💰 Цена: <b>{fmt_sum(created['price'])} сум</b>",
+            parse_mode="HTML",
+        )
+        await message.answer("📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+    else:
+        await message.answer(
+            "✅ Mahsulot muvaffaqiyatli qo'shildi!\n"
+            f"🏷️ Nom: <b>{created['name']}</b>\n"
+            f"📦 Miqdor: <b>{created['quantity']}</b>\n"
+            f"💰 Narx: <b>{fmt_sum(created['price'])} so'm</b>",
+            parse_mode="HTML",
+        )
+        await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
 # ============== ✏️ Mahsulotni yangilash oqimi ==============
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["✏️ Mahsulotni yangilash", "✏️ Обновить товар"]))
 async def inv_update_start(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     await state.set_state(UpdateMaterialStates.search)
-    await message.answer("🔎 Yangilamoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
+    
+    if lang == "ru":
+        await message.answer("🔎 Введите название товара, который хотите обновить:", reply_markup=cancel_kb("ru"))
+    else:
+        await message.answer("🔎 Yangilamoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
 
 @router.message(StateFilter(UpdateMaterialStates.search))
 async def inv_update_search(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     search_term = message.text.strip()
     if len(search_term) < 2:
-        return await message.answer("❗ Qidiruv so'zi juda qisqa. Qaytadan kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Поисковый запрос слишком короткий. Введите заново:")
+        else:
+            return await message.answer("❗ Qidiruv so'zi juda qisqa. Qaytadan kiriting:")
 
     try:
         materials = await search_materials(search_term)
         if not materials:
-            return await message.answer("❌ Hech qanday mahsulot topilmadi. Boshqa nom bilan qidiring:")
+            if lang == "ru":
+                return await message.answer("❌ Товары не найдены. Попробуйте другой поисковый запрос:")
+            else:
+                return await message.answer("❌ Hech qanday mahsulot topilmadi. Boshqa nom bilan qidiring:")
 
         # Mahsulotlar ro'yxatini ko'rsatish
-        text = "📋 Topilgan mahsulotlar:\n\n"
+        if lang == "ru":
+            text = "📋 Найденные товары:\n\n"
+        else:
+            text = "📋 Topilgan mahsulotlar:\n\n"
+        
         keyboard_buttons = []
         
         for i, material in enumerate(materials[:10], 1):  # faqat 10 tasini ko'rsatamiz
-            text += f"{i}. <b>{material['name']}</b>\n"
-            text += f"   📦 Miqdor: {material['quantity']}\n"
-            text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
+            if lang == "ru":
+                text += f"{i}. <b>{material['name']}</b>\n"
+                text += f"   📦 Количество: {material['quantity']}\n"
+                text += f"   💰 Цена: {fmt_sum(material['price'])} сум\n\n"
+            else:
+                text += f"{i}. <b>{material['name']}</b>\n"
+                text += f"   📦 Miqdor: {material['quantity']}\n"
+                text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
             keyboard_buttons.append([KeyboardButton(text=f"{i}. {material['name']}")])
         
-        keyboard_buttons.append([KeyboardButton(text="❌ Bekor qilish")])
+        cancel_text = "❌ Отмена" if lang == "ru" else "❌ Bekor qilish"
+        keyboard_buttons.append([KeyboardButton(text=cancel_text)])
         keyboard = ReplyKeyboardMarkup(keyboard=keyboard_buttons, resize_keyboard=True)
         
         await state.update_data(materials=materials)
         await state.set_state(UpdateMaterialStates.select)
         await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
-        await message.answer("👆 Yuqoridagi ro'yxatdan kerakli mahsulotni tanlang:")
+        
+        if lang == "ru":
+            await message.answer("👆 Выберите нужный товар из списка выше:")
+        else:
+            await message.answer("👆 Yuqoridagi ro'yxatdan kerakli mahsulotni tanlang:")
         
     except Exception as e:
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer(f"❌ Xatolik: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer(f"❌ Ошибка: {e}\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer(f"❌ Xatolik: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
 # ============== 📄 Barcha mahsulotlar ==============
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["📄 Barcha mahsulotlar", "📄 Все товары"]))
 async def inv_all_materials(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
     try:
         materials = await get_all_materials()
         if not materials:
-            return await message.answer("📄 Hozircha hech qanday mahsulot yo'q.")
+            if lang == "ru":
+                return await message.answer("📄 Пока нет товаров.")
+            else:
+                return await message.answer("📄 Hozircha hech qanday mahsulot yo'q.")
         
         # Paginatsiya uchun ma'lumotlarni saqlash
         await state.update_data(all_materials=materials, current_page=0)
         
         # Birinchi sahifani ko'rsatish
-        await show_materials_page(message, materials, 0, state)
+        await show_materials_page(message, materials, 0, state, lang)
         
     except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
+        if lang == "ru":
+            await message.answer(f"❌ Ошибка: {e}")
+        else:
+            await message.answer(f"❌ Xatolik: {e}")
 
-async def show_materials_page(message: Message, materials: list, page: int, state: FSMContext):
+async def show_materials_page(message: Message, materials: list, page: int, state: FSMContext, lang: str = "uz"):
     """Mahsulotlarni sahifa bo'yicha ko'rsatish"""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
@@ -246,14 +385,24 @@ async def show_materials_page(message: Message, materials: list, page: int, stat
     
     total_pages = (len(materials) + items_per_page - 1) // items_per_page
     
-    text = f"📄 Barcha mahsulotlar (Sahifa {page + 1}/{total_pages}):\n\n"
+    if lang == "ru":
+        text = f"📄 Все товары (Страница {page + 1}/{total_pages}):\n\n"
+    else:
+        text = f"📄 Barcha mahsulotlar (Sahifa {page + 1}/{total_pages}):\n\n"
     
     for i, material in enumerate(page_materials, start=start_idx + 1):
-        text += f"{i}. <b>{material['name']}</b>\n"
-        text += f"   📦 Miqdor: {material['quantity']}\n"
-        text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n"
-        if material.get('description'):
-            text += f"   📝 Tavsif: {material['description']}\n"
+        if lang == "ru":
+            text += f"{i}. <b>{material['name']}</b>\n"
+            text += f"   📦 Количество: {material['quantity']}\n"
+            text += f"   💰 Цена: {fmt_sum(material['price'])} сум\n"
+            if material.get('description'):
+                text += f"   📝 Описание: {material['description']}\n"
+        else:
+            text += f"{i}. <b>{material['name']}</b>\n"
+            text += f"   📦 Miqdor: {material['quantity']}\n"
+            text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n"
+            if material.get('description'):
+                text += f"   📝 Tavsif: {material['description']}\n"
         text += "\n"
     
     # Paginatsiya tugmalari
@@ -261,9 +410,11 @@ async def show_materials_page(message: Message, materials: list, page: int, stat
     
     if len(materials) > items_per_page:
         if page > 0:
-            buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"materials_page_{page-1}"))
+            prev_text = "⬅️ Предыдущая" if lang == "ru" else "⬅️ Oldingi"
+            buttons.append(InlineKeyboardButton(text=prev_text, callback_data=f"materials_page_{page-1}"))
         if page < total_pages - 1:
-            buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"materials_page_{page+1}"))
+            next_text = "Следующая ➡️" if lang == "ru" else "Keyingi ➡️"
+            buttons.append(InlineKeyboardButton(text=next_text, callback_data=f"materials_page_{page+1}"))
     
     keyboard_rows = []
     if buttons:
@@ -293,9 +444,10 @@ async def materials_pagination_handler(callback_query: CallbackQuery, state: FSM
         page = int(callback_query.data.split('_')[-1])
         data = await state.get_data()
         materials = data.get('all_materials', [])
+        lang = await get_user_language(callback_query.from_user.id) or "uz"
         
         await state.update_data(current_page=page)
-        await show_materials_page(callback_query.message, materials, page, state)
+        await show_materials_page(callback_query.message, materials, page, state, lang)
         await callback_query.answer()
         
     except Exception as e:
@@ -305,54 +457,94 @@ async def materials_pagination_handler(callback_query: CallbackQuery, state: FSM
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["🔎 Qidirish", "🔎 Поиск"]))
 async def inv_search_start(message: Message, state: FSMContext):
-    # Alhida state — boshqa tugmalar bilan to‘qnashmaydi
+    lang = await get_user_language(message.from_user.id) or "uz"
+    # Alhida state — boshqa tugmalar bilan to'qnashmaydi
     await state.set_state(SearchMaterialStates.query)
-    await message.answer("🔎 Qidirmoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
+    
+    if lang == "ru":
+        
+        await message.answer("🔎 Введите название товара для поиска:", reply_markup=cancel_kb("ru"))
+    else:
+        await message.answer("🔎 Qidirmoqchi bo'lgan mahsulot nomini kiriting:", reply_markup=cancel_kb())
 
 @router.message(StateFilter(SearchMaterialStates.query))
 async def inv_search_query(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
     text = message.text.strip()
     
     # Agar bekor qilish tugmasi bosilsa
-    if text.lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    if text.lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
     
     if len(text) < 2:
-        return await message.answer("❗ Qidiruv so'zi juda qisqa. Qaytadan kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Поисковый запрос слишком короткий. Введите заново:")
+        else:
+            return await message.answer("❗ Qidiruv so'zi juda qisqa. Qaytadan kiriting:")
     
     try:
         materials = await search_materials(text)
         if not materials:
             # Avvalgi xulq-atvorga mos: menyuga qaytarmaymiz, foydalanuvchi yana yozsin
-            return await message.answer("❌ Hech qanday mahsulot topilmadi. Boshqa nom bilan qidiring:")
+            if lang == "ru":
+                return await message.answer("❌ Товары не найдены. Попробуйте другой поисковый запрос:")
+            else:
+                return await message.answer("❌ Hech qanday mahsulot topilmadi. Boshqa nom bilan qidiring:")
         
-        result_text = f"🔎 '{text}' bo'yicha topilgan mahsulotlar:\n\n"
-        for i, material in enumerate(materials, 1):
-            result_text += f"{i}. <b>{material['name']}</b>\n"
-            result_text += f"   📦 Miqdor: {material['quantity']}\n"
-            result_text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
+        if lang == "ru":
+            result_text = f"🔎 Найденные товары по запросу '{text}':\n\n"
+            for i, material in enumerate(materials, 1):
+                result_text += f"{i}. <b>{material['name']}</b>\n"
+                result_text += f"   📦 Количество: {material['quantity']}\n"
+                result_text += f"   💰 Цена: {fmt_sum(material['price'])} сум\n\n"
+        else:
+            result_text = f"🔎 '{text}' bo'yicha topilgan mahsulotlar:\n\n"
+            for i, material in enumerate(materials, 1):
+                result_text += f"{i}. <b>{material['name']}</b>\n"
+                result_text += f"   📦 Miqdor: {material['quantity']}\n"
+                result_text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
         
         await message.answer(result_text, parse_mode="HTML")
         await state.set_state(WarehouseStates.inventory_menu)
-        await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        
+        if lang == "ru":
+            await message.answer("📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
         
     except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-        await state.set_state(WarehouseStates.inventory_menu)
-        await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            await message.answer(f"❌ Ошибка: {e}")
+            await state.set_state(WarehouseStates.inventory_menu)
+            await message.answer("📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            await message.answer(f"❌ Xatolik: {e}")
+            await state.set_state(WarehouseStates.inventory_menu)
+            await message.answer("📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
 # ============== ⚠️ Kam zaxira ==============
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["⚠️ Kam zaxira", "⚠️ Низкий запас"]))
 async def inv_low_stock(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
     try:
         materials = await get_low_stock_materials(10)  
         
         if not materials:
-            return await message.answer("✅ Barcha mahsulotlar yetarli miqdorda mavjud.")
+            if lang == "ru":
+                return await message.answer("✅ Все товары в достаточном количестве.")
+            else:
+                return await message.answer("✅ Barcha mahsulotlar yetarli miqdorda mavjud.")
         
-        text = "⚠️ <b>Kam zaxirali mahsulotlar (10 dan kam):</b>\n\n"
+        if lang == "ru":
+            text = "⚠️ <b>Товары с низким запасом (менее 10):</b>\n\n"
+        else:
+            text = "⚠️ <b>Kam zaxirali mahsulotlar (10 dan kam):</b>\n\n"
         
         for i, material in enumerate(materials, 1):
             if material['quantity'] == 0:
@@ -364,47 +556,81 @@ async def inv_low_stock(message: Message, state: FSMContext):
             else:
                 status_icon = "⚠️"  # Ogohlantirish
             
-            text += f"{status_icon} <b>{i}. {material['name']}</b>\n"
-            text += f"   📦 Miqdor: <b>{material['quantity']}</b>\n"
-            text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n"
-            
-            if material.get('description'):
-                text += f"   📝 Tavsif: {material['description'][:50]}{'...' if len(material['description']) > 50 else ''}\n"
+            if lang == "ru":
+                text += f"{status_icon} <b>{i}. {material['name']}</b>\n"
+                text += f"   📦 Количество: <b>{material['quantity']}</b>\n"
+                text += f"   💰 Цена: {fmt_sum(material['price'])} сум\n"
+                
+                if material.get('description'):
+                    text += f"   📝 Описание: {material['description'][:50]}{'...' if len(material['description']) > 50 else ''}\n"
+            else:
+                text += f"{status_icon} <b>{i}. {material['name']}</b>\n"
+                text += f"   📦 Miqdor: <b>{material['quantity']}</b>\n"
+                text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n"
+                
+                if material.get('description'):
+                    text += f"   📝 Tavsif: {material['description'][:50]}{'...' if len(material['description']) > 50 else ''}\n"
             
             text += "\n"
         
-        text += f"\n📊 <b>Jami:</b> {len(materials)} ta mahsulot kam zaxiraga ega\n"
-        text += "\n💡 <i>Maslahat: Ushbu mahsulotlarni tezroq to'ldiring!</i>"
+        if lang == "ru":
+            text += f"\n📊 <b>Всего:</b> {len(materials)} товаров с низким запасом\n"
+            text += "\n💡 <i>Совет: Пополните эти товары как можно скорее!</i>"
+        else:
+            text += f"\n📊 <b>Jami:</b> {len(materials)} ta mahsulot kam zaxiraga ega\n"
+            text += "\n💡 <i>Maslahat: Ushbu mahsulotlarni tezroq to'ldiring!</i>"
         
         await message.answer(text, parse_mode="HTML")
         
     except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
+        if lang == "ru":
+            await message.answer(f"❌ Ошибка: {e}")
+        else:
+            await message.answer(f"❌ Xatolik: {e}")
 
 # ============== ❌ Tugagan mahsulotlar ==============
 
 @router.message(StateFilter(WarehouseStates.inventory_menu), F.text.in_(["❌ Tugagan mahsulotlar", "❌ Закончились"]))
 async def inv_out_of_stock(message: Message, state: FSMContext):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
     try:
         materials = await get_out_of_stock_materials()
         if not materials:
-            return await message.answer("✅ Hech qanday mahsulot tugamagan.")
+            if lang == "ru":
+                return await message.answer("✅ Ни один товар не закончился.")
+            else:
+                return await message.answer("✅ Hech qanday mahsulot tugamagan.")
         
-        text = "❌ Tugagan mahsulotlar:\n\n"
-        for i, material in enumerate(materials, 1):
-            text += f"{i}. <b>{material['name']}</b>\n"
-            text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
+        if lang == "ru":
+            text = "❌ Закончившиеся товары:\n\n"
+            for i, material in enumerate(materials, 1):
+                text += f"{i}. <b>{material['name']}</b>\n"
+                text += f"   💰 Цена: {fmt_sum(material['price'])} сум\n\n"
+        else:
+            text = "❌ Tugagan mahsulotlar:\n\n"
+            for i, material in enumerate(materials, 1):
+                text += f"{i}. <b>{material['name']}</b>\n"
+                text += f"   💰 Narx: {fmt_sum(material['price'])} so'm\n\n"
         
         await message.answer(text, parse_mode="HTML")
         
     except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
+        if lang == "ru":
+            await message.answer(f"❌ Ошибка: {e}")
+        else:
+            await message.answer(f"❌ Xatolik: {e}")
 
 @router.message(StateFilter(UpdateMaterialStates.select))
 async def inv_update_select(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     data = await state.get_data()
     materials = data.get('materials', [])
@@ -421,31 +647,54 @@ async def inv_update_select(message: Message, state: FSMContext):
             pass
     
     if not selected_material:
-        return await message.answer("❗ Noto'g'ri tanlov. Ro'yxatdan birini tanlang:")
+        if lang == "ru":
+            return await message.answer("❗ Неверный выбор. Выберите один из списка:")
+        else:
+            return await message.answer("❗ Noto'g'ri tanlov. Ro'yxatdan birini tanlang:")
     
     await state.update_data(selected_material=selected_material)
     await state.set_state(UpdateMaterialStates.quantity)
     
-    await message.answer(
-        f"📦 Tanlangan mahsulot: <b>{selected_material['name']}</b>\n"
-        f"📊 Joriy miqdor: <b>{selected_material['quantity']}</b> dona\n\n"
-        f"➕ Qo'shiladigan miqdorni kiriting (faqat musbat son):",
-        parse_mode="HTML",
-        reply_markup=cancel_kb()
-    )
+    if lang == "ru":
+        await message.answer(
+            f"📦 Выбранный товар: <b>{selected_material['name']}</b>\n"
+            f"📊 Текущее количество: <b>{selected_material['quantity']}</b> шт.\n\n"
+            f"➕ Введите количество для добавления (только положительное число):",
+            parse_mode="HTML",
+            reply_markup=cancel_kb("ru")
+        )
+    else:
+        await message.answer(
+            f"📦 Tanlangan mahsulot: <b>{selected_material['name']}</b>\n"
+            f"📊 Joriy miqdor: <b>{selected_material['quantity']}</b> dona\n\n"
+            f"➕ Qo'shiladigan miqdorni kiriting (faqat musbat son):",
+            parse_mode="HTML",
+            reply_markup=cancel_kb()
+        )
 
 @router.message(StateFilter(UpdateMaterialStates.quantity))
 async def inv_update_quantity(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     try:
         additional_quantity = int(message.text.strip())
         if additional_quantity <= 0:
-            return await message.answer("❗ Faqat musbat son kiriting (0 dan katta):")
+            if lang == "ru":
+                return await message.answer("❗ Введите только положительное число (больше 0):")
+            else:
+                return await message.answer("❗ Faqat musbat son kiriting (0 dan katta):")
     except ValueError:
-        return await message.answer("❗ Noto'g'ri format. Faqat son kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Неверный формат. Введите только число:")
+        else:
+            return await message.answer("❗ Noto'g'ri format. Faqat son kiriting:")
 
     data = await state.get_data()
     selected_material = data['selected_material']
@@ -454,32 +703,58 @@ async def inv_update_quantity(message: Message, state: FSMContext):
         updated_material = await update_material_quantity(selected_material['id'], additional_quantity)
         
         await state.set_state(WarehouseStates.inventory_menu)
-        await message.answer(
-            f"✅ Mahsulot miqdori muvaffaqiyatli yangilandi!\n\n"
-            f"📦 Mahsulot: <b>{selected_material['name']}</b>\n"
-            f"📊 Avvalgi miqdor: <b>{selected_material['quantity']}</b> dona\n"
-            f"➕ Qo'shilgan: <b>{additional_quantity}</b> dona\n"
-            f"📊 Yangi miqdor: <b>{updated_material['quantity']}</b> dona\n\n"
-            f"📦 Inventarizatsiya menyusi:",
-            parse_mode="HTML",
-            reply_markup=get_inventory_actions_keyboard("uz")
-        )
+        if lang == "ru":
+            await message.answer(
+                f"✅ Количество товара успешно обновлено!\n\n"
+                f"📦 Товар: <b>{selected_material['name']}</b>\n"
+                f"📊 Предыдущее количество: <b>{selected_material['quantity']}</b> шт.\n"
+                f"➕ Добавлено: <b>{additional_quantity}</b> шт.\n"
+                f"📊 Новое количество: <b>{updated_material['quantity']}</b> шт.\n\n"
+                f"📦 Меню инвентаризации:",
+                parse_mode="HTML",
+                reply_markup=get_inventory_actions_keyboard("ru")
+            )
+        else:
+            await message.answer(
+                f"✅ Mahsulot miqdori muvaffaqiyatli yangilandi!\n\n"
+                f"📦 Mahsulot: <b>{selected_material['name']}</b>\n"
+                f"📊 Avvalgi miqdor: <b>{selected_material['quantity']}</b> dona\n"
+                f"➕ Qo'shilgan: <b>{additional_quantity}</b> dona\n"
+                f"📊 Yangi miqdor: <b>{updated_material['quantity']}</b> dona\n\n"
+                f"📦 Inventarizatsiya menyusi:",
+                parse_mode="HTML",
+                reply_markup=get_inventory_actions_keyboard("uz")
+            )
     except Exception as e:
         await state.set_state(WarehouseStates.inventory_menu)
-        await message.answer(
-            f"❌ Xatolik yuz berdi: {str(e)}\n\n📦 Inventarizatsiya menyusi:",
-            reply_markup=get_inventory_actions_keyboard("uz")
-        )
+        if lang == "ru":
+            await message.answer(
+                f"❌ Произошла ошибка: {str(e)}\n\n📦 Меню инвентаризации:",
+                reply_markup=get_inventory_actions_keyboard("ru")
+            )
+        else:
+            await message.answer(
+                f"❌ Xatolik yuz berdi: {str(e)}\n\n📦 Inventarizatsiya menyusi:",
+                reply_markup=get_inventory_actions_keyboard("uz")
+            )
 
 @router.message(StateFilter(UpdateMaterialStates.name))
 async def inv_update_name(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     new_name = message.text.strip()
     if len(new_name) < 2:
-        return await message.answer("❗ Mahsulot nomi juda qisqa. Qayta kiriting:")
+        if lang == "ru":
+            return await message.answer("❗ Название товара слишком короткое. Введите заново:")
+        else:
+            return await message.answer("❗ Mahsulot nomi juda qisqa. Qayta kiriting:")
 
     await state.update_data(new_name=new_name)
     await state.set_state(UpdateMaterialStates.description)
@@ -487,22 +762,36 @@ async def inv_update_name(message: Message, state: FSMContext):
     data = await state.get_data()
     selected_material = data['selected_material']
     
-    await message.answer(
-        f"✏️ Yangi nom: <b>{new_name}</b>\n\n"
-        f"📝 Joriy tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
-        f"📝 Yangi tavsif kiriting (yoki 'o\'tkazib yuborish' deb yozing):",
-        parse_mode="HTML",
-        reply_markup=cancel_kb()
-    )
+    if lang == "ru":
+        await message.answer(
+            f"✏️ Новое название: <b>{new_name}</b>\n\n"
+            f"📝 Текущее описание: <b>{selected_material.get('description', 'Описание отсутствует')}</b>\n\n"
+            f"📝 Введите новое описание (или напишите 'пропустить'):",
+            parse_mode="HTML",
+            reply_markup=cancel_kb("ru")
+        )
+    else:
+        await message.answer(
+            f"✏️ Yangi nom: <b>{new_name}</b>\n\n"
+            f"📝 Joriy tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
+            f"📝 Yangi tavsif kiriting (yoki 'o\'tkazib yuborish' deb yozing):",
+            parse_mode="HTML",
+            reply_markup=cancel_kb()
+        )
 
 @router.message(StateFilter(UpdateMaterialStates.description))
 async def inv_update_description(message: Message, state: FSMContext):
-    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel"):
+    lang = await get_user_language(message.from_user.id) or "uz"
+    
+    if message.text.strip().lower() in ("❌ bekor qilish", "bekor", "cancel", "❌ отмена", "отмена"):
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer("❌ Отменено.\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer("❌ Bekor qilindi.\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
 
     new_description = message.text.strip()
-    if new_description.lower() in ("o'tkazib yuborish", "otkazib yuborish", "skip", "-"):
+    if new_description.lower() in ("o'tkazib yuborish", "otkazib yuborish", "skip", "-", "пропустить", "пропустить"):
         new_description = None
 
     data = await state.get_data()
@@ -513,17 +802,32 @@ async def inv_update_description(message: Message, state: FSMContext):
         updated_material = await update_material_name_description(selected_material['id'], new_name, new_description)
         
         await state.set_state(WarehouseStates.inventory_menu)
-        await message.answer(
-            "✅ Mahsulot ma'lumotlari muvaffaqiyatli yangilandi!\n"
-            f"🏷️ Eski nom: <b>{selected_material['name']}</b>\n"
-            f"🏷️ Yangi nom: <b>{updated_material['name']}</b>\n"
-            f"📝 Eski tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n"
-            f"📝 Yangi tavsif: <b>{updated_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
-            "📦 Inventarizatsiya menyusi:",
-            parse_mode="HTML",
-            reply_markup=get_inventory_actions_keyboard("uz")
-        )
+        if lang == "ru":
+            await message.answer(
+                "✅ Информация о товаре успешно обновлена!\n"
+                f"🏷️ Старое название: <b>{selected_material['name']}</b>\n"
+                f"🏷️ Новое название: <b>{updated_material['name']}</b>\n"
+                f"📝 Старое описание: <b>{selected_material.get('description', 'Описание отсутствует')}</b>\n"
+                f"📝 Новое описание: <b>{updated_material.get('description', 'Описание отсутствует')}</b>\n\n"
+                "📦 Меню инвентаризации:",
+                parse_mode="HTML",
+                reply_markup=get_inventory_actions_keyboard("ru")
+            )
+        else:
+            await message.answer(
+                "✅ Mahsulot ma'lumotlari muvaffaqiyatli yangilandi!\n"
+                f"🏷️ Eski nom: <b>{selected_material['name']}</b>\n"
+                f"🏷️ Yangi nom: <b>{updated_material['name']}</b>\n"
+                f"📝 Eski tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n"
+                f"📝 Yangi tavsif: <b>{updated_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
+                "📦 Inventarizatsiya menyusi:",
+                parse_mode="HTML",
+                reply_markup=get_inventory_actions_keyboard("uz")
+            )
         
     except Exception as e:
         await state.set_state(WarehouseStates.inventory_menu)
-        return await message.answer(f"❌ Xatolik: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))
+        if lang == "ru":
+            return await message.answer(f"❌ Ошибка: {e}\n\n📦 Меню инвентаризации:", reply_markup=get_inventory_actions_keyboard("ru"))
+        else:
+            return await message.answer(f"❌ Xatolik: {e}\n\n📦 Inventarizatsiya menyusi:", reply_markup=get_inventory_actions_keyboard("uz"))

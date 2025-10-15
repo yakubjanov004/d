@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+import logging
 
 from database.warehouse.users import get_users_by_role
 from database.technician.materials import fetch_technician_materials
@@ -10,6 +11,7 @@ from keyboards.warehouse_buttons import get_warehouse_main_menu
 from filters.role_filter import RoleFilter
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(RoleFilter("warehouse"), F.text.in_(["📦🔎 Teknikda qolgan mat.", "📦🔎 Остаток мат. у техника"]))
 async def technician_material_balance_menu(message: Message, state: FSMContext):
@@ -20,10 +22,16 @@ async def technician_material_balance_menu(message: Message, state: FSMContext):
     technicians = await get_users_by_role("technician")
     
     if not technicians:
-        await message.answer(
-            ("❌ Hozirda tizimda texnik xodimlar mavjud emas." if lang == "uz" else "❌ В системе сейчас нет технических сотрудников."),
-            reply_markup=get_warehouse_main_menu(lang)
-        )
+        if lang == "ru":
+            await message.answer(
+                "❌ В системе сейчас нет технических сотрудников.",
+                reply_markup=get_warehouse_main_menu("ru")
+            )
+        else:
+            await message.answer(
+                "❌ Hozirda tizimda texnik xodimlar mavjud emas.",
+                reply_markup=get_warehouse_main_menu("uz")
+            )
         return
     
     # State ga barcha texniklarni saqlash

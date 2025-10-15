@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
+import logging
 
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -231,16 +232,28 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
     
     title = {"new": L["new"], "assigned": L["assigned"], "wip": L["wip"], "done": L["done"]}[kind]
     
-    text = f"<b>📋 ARIZA BATAFSIL MA'LUMOTLARI</b>\n"
-    text += f"{'=' * 40}\n\n"
-    text += f"<b>🆔 Ariza ID:</b> {application_number}\n"
-    text += f"<b>{type_icon} Ariza turi:</b> {type_text}\n"
-    text += f"<b>👤 Mijoz:</b> {fio}\n"
-    text += f"<b>📞 Telefon:</b> {phone}\n"
-    text += f"<b>📍 Manzil:</b> {addr}\n"
-    text += f"<b>🌍 Hudud:</b> {region}\n"
-    text += f"<b>💰 Tarif:</b> {tariff_name}\n"
-    text += f"<b>🕐 Yaratilgan:</b> {created_str} UTC+5\n"
+    if lang == "ru":
+        text = f"<b>📋 ПОДРОБНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ</b>\n"
+        text += f"{'=' * 40}\n\n"
+        text += f"<b>🆔 ID заявки:</b> {application_number}\n"
+        text += f"<b>{type_icon} Тип заявки:</b> {'Заявка на подключение' if order_type == 'connection' else 'Заявка сотрудника'}\n"
+        text += f"<b>👤 Клиент:</b> {fio}\n"
+        text += f"<b>📞 Телефон:</b> {phone}\n"
+        text += f"<b>📍 Адрес:</b> {addr}\n"
+        text += f"<b>🌍 Регион:</b> {region}\n"
+        text += f"<b>💰 Тариф:</b> {tariff_name}\n"
+        text += f"<b>🕐 Дата создания:</b> {created_str}\n"
+    else:
+        text = f"<b>📋 ARIZA BATAFSIL MA'LUMOTLARI</b>\n"
+        text += f"{'=' * 40}\n\n"
+        text += f"<b>🆔 Ariza ID:</b> {application_number}\n"
+        text += f"<b>{type_icon} Ariza turi:</b> {'Ulanish arizasi' if order_type == 'connection' else 'Xodim arizasi'}\n"
+        text += f"<b>👤 Mijoz:</b> {fio}\n"
+        text += f"<b>📞 Telefon:</b> {phone}\n"
+        text += f"<b>📍 Manzil:</b> {addr}\n"
+        text += f"<b>🌍 Hudud:</b> {region}\n"
+        text += f"<b>💰 Tarif:</b> {tariff_name}\n"
+        text += f"<b>🕐 Yaratilgan:</b> {created_str}\n"
     
     return text
 
@@ -255,14 +268,14 @@ ENTRY_TEXTS = [
 @router.message(F.text.in_(ENTRY_TEXTS))
 async def jm_orders_menu(msg: Message):
     u = await get_user_by_telegram_id(msg.from_user.id)
-    lang = _norm_lang(u.get("language") if u else "uz")
+    lang = _norm_lang(u.get("language") if u else "ru")
     await msg.answer(_L(lang)["menu_title"], reply_markup=_kb_root(lang))
 
 # ===================== Open list =====================
 @router.callback_query(F.data.startswith("jm_list:"))
 async def jm_open_list(cb: CallbackQuery, state: FSMContext):
     u = await get_user_by_telegram_id(cb.from_user.id)
-    lang = _norm_lang(u.get("language") if u else "uz")
+    lang = _norm_lang(u.get("language") if u else "ru")
 
     kind = cb.data.split(":")[1]  # assigned | wip | done
     tg_id = cb.from_user.id
@@ -291,7 +304,7 @@ async def jm_open_list(cb: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("jm_nav:"))
 async def jm_nav(cb: CallbackQuery, state: FSMContext):
     u = await get_user_by_telegram_id(cb.from_user.id)
-    lang = _norm_lang(u.get("language") if u else "uz")
+    lang = _norm_lang(u.get("language") if u else "ru")
 
     _, kind, direction = cb.data.split(":")
     data = await state.get_data()
@@ -312,7 +325,7 @@ async def jm_nav(cb: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "jm_back")
 async def jm_back(cb: CallbackQuery, state: FSMContext):
     u = await get_user_by_telegram_id(cb.from_user.id)
-    lang = _norm_lang(u.get("language") if u else "uz")
+    lang = _norm_lang(u.get("language") if u else "ru")
 
     await state.clear()
     await _safe_edit(cb, _L(lang)["menu_title"], _kb_root(lang), lang)

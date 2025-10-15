@@ -20,3 +20,4 @@ class staffTechnicianOrderStates(StatesGroup):
 
 class clientSearchStates(StatesGroup):
     waiting_client_phone = State()
+    viewing_history = State()

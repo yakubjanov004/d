@@ -3,8 +3,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from database.basic.language import update_user_language, get_user_language
 from filters.role_filter import RoleFilter
 from keyboards.junior_manager_buttons import get_junior_manager_main_menu
+import logging
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 @router.message(RoleFilter("junior_manager"), F.text.in_(["🌐 Tilni o'zgartirish", "🌐 Изменить язык"]))
 async def language_handler(message: Message):
@@ -28,9 +30,9 @@ async def language_handler(message: Message):
     ])
     
     if current_language == "uz":
-        text = "🌐 Til sozlamalari\n\nKerakli tilni tanlang:\n\n👤 Rol: Kichik Menejer"
+        text = "🌐 Til sozlamalari\n\nKerakli tilni tanlang:"
     else:
-        text = "🌐 Настройки языка\n\nВыберите нужный язык:\n\n👤 Роль: Младший Менеджер"
+        text = "🌐 Настройки языка\n\nВыберите нужный язык:"
     
     await message.answer(text, reply_markup=keyboard)
 
@@ -43,9 +45,9 @@ async def language_callback_handler(callback: CallbackQuery):
     
     if success:
         if language == "uz":
-            text = "✅ Til muvaffaqiyatli o'zgartirildi!\n\n🇺🇿 O'zbek tili tanlandi\n\n👤 Rol: Kichik Menejer"
+            text = "✅ Til muvaffaqiyatli o'zgartirildi!\n\n🇺🇿 O'zbek tili tanlandi"
         else:
-            text = "✅ Язык успешно изменен!\n\n🇷🇺 Выбран русский язык\n\n👤 Роль: Младший Менеджер"
+            text = "✅ Язык успешно изменен!\n\n🇷🇺 Выбран русский язык"
         
         # Avvalgi xabarni o'chirish va yangi tilda menyuni yuborish
         await callback.message.delete()

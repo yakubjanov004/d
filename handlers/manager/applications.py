@@ -5,6 +5,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 import html
+import logging
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, List, Dict, Any
@@ -17,6 +18,7 @@ from database.manager.orders import (
     get_in_progress_count,
     get_completed_today_count,
     get_cancelled_count,
+    get_all_cancelled_count,
     get_new_orders_today_count,
     list_new_orders,
     list_all_in_progress_orders,
@@ -293,7 +295,7 @@ def _item_card(lang: str, item: dict, index: int, total: int) -> str:
     status_txt  = _esc(t_status(lang, status_raw))
     created_at  = _fmt_dt(item.get("created_at"), lang)
     updated_at  = _fmt_dt(item.get("updated_at"), lang)
-    order_source = item.get("order_source", "")
+    order_source = item.get("source_type", item.get("order_source", ""))
     
     # Ariza turini ko'rsatamiz
     order_type = item.get("type_of_zayavka", "")
@@ -340,8 +342,8 @@ async def _load_stats(user_id: int):
     total      = await get_all_total_connection_orders_count()  # Barcha ulanish arizalari
     new_today  = await get_all_new_orders_count()  # Barcha manager'ga kelgan yangi arizalar
     in_prog    = await get_all_in_progress_count()  # Barcha jarayondagi arizalar
-    done_today = await get_completed_today_count(user_id)
-    cancelled  = await get_cancelled_count(user_id)
+    done_today = await get_completed_today_count(user_id)  # Manager yaratgan bugun tugatilganlar
+    cancelled  = await get_all_cancelled_count()  # Barcha bekor qilingan ulanish arizalari
     return total, new_today, in_prog, done_today, cancelled
 
 async def _safe_edit(call: CallbackQuery, lang: str, text: str, kb: InlineKeyboardMarkup):

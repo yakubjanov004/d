@@ -10,6 +10,7 @@ from database.manager.export import (
 from utils.export_utils import ExportUtils
 from utils.universal_error_logger import get_universal_logger, log_error
 from states.manager_states import ManagerExportStates
+from database.basic.language import get_user_language
 import logging
 from filters.role_filter import RoleFilter
 from datetime import datetime
@@ -23,26 +24,40 @@ async def export_handler(message: Message, state: FSMContext):
     """Main export handler - shows export types"""
     try:
         await state.clear()
-        keyboard = get_manager_export_types_keyboard()
+        lang = await get_user_language(message.from_user.id) or "uz"
+        keyboard = get_manager_export_types_keyboard(lang)
+        
+        if lang == "uz":
+            text = "📊 <b>Menejerlar uchun hisobotlar</b>\n\nQuyidagi hisobot turlaridan birini tanlang:"
+        else:
+            text = "📊 <b>Отчеты для менеджеров</b>\n\nВыберите один из типов отчетов:"
+            
         await message.answer(
-            "📊 <b>Menejerlar uchun hisobotlar</b>\n\n"
-            "Quyidagi hisobot turlaridan birini tanlang:",
+            text,
             reply_markup=keyboard,
             parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"Export handler error: {e}")
-        await message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.")
+        lang = await get_user_language(message.from_user.id) or "uz"
+        error_text = "❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте снова."
+        await message.answer(error_text)
 
 @router.callback_query(F.data == "manager_export_orders")
 async def export_orders_handler(callback: CallbackQuery, state: FSMContext):
     """Handle orders export selection"""
     try:
         await state.update_data(export_type="orders")
-        keyboard = get_manager_export_formats_keyboard()
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_manager_export_formats_keyboard(lang)
+        
+        if lang == "uz":
+            text = "📋 <b>Buyurtmalar ro'yxati</b>\n\nExport formatini tanlang:"
+        else:
+            text = "📋 <b>Список заказов</b>\n\nВыберите формат экспорта:"
+            
         await callback.message.edit_text(
-            "📋 <b>Buyurtmalar ro'yxati</b>\n\n"
-            "Export formatini tanlang:",
+            text,
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -56,10 +71,16 @@ async def export_statistics_handler(callback: CallbackQuery, state: FSMContext):
     """Handle statistics export selection"""
     try:
         await state.update_data(export_type="statistics")
-        keyboard = get_manager_export_formats_keyboard()
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_manager_export_formats_keyboard(lang)
+        
+        if lang == "uz":
+            text = "📊 <b>Statistika hisoboti</b>\n\nExport formatini tanlang:"
+        else:
+            text = "📊 <b>Статистический отчет</b>\n\nВыберите формат экспорта:"
+            
         await callback.message.edit_text(
-            "📊 <b>Statistika hisoboti</b>\n\n"
-            "Export formatini tanlang:",
+            text,
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -73,10 +94,16 @@ async def export_employees_handler(callback: CallbackQuery, state: FSMContext):
     """Handle employees export selection"""
     try:
         await state.update_data(export_type="employees")
-        keyboard = get_manager_export_formats_keyboard()
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_manager_export_formats_keyboard(lang)
+        
+        if lang == "uz":
+            text = "👥 <b>Xodimlar ro'yxati</b>\n\nExport formatini tanlang:"
+        else:
+            text = "👥 <b>Список сотрудников</b>\n\nВыберите формат экспорта:"
+            
         await callback.message.edit_text(
-            "👥 <b>Xodimlar ro'yxati</b>\n\n"
-            "Export formatini tanlang:",
+            text,
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -94,20 +121,30 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         format_type = callback.data.split("_")[-1]  # csv, xlsx, docx, pdf
         data = await state.get_data()
         export_type = data.get("export_type", "orders")
+        lang = await get_user_language(callback.from_user.id) or "uz"
         
         # Get data based on export type
         if export_type == "orders":
             raw_data = await get_manager_connection_orders_for_export()
-            title = "Buyurtmalar ro'yxati"
-            filename_base = "buyurtmalar"
-            headers = ["ID", "Buyurtma raqami", "Mijoz ismi", "Telefon", "Mijoz abonent ID", "Hudud", "Manzil", "Uzunlik", "Kenglik", "Tarif", "Tarif rasmi", "Ulanish sanasi", "Yangilangan sana", "Holati", "Reyting", "Izohlar", "JM izohlar", "Menejer", "Menejer telefon", "Akt raqami", "Akt fayl yo'li", "Akt yaratilgan", "Mijozga yuborilgan", "Akt reytingi", "Akt izohi"]
+            if lang == "uz":
+                title = "Buyurtmalar ro'yxati"
+                filename_base = "buyurtmalar"
+                headers = ["ID", "Buyurtma raqami", "Mijoz ismi", "Telefon", "Mijoz abonent ID", "Hudud", "Manzil", "Uzunlik", "Kenglik", "Tarif", "Tarif rasmi", "Ulanish sanasi", "Yangilangan sana", "Holati", "Reyting", "Izohlar", "JM izohlar", "Menejer", "Menejer telefon", "Akt raqami", "Akt fayl yo'li", "Akt yaratilgan", "Mijozga yuborilgan", "Akt reytingi", "Akt izohi"]
+            else:
+                title = "Список заказов"
+                filename_base = "zakazy"
+                headers = ["ID", "Номер заказа", "Имя клиента", "Телефон", "ID клиента", "Регион", "Адрес", "Долгота", "Широта", "Тариф", "Изображение тарифа", "Дата подключения", "Дата обновления", "Статус", "Рейтинг", "Комментарии", "Комментарии JM", "Менеджер", "Телефон менеджера", "Номер акта", "Путь к файлу акта", "Акт создан", "Отправлено клиенту", "Рейтинг акта", "Комментарий акта"]
             
         elif export_type == "statistics":
             stats = await get_manager_statistics_for_export()
-            title = "Statistika hisoboti"
-            filename_base = "statistika"
-
-            headers = ["Ko'rsatkich", "Qiymat"]
+            if lang == "uz":
+                title = "Statistika hisoboti"
+                filename_base = "statistika"
+                headers = ["Ko'rsatkich", "Qiymat"]
+            else:
+                title = "Статистический отчет"
+                filename_base = "statistika"
+                headers = ["Показатель", "Значение"]
             raw_data = []
 
             def add_row_dict(label: str, value: str):
@@ -120,14 +157,24 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                 raw_data.append({headers[0]: "-" * 30, headers[1]: "-" * 30})
 
             # 1) Umumiy statistika
-            add_section("Umumiy statistika")
-            add_row_dict("📊 Jami buyurtmalar:", str(stats['summary']['total_orders']))
-            add_row_dict("🆕 Yangi arizalar:", str(stats['summary']['new_orders']))
-            add_row_dict("🔄 Jarayondagi arizalar:", str(stats['summary']['in_progress_orders']))
-            add_row_dict("✅ Yakunlangan arizalar:", str(stats['summary']['completed_orders']))
-            add_row_dict("📈 Yakunlangan arizalar foizi:", f"{stats['summary']['completion_rate']}%")
-            add_row_dict("👥 Yagona mijozlar:", str(stats['summary']['unique_clients']))
-            add_row_dict("📋 Foydalanilgan tarif rejalari:", str(stats['summary']['unique_tariffs_used']))
+            if lang == "uz":
+                add_section("Umumiy statistika")
+                add_row_dict("📊 Jami buyurtmalar:", str(stats['summary']['total_orders']))
+                add_row_dict("🆕 Yangi arizalar:", str(stats['summary']['new_orders']))
+                add_row_dict("🔄 Jarayondagi arizalar:", str(stats['summary']['in_progress_orders']))
+                add_row_dict("✅ Yakunlangan arizalar:", str(stats['summary']['completed_orders']))
+                add_row_dict("📈 Yakunlangan arizalar foizi:", f"{stats['summary']['completion_rate']}%")
+                add_row_dict("👥 Yagona mijozlar:", str(stats['summary']['unique_clients']))
+                add_row_dict("📋 Foydalanilgan tarif rejalari:", str(stats['summary']['unique_tariffs_used']))
+            else:
+                add_section("Общая статистика")
+                add_row_dict("📊 Всего заказов:", str(stats['summary']['total_orders']))
+                add_row_dict("🆕 Новые заявки:", str(stats['summary']['new_orders']))
+                add_row_dict("🔄 Заявки в процессе:", str(stats['summary']['in_progress_orders']))
+                add_row_dict("✅ Завершенные заявки:", str(stats['summary']['completed_orders']))
+                add_row_dict("📈 Процент завершенных:", f"{stats['summary']['completion_rate']}%")
+                add_row_dict("👥 Уникальные клиенты:", str(stats['summary']['unique_clients']))
+                add_row_dict("📋 Использованные тарифы:", str(stats['summary']['unique_tariffs_used']))
 
             # 2) Menejerlar bo'yicha statistika
             if stats['by_manager']:
@@ -170,12 +217,18 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             
         elif export_type == "employees":
             raw_data = await get_manager_employees_for_export()
-            title = "Xodimlar ro'yxati"
-            filename_base = "xodimlar"
-            headers = ["ID", "Ism-sharif", "Telefon", "Lavozim", "Holati", "Qo'shilgan sana"]
+            if lang == "uz":
+                title = "Xodimlar ro'yxati"
+                filename_base = "xodimlar"
+                headers = ["ID", "Ism-sharif", "Telefon", "Lavozim", "Holati", "Qo'shilgan sana"]
+            else:
+                title = "Список сотрудников"
+                filename_base = "sotrudniki"
+                headers = ["ID", "ФИО", "Телефон", "Должность", "Статус", "Дата добавления"]
         
         else:
-            await callback.message.answer("❌ Noto'g'ri hisobot turi")
+            error_text = "❌ Noto'g'ri hisobot turi" if lang == "uz" else "❌ Неверный тип отчета"
+            await callback.message.answer(error_text)
             return
         
         # Ensure data is in the correct format (list of dicts)
@@ -226,23 +279,27 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                     filename=f"export_{int(datetime.now().timestamp())}.pdf"
                 )
             else:
-                await callback.message.answer("❌ Noto'g'ri format")
+                error_text = "❌ Noto'g'ri format" if lang == "uz" else "❌ Неверный формат"
+                await callback.message.answer(error_text)
                 return
         except Exception as e:
             logger.error(f"Error generating file: {e}")
-            await callback.message.answer("❌ Fayl yaratishda xatolik yuz berdi")
+            error_text = "❌ Fayl yaratishda xatolik yuz berdi" if lang == "uz" else "❌ Ошибка при создании файла"
+            await callback.message.answer(error_text)
             return
         
         # Send the file
         try:
+            caption_text = f"📊 Eksport fayli - {export_type} ({format_type.upper()})" if lang == "uz" else f"📊 Файл экспорта - {export_type} ({format_type.upper()})"
             await callback.message.answer_document(
                 document=file_to_send,
-                caption=f"📊 Eksport fayli - {export_type} ({format_type.upper()})",
+                caption=caption_text,
                 disable_notification=True
             )
         except Exception as e:
             logger.error(f"Error sending file: {e}")
-            await callback.message.answer("❌ Fayl yuborishda xatolik yuz berdi")
+            error_text = "❌ Fayl yuborishda xatolik yuz berdi" if lang == "uz" else "❌ Ошибка при отправке файла"
+            await callback.message.answer(error_text)
             
         # Remove the inline keyboard
         try:

@@ -266,6 +266,22 @@ async def get_cancelled_count(user_id: int) -> int:
     finally:
         await conn.close()
 
+async def get_all_cancelled_count() -> int:
+    """Barcha bekor qilingan ulanish arizalari soni (client va xodim yaratgani)."""
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        total_count = await conn.fetchval(
+            """
+            SELECT 
+                (SELECT COUNT(*) FROM connection_orders WHERE is_active = TRUE AND status = 'cancelled')
+                +
+                (SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE AND status = 'cancelled' AND type_of_zayavka = 'connection')
+            """
+        )
+        return total_count if total_count is not None else 0
+    finally:
+        await conn.close()
+
 async def get_all_new_orders_count() -> int:
     """Barcha manager'ga kelgan yangi arizalar soni (mijozlar va xodimlar ochgani)."""
     conn = await asyncpg.connect(settings.DB_URL)
@@ -305,32 +321,58 @@ async def get_new_orders_today_count(user_id: int) -> int:
 # =========================================================
 
 async def list_new_orders(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
-    """Manager yaratgan yangi arizalar."""
+    """Barcha yangi ulanish arizalari (client va xodim yaratgani)."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Client arizalari va staff arizalarini birlashtiramiz
         rows = await conn.fetch(
             """
-            SELECT
-                so.id,
-                so.application_number,
-                so.address,
-                so.status,
-                so.type_of_zayavka,
-                so.created_at,
-                so.updated_at,
-                u.full_name AS client_name,
-                u.phone AS client_phone,
-                t.name AS tariff
-            FROM staff_orders so
-            LEFT JOIN users u ON u.id = so.abonent_id::bigint
-            LEFT JOIN tarif t ON t.id = so.tarif_id
-            WHERE so.user_id = $1
-              AND COALESCE(so.is_active, TRUE) = TRUE
-              AND so.status = 'in_manager'
-            ORDER BY so.created_at DESC
-            LIMIT $2
+            (
+                -- Client arizalari
+                SELECT
+                    co.id,
+                    co.application_number,
+                    co.address,
+                    co.status::text,
+                    'connection' as type_of_zayavka,
+                    co.created_at,
+                    co.updated_at,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone,
+                    t.name AS tariff,
+                    'client' as source_type
+                FROM connection_orders co
+                LEFT JOIN users u ON u.id = co.user_id
+                LEFT JOIN tarif t ON t.id = co.tarif_id
+                WHERE co.is_active = TRUE 
+                  AND co.status = 'in_manager'
+            )
+            UNION ALL
+            (
+                -- Staff arizalari (xodimlar yaratgani)
+                SELECT
+                    so.id,
+                    so.application_number,
+                    so.address,
+                    so.status::text,
+                    so.type_of_zayavka,
+                    so.created_at,
+                    so.updated_at,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone,
+                    t.name AS tariff,
+                    'staff' as source_type
+                FROM staff_orders so
+                LEFT JOIN users u ON u.id = so.abonent_id::bigint
+                LEFT JOIN tarif t ON t.id = so.tarif_id
+                WHERE so.is_active = TRUE 
+                  AND so.status = 'in_manager'
+                  AND so.type_of_zayavka = 'connection'
+            )
+            ORDER BY created_at DESC
+            LIMIT $1
             """,
-            user_id, limit
+            limit
         )
         return [dict(r) for r in rows]
     finally:

@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
+import logging
 
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +18,7 @@ from database.controller.monitoring import (
 )
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("controller"))
 router.callback_query.filter(RoleFilter("controller"))
 

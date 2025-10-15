@@ -4,12 +4,14 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from zoneinfo import ZoneInfo
 from datetime import timezone, timedelta
+import logging
 
 from filters.role_filter import RoleFilter
 from database.basic.user import get_user_by_telegram_id
 from database.junior_manager.statistics import get_jm_stats_for_telegram
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("junior_manager"))
 router.callback_query.filter(RoleFilter("junior_manager"))
 

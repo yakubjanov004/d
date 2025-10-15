@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
+import logging
 
 from filters.role_filter import RoleFilter
 from database.call_center_supervisor.statistics import (
@@ -12,6 +13,7 @@ from database.call_center_supervisor.statistics import (
 from database.basic.language import get_user_language
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("callcenter_supervisor"))
 router.callback_query.filter(RoleFilter("callcenter_supervisor"))
 

@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
+import logging
 
 from database.basic.user import get_user_by_telegram_id, update_user_full_name
 from database.basic.language import get_user_language
@@ -11,6 +12,7 @@ from keyboards.client_buttons import get_client_main_menu, get_client_profile_re
 from states.client_states import ProfileEditStates
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 # --- HELPERS ---
 def _fmt_dt(value) -> str:

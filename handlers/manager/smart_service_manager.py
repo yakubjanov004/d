@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 import html
+import logging
 
 from database.basic.user import get_user_by_telegram_id
 from database.basic.language import get_user_language
@@ -14,6 +15,7 @@ from filters.role_filter import RoleFilter
 from keyboards.manager_buttons import get_manager_main_menu
 
 router = Router()
+logger = logging.getLogger(__name__)
 router.message.filter(RoleFilter("manager"))
 
 # -----------------------------
