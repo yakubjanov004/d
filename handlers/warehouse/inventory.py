@@ -772,9 +772,10 @@ async def inv_update_name(message: Message, state: FSMContext):
         )
     else:
         skip_text = "o'tkazib yuborish"
+        no_description = "Tavsif yo'q"
         await message.answer(
             f"✏️ Yangi nom: <b>{new_name}</b>\n\n"
-            f"📝 Joriy tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
+            f"📝 Joriy tavsif: <b>{selected_material.get('description', no_description)}</b>\n\n"
             f"📝 Yangi tavsif kiriting (yoki '{skip_text}' deb yozing):",
             parse_mode="HTML",
             reply_markup=cancel_kb()
