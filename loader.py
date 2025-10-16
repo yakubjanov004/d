@@ -15,7 +15,7 @@ import os
 # =========================================================
 
 def setup_logging():
-    """Logging tizimini sozlash - logs/bot.log va logs/error.log"""
+    """Logging tizimini sozlash - logs/bot.log va logs/errors.log"""
     
     # logs papkasini yaratish
     log_dir = "logs"
@@ -52,7 +52,7 @@ def setup_logging():
     bot_console_handler.setFormatter(bot_formatter)
     
     # =========================================================
-    # ERROR.LOG - Barcha xatoliklar (WARNING va ERROR daraja)
+    # ERRORS.LOG - Barcha xatoliklar (WARNING va ERROR daraja)
     # =========================================================
     
     # Error log uchun formatter
@@ -63,7 +63,7 @@ def setup_logging():
     
     # Error log fayl handler (RotatingFileHandler)
     error_file_handler = RotatingFileHandler(
-        os.path.join(log_dir, "error.log"),
+        os.path.join(log_dir, "errors.log"),
         maxBytes=5*1024*1024,  # 5MB
         backupCount=3,
         encoding="utf-8"
@@ -171,7 +171,7 @@ def setup_logging():
     bot_logger = logging.getLogger("AlfaConnectBot")
     bot_logger.info("Logging tizimi muvaffaqiyatli sozlandi!")
     bot_logger.info(f"Bot log: {os.path.join(log_dir, 'bot.log')}")
-    bot_logger.info(f"Error log: {os.path.join(log_dir, 'error.log')}")
+    bot_logger.info(f"Error log: {os.path.join(log_dir, 'errors.log')}")
     
     return bot_logger
 
