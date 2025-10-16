@@ -816,12 +816,13 @@ async def inv_update_description(message: Message, state: FSMContext):
                 reply_markup=get_inventory_actions_keyboard("ru")
             )
         else:
+            no_description = "Tavsif yo'q"
             await message.answer(
                 "✅ Mahsulot ma'lumotlari muvaffaqiyatli yangilandi!\n"
                 f"🏷️ Eski nom: <b>{selected_material['name']}</b>\n"
                 f"🏷️ Yangi nom: <b>{updated_material['name']}</b>\n"
-                f"📝 Eski tavsif: <b>{selected_material.get('description', 'Tavsif yo\'q')}</b>\n"
-                f"📝 Yangi tavsif: <b>{updated_material.get('description', 'Tavsif yo\'q')}</b>\n\n"
+                f"📝 Eski tavsif: <b>{selected_material.get('description', no_description)}</b>\n"
+                f"📝 Yangi tavsif: <b>{updated_material.get('description', no_description)}</b>\n\n"
                 "📦 Inventarizatsiya menyusi:",
                 parse_mode="HTML",
                 reply_markup=get_inventory_actions_keyboard("uz")
