@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     DB_PORT: int
     DB_USER: str
     DB_PASSWORD: str
-    DB_NAME: Optional[str] = "aldb1"
+    DB_NAME: Optional[str] = "alfaconnect_bot"
     ADMINS_ID: int
     MEDIA_ROOT: str = "media"
 
@@ -26,5 +26,5 @@ DB_CONFIG: Dict[str, Any] = {
     'port': settings.DB_PORT,
     'user': settings.DB_USER,
     'password': settings.DB_PASSWORD,
-    'database': settings.DB_NAME or 'aldb1'
+    'database': settings.DB_NAME or 'alfaconnect_bot'
 }

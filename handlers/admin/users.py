@@ -164,9 +164,11 @@ async def process_user_search_for_block(message: Message, state: FSMContext):
     action_emoji = "🔓" if user.get('is_blocked') else "🔒"
     
     user_info = ("👤 <b>Topilgan foydalanuvchi:</b>\n\n" if lang == "uz" else "👤 <b>Найденный пользователь:</b>\n\n")
-    user_info += (f"📝 <b>Ism:</b> {user.get('full_name', 'Noma\'lum')}\n" if lang == "uz" else f"📝 <b>Имя:</b> {user.get('full_name', 'Неизвестно')}\n")
+    unknown_name = "Noma'lum" if lang == "uz" else "Неизвестно"
+    unknown_phone = "Noma'lum" if lang == "uz" else "Неизвестно"
+    user_info += (f"📝 <b>Ism:</b> {user.get('full_name', unknown_name)}\n" if lang == "uz" else f"📝 <b>Имя:</b> {user.get('full_name', unknown_name)}\n")
     user_info += f"🆔 <b>Telegram ID:</b> <code>{user.get('telegram_id')}</code>\n"
-    user_info += (f"📱 <b>Telefon:</b> {user.get('phone', 'Noma\'lum')}\n" if lang == "uz" else f"📱 <b>Телефон:</b> {user.get('phone', 'Неизвестно')}\n")
+    user_info += (f"📱 <b>Telefon:</b> {user.get('phone', unknown_phone)}\n" if lang == "uz" else f"📱 <b>Телефон:</b> {user.get('phone', unknown_phone)}\n")
     if user.get('username'):
         user_info += f"👤 <b>Username:</b> @{user.get('username')}\n"
     user_info += ((f"🎭 <b>Rol:</b> {user.get('role', 'client')}\n") if lang == "uz" else (f"🎭 <b>Роль:</b> {user.get('role', 'client')}\n"))

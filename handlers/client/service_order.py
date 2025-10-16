@@ -74,7 +74,7 @@ async def save_service_media_file(file_id: str, media_type: str, user_id: int, o
                 port=settings.DB_PORT,
                 user=settings.DB_USER,
                 password=settings.DB_PASSWORD,
-                database=settings.DB_NAME or 'aldb1'
+                database=settings.DB_NAME or 'alfaconnect_bot'
             )
 
             try:

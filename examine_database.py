@@ -11,7 +11,7 @@ def connect_to_db():
             port=settings.DB_PORT,
             user=settings.DB_USER,
             password=settings.DB_PASSWORD,
-            database="aldb1" 
+            database="alfaconnect_bot" 
         )
         return conn
     except Exception as e:
