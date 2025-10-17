@@ -696,7 +696,7 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
 async def finish_smart_service_order(message: Message, state: FSMContext):
     try:
         data = await state.get_data()
-        telegram_id = data.get('telegram_id')
+        telegram_id = message.from_user.id
         user_lang = (await state.get_data()).get('user_lang') or await get_user_language(telegram_id)
         
         user_record = await get_user_by_telegram_id(telegram_id)
@@ -765,7 +765,6 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             except Exception as group_error:
                 logger.error(f"Group notification error: {group_error}")
             
-            user_lang = await get_user_language(message.from_user.id)
             if user_lang == "uz":
                 success_text = (
                     f"✅ <b>Smart Service buyurtmasi muvaffaqiyatli yaratildi!</b>\n\n"
@@ -790,7 +789,7 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
                 parse_mode='HTML'
             )
         else:
-            user_lang = await get_user_language(message.from_user.id)
+            # Use the user_lang that was already determined at the beginning of the function
             if user_lang == "uz":
                 error_text = (
                     "❌ Buyurtmani saqlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
@@ -805,7 +804,13 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in finish_smart_service_order: {e}")
-        user_lang = await get_user_language(message.from_user.id)
+        try:
+            data = await state.get_data()
+            telegram_id = data.get('telegram_id')
+            user_lang = data.get('user_lang') or await get_user_language(telegram_id)
+        except:
+            user_lang = "uz" 
+        
         error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
         await state.clear()

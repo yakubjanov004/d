@@ -94,9 +94,28 @@ async def handle_contact_share(message: Message, state: FSMContext):
             )
             return
 
+        # If phone already saved previously, don't overwrite or ask again
+        db_user = await find_user_by_telegram_id(message.from_user.id)
+        existing_phone = db_user.get("phone") if db_user else None
+        if existing_phone:
+            # If full name missing, continue to full name collection; else show menu
+            if not db_user.get("full_name"):
+                await state.set_state(UserRegistration.waiting_for_full_name)
+                lang = await get_user_language(message.from_user.id) or "uz"
+                await message.answer(
+                    "Iltimos, to'liq ism-sharifingizni (FISH) kiriting:" if lang == "uz" else "Пожалуйста, введите ваше полное имя:",
+                    reply_markup=None
+                )
+            else:
+                # Already complete; show menu
+                role = db_user.get("role", "client")
+                await show_main_menu(message, role)
+            return
+
+        # Save phone first time only
         phone = message.contact.phone_number
         await update_user_phone(message.from_user.id, phone)
-        
+
         # After saving phone, ask for full name
         await state.set_state(UserRegistration.waiting_for_full_name)
         lang = await get_user_language(message.from_user.id) or "uz"

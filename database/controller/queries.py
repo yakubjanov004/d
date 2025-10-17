@@ -790,6 +790,79 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
     finally:
         await conn.close()
 
+async def assign_to_ccs_connection(request_id: int, ccs_id: int, actor_id: int) -> Dict[str, Any]:
+    """
+    Connection order ni CCS Supervisorga yuborish.
+    Status: in_controller -> in_call_center_supervisor
+    """
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        # Update connection_orders
+        await conn.execute(
+            """
+            UPDATE connection_orders
+            SET status = 'in_call_center_supervisor',
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            request_id
+        )
+        
+        # Get application info
+        app_info = await conn.fetchrow(
+            """
+            SELECT application_number FROM connection_orders WHERE id = $1
+            """,
+            request_id
+        )
+        
+        # Insert into connections table
+        await conn.execute(
+            """
+            INSERT INTO connections (
+                connection_id, sender_id, recipient_id,
+                sender_status, recipient_status, created_at
+            ) VALUES ($1, $2, $3, 'in_controller', 'in_call_center_supervisor', NOW())
+            """,
+            request_id, actor_id, ccs_id
+        )
+        
+        # Get CCS info and current load
+        ccs_info = await conn.fetchrow(
+            """
+            SELECT u.telegram_id, u.language, u.full_name
+            FROM users u
+            WHERE u.id = $1
+            """,
+            ccs_id
+        )
+        
+        # Calculate current load for CCS (connection orders)
+        load_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM connection_orders co
+            WHERE co.status = 'in_call_center_supervisor'
+              AND co.is_active = TRUE
+              AND EXISTS (
+                  SELECT 1 FROM connections c
+                  WHERE c.connection_id = co.id
+                    AND c.recipient_id = $1
+                    AND c.recipient_status = 'in_call_center_supervisor'
+              )
+            """,
+            ccs_id
+        ) or 0
+        
+        return {
+            "telegram_id": ccs_info["telegram_id"],
+            "language": ccs_info["language"],
+            "application_number": app_info["application_number"],
+            "current_load": load_count
+        }
+    finally:
+        await conn.close()
+
 async def assign_to_ccs_tech(request_id: int, ccs_id: int, actor_id: int) -> Dict[str, Any]:
     """
     Tech service order ni CCS Supervisorga yuborish.
@@ -959,6 +1032,8 @@ async def get_ccs_supervisors_with_load() -> List[Dict[str, Any]]:
                      WHERE c.recipient_id = u.id
                        AND c.recipient_status = 'in_call_center_supervisor'
                        AND (
+                           EXISTS (SELECT 1 FROM connection_orders co WHERE co.id = c.connection_id AND co.status = 'in_call_center_supervisor' AND co.is_active = TRUE)
+                           OR
                            EXISTS (SELECT 1 FROM technician_orders tech_ord WHERE tech_ord.id = c.technician_id AND tech_ord.status = 'in_call_center_supervisor' AND COALESCE(tech_ord.is_active, TRUE) = TRUE)
                            OR
                            EXISTS (SELECT 1 FROM staff_orders so WHERE so.id = c.staff_id AND so.status = 'in_call_center_supervisor' AND COALESCE(so.is_active, TRUE) = TRUE)

@@ -17,6 +17,7 @@ from database.controller.queries import (
     assign_to_technician_staff,
     assign_to_ccs_tech,
     assign_to_ccs_staff,
+    assign_to_ccs_connection,
     get_technicians_with_load_via_history,
     get_ccs_supervisors_with_load,
 )
@@ -408,6 +409,10 @@ async def build_assign_keyboard_tech_only(full_id: str, lang: str) -> InlineKeyb
     """Faqat texniklar ro'yxati (connection uchun)"""
     rows = []
     load_suffix = "ta" if lang == "uz" else ""
+    
+    # CCS ga yuborish tugmasi (1ta CCS)
+    rows.append([InlineKeyboardButton(text="👔 CCS ga yuborish" if lang == "uz" else "👔 Отправить в CCS", 
+                                      callback_data=f"ctrl_inbox_to_ccs_{full_id}")])
     
     technicians = await get_technicians_with_load_via_history()
     if technicians:
@@ -822,8 +827,13 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
         
         if mode == "tech":
             result = await assign_to_ccs_tech(request_id=request_id, ccs_id=ccs_id, actor_id=user["id"])
-        else:  # staff
+        elif mode == "staff":
             result = await assign_to_ccs_staff(request_id=request_id, ccs_id=ccs_id, actor_id=user["id"])
+        elif mode == "connection":
+            result = await assign_to_ccs_connection(request_id=request_id, ccs_id=ccs_id, actor_id=user["id"])
+        else:
+            await cb.answer("❌ Noto'g'ri mode", show_alert=True)
+            return
         
         # Notification yuborish
         if result:

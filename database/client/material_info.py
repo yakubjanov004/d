@@ -22,7 +22,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
         
         user_id = user['id']
         
-        # Union connection_orders va technician_orders with material info
+        # Union all 4 order types: connection, technician, smart service, staff
         orders = await conn.fetch(
             """
             (
@@ -61,7 +61,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                         AND mi.request_type = 'connection'
                     ) as materials_total_cost
                 FROM connection_orders co 
-                WHERE co.user_id = $1
+                WHERE co.user_id = $1 AND co.is_active = TRUE
             )
             UNION ALL
             (
@@ -112,7 +112,81 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                 LEFT JOIN media_files mf ON mf.related_table = 'technician_orders' 
                                         AND mf.related_id = tech_orders.id 
                                         AND mf.is_active = TRUE
-                WHERE tech_orders.user_id = $1
+                WHERE tech_orders.user_id = $1 AND COALESCE(tech_orders.is_active, TRUE) = TRUE
+            )
+            UNION ALL
+            (
+                SELECT 
+                    sso.id,
+                    'smartservice' as order_type,
+                    NULL as region,
+                    sso.address,
+                    'active' as status,
+                    sso.created_at,
+                    sso.updated_at,
+                    NULL as tarif_id,
+                    NULL as abonent_id,
+                    CONCAT(sso.category, ' - ', sso.service_type) as description,
+                    sso.application_number,
+                    NULL as media_file_id,
+                    NULL as media_type,
+                    false as has_materials_used,
+                    0 as materials_count,
+                    0 as materials_total_cost
+                FROM smart_service_orders sso 
+                WHERE sso.user_id = $1 AND sso.is_active = TRUE
+            )
+            UNION ALL
+            (
+                SELECT 
+                    so.id,
+                    'staff' as order_type,
+                    so.region,
+                    so.address,
+                    so.status::text as status,
+                    so.created_at,
+                    so.updated_at,
+                    so.tarif_id,
+                    so.abonent_id,
+                    so.description,
+                    so.application_number,
+                    -- Staff orders can have media too
+                    CASE 
+                        WHEN mf.file_path IS NOT NULL AND mf.file_path != '' THEN mf.file_path
+                        WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN tech_ord.media
+                        ELSE NULL
+                    END as media_file_id,
+                    CASE 
+                        WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
+                        WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN 'photo'
+                        ELSE NULL
+                    END as media_type,
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM material_issued mi 
+                            WHERE mi.application_number = so.application_number 
+                            AND mi.request_type = 'staff'
+                        ) THEN true
+                        ELSE false
+                    END as has_materials_used,
+                    (
+                        SELECT COUNT(*) 
+                        FROM material_issued mi 
+                        WHERE mi.application_number = so.application_number 
+                        AND mi.request_type = 'staff'
+                    ) as materials_count,
+                    (
+                        SELECT SUM(mi.total_price) 
+                        FROM material_issued mi 
+                        WHERE mi.application_number = so.application_number 
+                        AND mi.request_type = 'staff'
+                    ) as materials_total_cost
+                FROM staff_orders so 
+                LEFT JOIN technician_orders tech_ord ON tech_ord.id = so.id AND so.type_of_zayavka = 'technician'
+                LEFT JOIN media_files mf ON mf.related_table = 'technician_orders' 
+                                        AND mf.related_id = tech_ord.id 
+                                        AND mf.is_active = TRUE
+                WHERE so.user_id = $1 AND COALESCE(so.is_active, TRUE) = TRUE
             )
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3

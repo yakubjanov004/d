@@ -4,6 +4,8 @@ import warnings
 import asyncio
 from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp import ClientTimeout, TCPConnector
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import settings
@@ -159,9 +161,13 @@ def setup_logging():
             error_logger = logging.getLogger("asyncio_exception")
             error_logger.warning(f"Asyncio warning: {context.get('message', 'Unknown warning')}")
     
-    # Asyncio exception handler'ni o'rnatish
-    loop = asyncio.get_event_loop()
-    loop.set_exception_handler(handle_asyncio_exception)
+    # Asyncio exception handler'ni o'rnatish (faqat running loop mavjud bo'lsa)
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is not None:
+        running_loop.set_exception_handler(handle_asyncio_exception)
     
     # =========================================================
     # LOGGING SOZLASH TUGADI
@@ -182,24 +188,56 @@ def setup_logging():
 logger = setup_logging()
 
 # =========================================================
-# BOT VA DISPATCHER'NI YARATISH
+# LEGACY IMPORTLAR UCHUN PROXY OBYEKTLAR (bot/dp)
 # =========================================================
 
-bot = Bot(
-    token=settings.BOT_TOKEN, 
-    default=DefaultBotProperties(parse_mode="HTML")
-)
-dp = Dispatcher(storage=MemoryStorage())
+class _LazyProxy:
+    """Run-time da haqiqiy obyektga delegatsiya qiluvchi oddiy proxy.
+
+    loader.bot/dp import qilingan modullarda import paytida mavjud bo'ladi,
+    lekin haqiqiy obyekt create_bot_and_dp() ichida o'rnatilgach ishlaydi.
+    """
+    def __init__(self):
+        self._target = None
+
+    def _set(self, target):
+        self._target = target
+        return target
+
+    def __getattr__(self, name):
+        if self._target is None:
+            raise RuntimeError("Object not initialized yet. Ensure create_bot_and_dp() is called before use.")
+        return getattr(self._target, name)
+
+
+# Global proxy instances (legacy imports: `from loader import bot, dp`)
+bot = _LazyProxy()
+dp = _LazyProxy()
 
 # =========================================================
-# MIDDLEWARE'NI QO'SHISH
+# BOT/DISPATCHER YARATISH UCHUN FABRIKA
 # =========================================================
 
-dp.update.middleware(ErrorHandlingMiddleware(bot=bot))
+async def create_bot_and_dp() -> tuple[Bot, Dispatcher]:
+    """Running event loop ichida Bot va Dispatcher ni yaratadi."""
+    # Use simple integer timeout for aiogram compatibility
+    session = AiohttpSession(timeout=30)
 
-# =========================================================
-# LOGGING TEST
-# =========================================================
+    real_bot = Bot(
+        token=settings.BOT_TOKEN,
+        session=session,
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
+    real_dp = Dispatcher(storage=MemoryStorage())
 
-logger.info("Bot va Dispatcher muvaffaqiyatli yaratildi!")
-logger.info("ErrorHandlingMiddleware qo'shildi!")
+    # Middleware'ni qo'shish
+    real_dp.update.middleware(ErrorHandlingMiddleware(bot=real_bot))
+
+    logger.info("Bot va Dispatcher muvaffaqiyatli yaratildi!")
+    logger.info("ErrorHandlingMiddleware qo'shildi!")
+
+    # Legacy proxy obyektlarni to'ldirish
+    bot._set(real_bot)
+    dp._set(real_dp)
+
+    return real_bot, real_dp

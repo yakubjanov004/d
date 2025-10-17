@@ -1,6 +1,7 @@
 from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import TelegramObject, Message, CallbackQuery
+from aiogram.exceptions import TelegramNetworkError, TelegramBadRequest
 import logging
 import traceback
 
@@ -58,16 +59,36 @@ class ErrorHandlingMiddleware(BaseMiddleware):
                             "Agar muammo davom etsa, administratorga murojaat qiling."
                         )
                     elif isinstance(event, CallbackQuery):
-                        await event.answer(
-                            "❌ Xatolik yuz berdi",
-                            show_alert=True
-                        )
-                        if event.message:
-                            await self.bot.send_message(
-                                chat_id=chat_id,
-                                text="❌ Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring. "
-                                "Agar muammo davom etsa, administratorga murojaat qiling."
+                        # CallbackQuery uchun maxsus xatolik boshqaruvi
+                        try:
+                            await event.answer(
+                                "❌ Xatolik yuz berdi",
+                                show_alert=True
                             )
+                        except (TelegramNetworkError, TelegramBadRequest) as callback_error:
+                            logger.warning(f"Callback answer failed in error handler: {callback_error}")
+                            # Callback answer failed, try to send message instead
+                            if event.message:
+                                await self.bot.send_message(
+                                    chat_id=chat_id,
+                                    text="❌ Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring. "
+                                    "Agar muammo davom etsa, administratorga murojaat qiling."
+                                )
+                        except Exception as callback_error:
+                            logger.error(f"Unexpected error in callback answer: {callback_error}")
+                            # If callback answer fails completely, try to send message
+                            if event.message:
+                                await self.bot.send_message(
+                                    chat_id=chat_id,
+                                    text="❌ Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring. "
+                                    "Agar muammo davom etsa, administratorga murojaat qiling."
+                                )
+            except TelegramNetworkError as notify_error:
+                # Network xatoliklari uchun maxsus log
+                logger.warning(f"Network error while notifying user about error | User: {user_id} | Error: {notify_error}")
+            except TelegramBadRequest as notify_error:
+                # Bad request xatoliklari uchun maxsus log
+                logger.warning(f"Bad request error while notifying user about error | User: {user_id} | Error: {notify_error}")
             except Exception as notify_error:
                 # Foydalanuvchiga xabar berishda ham xatolik yuz bersa, uni ham log qilamiz
                 logger.exception(

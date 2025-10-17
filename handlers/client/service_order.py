@@ -176,7 +176,7 @@ async def start_service_order(message: Message, state: FSMContext):
         await message.answer(error_text)
 
 # ---------- Contact qabul qilish ----------
-@router.message(F.contact)
+@router.message(StateFilter(ServiceOrderStates.waiting_for_contact), F.contact)
 async def handle_contact_for_service_order(message: Message, state: FSMContext):
     try:
         if not message.contact:
@@ -470,7 +470,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
         region = data.get('selected_region') or data.get('region')
         region_db_value = (region or '').lower()
 
-        user_record = await get_user_by_telegram_id(data['telegram_id'])
+        user_record = await get_user_by_telegram_id(message.from_user.id)
         user = dict(user_record) if user_record is not None else {}
 
         if geo:
@@ -494,7 +494,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
             business_type
         )
         
-        # Application number ni olish
+        # Application number ni olish va connection record qo'shish
         conn = await asyncpg.connect(settings.DB_URL)
         try:
             app_number_result = await conn.fetchrow(
@@ -502,6 +502,23 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                 request_id
             )
             application_number = app_number_result['application_number'] if app_number_result else f"TECH-{business_type}-{request_id:04d}"
+            
+            # Add connection record for workflow history (client -> manager)
+            await conn.execute(
+                """
+                INSERT INTO connections (
+                    technician_id,
+                    sender_id,
+                    recipient_id,
+                    sender_status,
+                    recipient_status,
+                    created_at,
+                    updated_at
+                )
+                VALUES ($1, $2, $3, 'client_created', 'in_manager', NOW(), NOW())
+                """,
+                request_id, user.get('id'), user.get('id')  # sender: client, recipient: manager (same user for now)
+            )
         finally:
             await conn.close()
 

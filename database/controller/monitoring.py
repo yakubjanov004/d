@@ -154,12 +154,11 @@ async def get_controller_workflow_history(order_id: int) -> Dict[str, Any]:
         if not order_info:
             return {}
         
-        # Workflow history olamiz
+        # Workflow history olamiz - barcha order turlarini qo'llab-quvvatlaydi
         workflow = await conn.fetch(
             """
             SELECT 
                 c.id,
-                c.staff_id,
                 c.sender_id,
                 c.recipient_id,
                 c.sender_status,
@@ -168,11 +167,17 @@ async def get_controller_workflow_history(order_id: int) -> Dict[str, Any]:
                 sender.full_name as sender_name,
                 sender.role as sender_role,
                 recipient.full_name as recipient_name,
-                recipient.role as recipient_role
+                recipient.role as recipient_role,
+                CASE 
+                    WHEN c.connection_id IS NOT NULL THEN 'connection'
+                    WHEN c.technician_id IS NOT NULL THEN 'technician'
+                    WHEN c.staff_id IS NOT NULL THEN 'staff'
+                    ELSE 'unknown'
+                END AS order_type
             FROM connections c
             LEFT JOIN users sender ON sender.id = c.sender_id
             LEFT JOIN users recipient ON recipient.id = c.recipient_id
-            WHERE c.staff_id = $1
+            WHERE (c.connection_id = $1 OR c.technician_id = $1 OR c.staff_id = $1)
             ORDER BY c.created_at ASC
             """,
             order_id

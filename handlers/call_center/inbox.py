@@ -224,7 +224,7 @@ async def inbox_prev(cq: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     orders: List[Dict[str, Any]] = data["orders"]
     index: int = data["index"]
-    lang: str = data["lang"]
+    lang: str = data.get("lang", "uz")
 
     if index > 0:
         index -= 1
@@ -250,7 +250,7 @@ async def inbox_next(cq: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     orders: List[Dict[str, Any]] = data["orders"]
     index: int = data["index"]
-    lang: str = data["lang"]
+    lang: str = data.get("lang", "uz")
 
     if index < len(orders) - 1:
         index += 1
@@ -329,9 +329,9 @@ async def inbox_send_control(cq: CallbackQuery, state: FSMContext):
     """Arizani controllerga yuborish"""
     order_id = int(cq.data.split(":")[1])
     data = await state.get_data()
-    lang: str = data["lang"]
-    orders = data["orders"]
-    index = data["index"]
+    lang: str = data.get("lang", "uz")
+    orders = data.get("orders", [])
+    index = data.get("index", 0)
 
     # Operatorning DB-dagi ID sini topamiz
     operator_db_id = await get_user_id_by_telegram_id(cq.from_user.id)
@@ -430,9 +430,9 @@ async def inbox_close(cq: CallbackQuery, state: FSMContext):
     """Arizani yopish"""
     order_id = int(cq.data.split(":")[1])
     data = await state.get_data()
-    lang: str = data["lang"]
-    orders = data["orders"]
-    index = data["index"]
+    lang: str = data.get("lang", "uz")
+    orders = data.get("orders", [])
+    index = data.get("index", 0)
 
     # Operator users.id
     operator_db_id = await get_user_id_by_telegram_id(cq.from_user.id)

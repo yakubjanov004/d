@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 import logging
@@ -104,7 +104,6 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
 
     order = orders[idx]
     otype = (order.get('order_type') or '').lower()
-    is_conn = otype in ('connection', 'connection_request')
     
     # Application number ni olish
     application_number = order.get('application_number') or f"#{order['id']}"
@@ -113,15 +112,31 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
     media_file_id = order.get('media_file_id')
     media_type = order.get('media_type')
 
+    # Order type text based on order_type
     if user_lang == "ru":
-        order_type_text = "🔗 Подключение" if is_conn else "🔧 Техническая заявка"
+        if otype == 'connection':
+            order_type_text = "🔗 Подключение"
+        elif otype == 'technician':
+            order_type_text = "🔧 Техническая заявка"
+        elif otype == 'smartservice':
+            order_type_text = "🤖 Умные услуги"
+        elif otype == 'staff':
+            order_type_text = "👥 Заявка сотрудника"
+        else:
+            order_type_text = "📋 Заявка"
+            
         text = (
             f"📋 <b>Мои заявки</b>\n\n"
             f"<b>Заявка {application_number}</b>\n"
             f"📝 Тип: {order_type_text}\n"
-            f"📍 Регион: {get_region_display_name(order.get('region', '-'))}\n"
-            f"🏠 Адрес: {order.get('address','-')}\n"
         )
+        
+        # Region only for connection and staff orders
+        if otype in ('connection', 'staff') and order.get('region'):
+            text += f"📍 Регион: {get_region_display_name(order.get('region', '-'))}\n"
+            
+        text += f"🏠 Адрес: {order.get('address','-')}\n"
+        
         if order.get('abonent_id'):
             text += f"🆔 ID абонента: {order['abonent_id']}\n"
         if order.get('description'):
@@ -140,14 +155,30 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
         
         text += f"\n🗂️ <i>Заявка {idx + 1} / {len(orders)}</i>"
     else:
-        order_type_text = "🔗 Ulanish" if is_conn else "🔧 Texnik ariza"
+        # Uzbek order type text
+        if otype == 'connection':
+            order_type_text = "🔗 Ulanish"
+        elif otype == 'technician':
+            order_type_text = "🔧 Texnik ariza"
+        elif otype == 'smartservice':
+            order_type_text = "🤖 Smart xizmat"
+        elif otype == 'staff':
+            order_type_text = "👥 Xodim arizasi"
+        else:
+            order_type_text = "📋 Ariza"
+            
         text = (
             f"📋 <b>Mening arizalarim</b>\n\n"
             f"<b>Ariza {application_number}</b>\n"
             f"📝 Turi: {order_type_text}\n"
-            f"📍 Hudud: {get_region_display_name(order.get('region', '-'))}\n"
-            f"🏠 Manzil: {order.get('address','-')}\n"
         )
+        
+        # Region only for connection and staff orders
+        if otype in ('connection', 'staff') and order.get('region'):
+            text += f"📍 Hudud: {get_region_display_name(order.get('region', '-'))}\n"
+            
+        text += f"🏠 Manzil: {order.get('address','-')}\n"
+        
         if order.get('abonent_id'):
             text += f"🆔 Abonent ID: {order['abonent_id']}\n"
         if order.get('description'):
@@ -210,6 +241,11 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
             return 'photo'
         elif file_id.startswith('CAAQAgI'):  # Photo
             return 'photo'
+        # Check for file extensions in local files
+        elif file_id.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+            return 'video'
+        elif file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+            return 'photo'
         else:
             return None
 
@@ -223,68 +259,76 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
     else:
         # Message uchun - media bilan yuborish
         if media_file_id:
-            # Detect actual media type from file ID if database type is wrong
-            actual_media_type = detect_media_type_from_file_id(media_file_id)
-            effective_media_type = actual_media_type or media_type
+            # Check if media_file_id is a local file path or Telegram file ID
+            is_local_path = media_file_id.startswith(('media/', './', '/', 'C:', 'D:')) or '\\' in media_file_id
             
-            print(f"Media file_id: {media_file_id}, db_type: {media_type}, detected_type: {actual_media_type}, effective_type: {effective_media_type}")
-            
-            try:
-                if effective_media_type == 'video':
-                    try:
-                        await target.answer_video(
-                            video=media_file_id,
-                            caption=text,
-                            parse_mode='HTML',
-                            reply_markup=reply_markup
-                        )
-                    except Exception as e:
-                        print(f"Video send failed, retrying as photo: {e}")
-                        try:
-                            await target.answer_photo(
-                                photo=media_file_id,
-                                caption=text,
-                                parse_mode='HTML',
-                                reply_markup=reply_markup
-                            )
-                        except Exception as e2:
-                            print(f"Photo send also failed: {e2}")
-                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
-                elif effective_media_type == 'photo':
-                    try:
-                        await target.answer_photo(
-                            photo=media_file_id,
-                            caption=text,
-                            parse_mode='HTML',
-                            reply_markup=reply_markup
-                        )
-                    except Exception as e:
-                        print(f"Photo send failed: {e}")
-                        await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
-                else:
-                    # Aniq turi noma'lum bo'lsa, video sifatida sinab ko'ramiz
-                    try:
-                        await target.answer_video(
-                            video=media_file_id,
-                            caption=text,
-                            parse_mode='HTML',
-                            reply_markup=reply_markup
-                        )
-                    except Exception as e:
-                        print(f"Video send failed, retrying as photo: {e}")
-                        try:
-                            await target.answer_photo(
-                                photo=media_file_id,
-                                caption=text,
-                                parse_mode='HTML',
-                                reply_markup=reply_markup
-                            )
-                        except Exception as e2:
-                            print(f"Photo send also failed: {e2}")
-                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
-            except Exception as e:
-                print(f"All media attempts failed: {e}")
+            if is_local_path:
+                # Local file path - can't send directly, just show text
+                print(f"Local file path detected, skipping media send: {media_file_id}")
                 await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+            else:
+                # Telegram file ID - try to send media
+                actual_media_type = detect_media_type_from_file_id(media_file_id)
+                effective_media_type = actual_media_type or media_type
+
+                print(f"Media file_id: {media_file_id}, db_type: {media_type}, detected_type: {actual_media_type}, effective_type: {effective_media_type}")
+
+                try:
+                    if effective_media_type == 'video':
+                        try:
+                            await target.answer_video(
+                                video=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e:
+                            print(f"Video send failed, retrying as photo: {e}")
+                            try:
+                                await target.answer_photo(
+                                    photo=media_file_id,
+                                    caption=text,
+                                    parse_mode='HTML',
+                                    reply_markup=reply_markup
+                                )
+                            except Exception as e2:
+                                print(f"Photo send also failed: {e2}")
+                                await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                    elif effective_media_type == 'photo':
+                        try:
+                            await target.answer_photo(
+                                photo=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e:
+                            print(f"Photo send failed: {e}")
+                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                    else:
+                        # Aniq turi noma'lum bo'lsa, video sifatida sinab ko'ramiz
+                        try:
+                            await target.answer_video(
+                                video=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=reply_markup
+                            )
+                        except Exception as e:
+                            print(f"Video send failed, retrying as photo: {e}")
+                            try:
+                                await target.answer_photo(
+                                    photo=media_file_id,
+                                    caption=text,
+                                    parse_mode='HTML',
+                                    reply_markup=reply_markup
+                                )
+                            except Exception as e2:
+                                print(f"Photo send also failed: {e2}")
+                                await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                except Exception as e:
+                    print(f"All media attempts failed: {e}")
+                    await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
         else:
             await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
 
@@ -419,7 +463,7 @@ async def edit_name_handler(message: Message, state: FSMContext):
 
     if not user_info:
         text = "❌ Foydalanuvchi topilmadi." if user_lang == "uz" else "❌ Пользователь не найден."
-        await message.answer(text, parse_mode="HTML")
+        await message.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
         return
 
     current_name = user_info.get('full_name', '—')
@@ -437,31 +481,51 @@ async def edit_name_handler(message: Message, state: FSMContext):
         )
 
     await state.set_state(ProfileEditStates.waiting_for_new_name)
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(ProfileEditStates.waiting_for_new_name)
 async def process_new_name(message: Message, state: FSMContext):
     user_lang = await get_user_language(message.from_user.id)
-    new_name = message.text.strip()
+    full_name = message.text.strip()
 
-    if len(new_name) < 3:
-        text = "❌ Ism kamida 3 ta belgidan iborat bo‘lishi kerak." if user_lang == "uz" else "❌ Имя должно содержать минимум 3 символа."
-        await message.answer(text, parse_mode="HTML")
+    # Same validation as in /start command
+    if len(full_name) < 3:  # Kamida 3 ta belgi
+        await message.answer(
+            "Iltimos, to'g'ri ism-sharif kiriting (kamida 3 ta belgi)." if user_lang == "uz" else "Пожалуйста, введите корректное имя (минимум 3 символа).",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+    
+    # Ism-sharifda kamida 2 ta so'z bo'lishi kerak (ism va familiya)
+    words = full_name.split()
+    if len(words) < 2:
+        await message.answer(
+            "Iltimos, to'liq ism-sharif kiriting (ism va familiya). Masalan: 'Akmal Karimov'" if user_lang == "uz" else "Пожалуйста, введите полное имя (имя и фамилию). Например: 'Акмал Каримов'",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+    
+    # Har bir so'z kamida 2 ta harfdan iborat bo'lishi kerak
+    if any(len(word) < 2 for word in words):
+        await message.answer(
+            "Iltimos, har bir so'z kamida 2 ta harfdan iborat bo'lsin." if user_lang == "uz" else "Пожалуйста, каждое слово должно содержать минимум 2 буквы.",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return
 
     try:
-        await update_user_full_name(message.from_user.id, new_name)
+        await update_user_full_name(message.from_user.id, full_name)
         await state.clear()
         text = (
-            f"✅ <b>Ism muvaffaqiyatli o‘zgartirildi!</b>\n\n👤 Yangi ism: <b>{new_name}</b>"
+            f"✅ <b>Ism muvaffaqiyatli o'zgartirildi!</b>\n\n👤 Yangi ism: <b>{full_name}</b>"
             if user_lang == "uz" else
-            f"✅ <b>Имя успешно изменено!</b>\n\n👤 Новое имя: <b>{new_name}</b>"
+            f"✅ <b>Имя успешно изменено!</b>\n\n👤 Новое имя: <b>{full_name}</b>"
         )
         await message.answer(text, parse_mode="HTML", reply_markup=get_client_profile_reply_keyboard(user_lang))
     except Exception:
-        text = "❌ Xatolik yuz berdi, keyinroq urinib ko‘ring." if user_lang == "uz" else "❌ Ошибка при сохранении имени."
-        await message.answer(text, parse_mode="HTML")
+        text = "❌ Xatolik yuz berdi, keyinroq urinib ko'ring." if user_lang == "uz" else "❌ Ошибка при сохранении имени."
+        await message.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
         await state.clear()
 
 

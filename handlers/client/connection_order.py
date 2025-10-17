@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+import asyncio
 import asyncpg
 from aiogram import F, Router
 from aiogram.types import (
@@ -8,6 +9,7 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
+from aiogram.exceptions import TelegramNetworkError, TelegramBadRequest
 
 from keyboards.client_buttons import (
     get_client_main_menu,
@@ -152,20 +154,46 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
 
 @router.callback_query(F.data.in_(["tariff_xammasi_birga_4", "tariff_xammasi_birga_3_plus", "tariff_xammasi_birga_3", "tariff_xammasi_birga_2"]))
 async def select_tariff_client(callback: CallbackQuery, state: FSMContext):
+    lang = "uz"  # Default language
     try:
         lang = (await state.get_data()).get("lang", "uz")
-        await callback.answer()
-        await callback.message.edit_reply_markup(reply_markup=None)
+        
+        # Try to answer callback first with timeout handling
+        try:
+            await callback.answer()
+        except (TelegramNetworkError, TelegramBadRequest, asyncio.TimeoutError) as e:
+            logger.warning(f"Callback answer failed in select_tariff_client: {e}")
+            # Continue execution even if callback answer fails
+        
+        # Try to edit reply markup with timeout handling
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except (TelegramNetworkError, TelegramBadRequest, asyncio.TimeoutError) as e:
+            logger.warning(f"Edit reply markup failed in select_tariff_client: {e}")
+            # Continue execution even if edit fails
 
         tariff_code = callback.data
         await state.update_data(selected_tariff=tariff_code)
 
-        await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
+        # Send new message instead of trying to edit old one
+        try:
+            await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
+        except (TelegramNetworkError, TelegramBadRequest, asyncio.TimeoutError) as e:
+            logger.error(f"Failed to send address request message: {e}")
+            return
+            
         await state.set_state(ConnectionOrderStates.entering_address)
 
+    except (TelegramNetworkError, TelegramBadRequest, asyncio.TimeoutError) as e:
+        logger.error(f"Network/timeout error in select_tariff_client: {e}")
+        # Don't try to answer callback on network/timeout errors
     except Exception as e:
-        logger.error(f"Error in select_tariff_client: {e}")
-        await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
+        logger.error(f"Unexpected error in select_tariff_client: {e}")
+        try:
+            await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
+        except Exception:
+            # If even error callback fails, just log it
+            logger.error("Failed to send error message to user")
 
 @router.message(StateFilter(ConnectionOrderStates.entering_address))
 async def get_connection_address_client(message: Message, state: FSMContext):
@@ -303,7 +331,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             business_type=business_type
         )
 
-        # Get the full application number from the database first
+        # Get the full application number from the database and add connection record for workflow history
         conn = await asyncpg.connect(settings.DB_URL)
         try:
             # Fetch the application number using the request_id
@@ -312,8 +340,25 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                 request_id
             )
             app_number = result['application_number'] if result else f"CONN-{request_id:04d}"
+            
+            # Add connection record for workflow history (client -> manager)
+            await conn.execute(
+                """
+                INSERT INTO connections (
+                    connection_id,
+                    sender_id,
+                    recipient_id,
+                    sender_status,
+                    recipient_status,
+                    created_at,
+                    updated_at
+                )
+                VALUES ($1, $2, $3, 'client_created', 'in_manager', NOW(), NOW())
+                """,
+                request_id, user_id, user_id  # sender: client, recipient: manager (same user for now)
+            )
         except Exception as e:
-            logger.error(f"Error fetching application number: {e}")
+            logger.error(f"Error fetching application number or creating connection record: {e}")
             app_number = f"CONN-{request_id:04d}"
         finally:
             await conn.close()

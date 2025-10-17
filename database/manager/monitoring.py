@@ -115,30 +115,32 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     - sender_id/recipient_id -> users.full_name
     - Qadam davomiyligi: keyingi yozuv.created_at - joriy.created_at
     - Tugallanmagan bosqichda end_at = NULL, duration_str = "—" (handler UZ/RU matnini o'zi qo'yadi).
-    Ustun nomi ba'zi bazalarda 'connection_id' o'rniga 'connection_id' bo'lishi mumkin,
-    shuning uchun ikki xil SELECT bilan urinamiz.
+    Barcha order turlarini qo'llab-quvvatlaydi: connection_orders, technician_orders, staff_orders, smart_service_orders
     """
-    sql_connection_id = """
-    SELECT c.id,
-           c.sender_id, su.full_name AS sender_name,
-           c.recipient_id, ru.full_name AS recipient_name,
-           c.sender_status::text   AS sender_status,
-           c.recipient_status::text AS recipient_status,
-           c.created_at
-      FROM connections c
-      LEFT JOIN users su ON su.id = c.sender_id
-      LEFT JOIN users ru ON ru.id = c.recipient_id
-     WHERE c.connection_id = $1
-     ORDER BY c.created_at ASC, c.id ASC;
-    """
-
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # Avval normal nom bilan, bo'lmasa alternativ nom bilan
-        try:
-            rows = await conn.fetch(sql_connection_id, order_id)
-        except UndefinedColumnError:
-            rows = await conn.fetch(sql_connection_id, order_id)
+        # Barcha order turlarini tekshirib, mos connection recordlarni olamiz
+        sql_all_connections = """
+        SELECT c.id,
+               c.sender_id, su.full_name AS sender_name, su.role AS sender_role,
+               c.recipient_id, ru.full_name AS recipient_name, ru.role AS recipient_role,
+               c.sender_status::text AS sender_status,
+               c.recipient_status::text AS recipient_status,
+               c.created_at,
+               CASE 
+                   WHEN c.connection_id IS NOT NULL THEN 'connection'
+                   WHEN c.technician_id IS NOT NULL THEN 'technician'
+                   WHEN c.staff_id IS NOT NULL THEN 'staff'
+                   ELSE 'unknown'
+               END AS order_type
+          FROM connections c
+          LEFT JOIN users su ON su.id = c.sender_id
+          LEFT JOIN users ru ON ru.id = c.recipient_id
+         WHERE (c.connection_id = $1 OR c.technician_id = $1 OR c.staff_id = $1)
+         ORDER BY c.created_at ASC, c.id ASC;
+        """
+
+        rows = await conn.fetch(sql_all_connections, order_id)
 
         steps: List[Dict[str, Any]] = []
         for i, r in enumerate(rows):
@@ -146,9 +148,17 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
             end_at = rows[i + 1]["created_at"] if i + 1 < len(rows) else None
             duration_str = _fmt_duration(end_at - start_at) if end_at else "—"
 
-            # FIO bo'lmasa, status nomini ko'rsatamiz (fallback)
-            from_name = r["sender_name"] or (r["sender_status"] or "—")
-            to_name   = r["recipient_name"] or (r["recipient_status"] or "—")
+            # Client-created orders uchun maxsus nomlar
+            if r["sender_status"] == "client_created":
+                from_name = "Mijoz"  # Client
+            else:
+                from_name = r["sender_name"] or (r["sender_status"] or "—")
+            
+            # Manager uchun maxsus nom
+            if r["recipient_status"] == "in_manager":
+                to_name = "Manager"
+            else:
+                to_name = r["recipient_name"] or (r["recipient_status"] or "—")
 
             steps.append({
                 "idx": i + 1,
@@ -158,7 +168,8 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
                 "to_status": r["recipient_status"],
                 "start_at": start_at,
                 "end_at": end_at,
-                "duration_str": duration_str,  # tilga bog'liq emas
+                "duration_str": duration_str,
+                "order_type": r["order_type"]
             })
 
         return {"steps": steps}
