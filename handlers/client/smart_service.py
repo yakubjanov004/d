@@ -512,15 +512,30 @@ async def back_to_categories(callback: CallbackQuery, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in back_to_categories: {e}")
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(callback.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await callback.answer(error_text, show_alert=True)
 
 # Manzil kiritish
 @router.message(StateFilter(SmartServiceStates.entering_address))
 async def handle_address_input(message: Message, state: FSMContext):
     try:
+        data = await state.get_data()
+        user_lang = data.get('user_lang') or await get_user_language(message.from_user.id) or "uz"
+
+        # Validate that text exists and is non-empty
+        if not getattr(message, 'text', None):
+            prompt_text = (
+                "❌ Iltimos, manzilni matn ko'rinishida yuboring." if user_lang == "uz"
+                else "❌ Пожалуйста, отправьте адрес текстом."
+            )
+            await message.answer(prompt_text)
+            return
+
         address = message.text.strip()
-        user_lang = await get_user_language(message.from_user.id)
         
         if len(address) < 10:
             error_text = (
