@@ -45,8 +45,42 @@ class AKTService:
             data.setdefault("service_order_number", "—")
             data.setdefault("organization_name", "___________________")
 
-            # 3) Materiallar
+            # 3) Materiallar (material_issued bo'sh bo'lsa, material_requests dan fallback)
             materials = await get_materials_for_akt(request_id, request_type)
+            if not materials:
+                # Fallback: material_requests (yakuniy emas, ammo ko'rsatish uchun)
+                try:
+                    from utils.completion_notification import get_used_materials_info
+                    txt = await get_used_materials_info(request_id, request_type, data.get('client_lang','uz') or 'uz')
+                    # Parse back to list of dicts with minimal fields for generator
+                    parsed: List[Dict[str, Any]] = []
+                    for line in (txt or '').split('\n'):
+                        line = line.strip().lstrip('• ').strip()
+                        if not line:
+                            continue
+                        # very simple parse: "Name — qty ..."
+                        name_qty = line.split('—')
+                        name = name_qty[0].strip() if len(name_qty) > 0 else line
+                        qty = 1
+                        try:
+                            # find first integer in line
+                            import re
+                            m = re.search(r"(\d+)", line)
+                            if m:
+                                qty = int(m.group(1))
+                        except Exception:
+                            qty = 1
+                        parsed.append({
+                            'material_name': name,
+                            'unit': 'шт',
+                            'quantity': qty,
+                            'price': 0,
+                            'total_price': 0,
+                        })
+                    if parsed:
+                        materials = parsed
+                except Exception:
+                    pass
 
             # 4) Client rating va komentini olish
             rating_data = await get_rating_for_akt(request_id, request_type)

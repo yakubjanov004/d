@@ -530,55 +530,24 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
         if not result:
             return await cb.answer(_t(lang, "send_fail"), show_alert=True)
         
-        # Controller'ga notification yuboramiz
+        # Controller'ga notification yuborish - markaziy helper orqali (istisnolar bilan)
         try:
             from loader import bot
-            
-            # Notification matnini tayyorlash
-            app_num = result["application_number"]
-            current_load = result["current_load"]
-            recipient_lang = result["language"]
-            order_type = result.get("order_type", "connection")
-            
-            # Ariza turini formatlash
-            if recipient_lang == "ru":
-                if order_type == "connection":
-                    order_type_text = "подключения"
-                elif order_type == "technician":
-                    order_type_text = "технической"
-                else:
-                    order_type_text = "сотрудника"
-            else:
-                if order_type == "connection":
-                    order_type_text = "ulanish"
-                elif order_type == "technician":
-                    order_type_text = "texnik xizmat"
-                else:
-                    order_type_text = "xodim"
-            
-            # Notification xabari (jami va nechinchisi)
-            if recipient_lang == "ru":
-                notification = (
-                    f"📬 <b>Новая заявка {order_type_text}</b>\n\n"
-                    f"🆔 {app_num}\n\n"
-                    f"📊 Всего: <b>{current_load}</b>\n"
-                    f"#️⃣ Это <b>{current_load}</b>-я в списке"
-                )
-            else:
-                notification = (
-                    f"📬 <b>Yangi {order_type_text} arizasi</b>\n\n"
-                    f"🆔 {app_num}\n\n"
-                    f"📊 Jami: <b>{current_load} ta</b>\n"
-                    f"#️⃣ Bu <b>{current_load}</b>-ariza"
-                )
-            
-            # Notification yuborish
-            await bot.send_message(
-                chat_id=result["telegram_id"],
-                text=notification,
-                parse_mode="HTML"
+            from utils.notification_service import send_cross_role_notification
+
+            await send_cross_role_notification(
+                bot,
+                sender_role=result.get("sender_role", "junior_manager"),
+                recipient_role=result.get("recipient_role", "controller"),
+                sender_id=result.get("sender_id"),
+                recipient_id=result.get("recipient_id"),
+                creator_id=result.get("creator_id"),
+                recipient_telegram_id=result.get("telegram_id"),
+                application_number=result.get("application_number") or f"ID:{order_id}",
+                order_type=result.get("order_type", "connection"),
+                current_load=result.get("current_load", 0),
+                lang=result.get("language") or "uz",
             )
-            logger.info(f"Notification sent to controller {result['telegram_id']} for order {app_num}")
         except Exception as notif_error:
             logger.error(f"Failed to send notification: {notif_error}")
             # Notification xatosi asosiy jarayonga ta'sir qilmaydi

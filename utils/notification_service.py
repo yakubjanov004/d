@@ -7,6 +7,99 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+def _normalize_lang(lang: Optional[str]) -> str:
+    v = (lang or "uz").lower()
+    return "ru" if v.startswith("ru") else "uz"
+
+def format_order_type_text(order_type: str, lang: Optional[str]) -> str:
+    lang = _normalize_lang(lang)
+    if lang == "ru":
+        if order_type == "connection":
+            return "подключения"
+        if order_type == "technician":
+            return "технической"
+        return "сотрудника"
+    # uz
+    if order_type == "connection":
+        return "ulanish"
+    if order_type == "technician":
+        return "texnik xizmat"
+    return "xodim"
+
+def build_transfer_notification(order_type_text: str, application_number: Optional[str], current_load: int, lang: Optional[str]) -> str:
+    lang = _normalize_lang(lang)
+    app = application_number if (application_number and str(application_number).strip()) else "—"
+    if lang == "ru":
+        return (
+            f"📬 <b>Новая заявка {order_type_text}</b>\n\n"
+            f"🆔 {app}\n\n"
+            f"📊 Всего: <b>{current_load}</b>\n"
+            f"#️⃣ Это <b>{current_load}</b>-я в списке"
+        )
+    return (
+        f"📬 <b>Yangi {order_type_text} arizasi</b>\n\n"
+        f"🆔 {app}\n\n"
+        f"📊 Jami: <b>{current_load} ta</b>\n"
+        f"#️⃣ Bu <b>{current_load}</b>-ariza"
+    )
+
+def should_send_notification(
+    sender_role: str,
+    recipient_role: str,
+    sender_id: Optional[int],
+    recipient_id: Optional[int],
+    creator_id: Optional[int],
+) -> bool:
+    # Client → Manager/Controller: skip
+    if (sender_role or "").lower() == "client" and (recipient_role or "").lower() in {"manager", "controller"}:
+        return False
+    # Same role rotation: skip
+    if (sender_role or "").lower() == (recipient_role or "").lower():
+        return False
+    # Same person or self-created to self: skip
+    if sender_id is not None and recipient_id is not None and sender_id == recipient_id:
+        return False
+    if creator_id is not None and recipient_id is not None and creator_id == recipient_id:
+        return False
+    return True
+
+async def send_cross_role_notification(
+    bot: Bot,
+    *,
+    sender_role: str,
+    recipient_role: str,
+    sender_id: Optional[int],
+    recipient_id: Optional[int],
+    creator_id: Optional[int],
+    recipient_telegram_id: Optional[int],
+    application_number: Optional[str],
+    order_type: str,  # 'connection' | 'technician' | 'staff'
+    current_load: int,
+    lang: Optional[str] = "uz",
+) -> bool:
+    try:
+        if not recipient_telegram_id:
+            return False
+        if not should_send_notification(sender_role, recipient_role, sender_id, recipient_id, creator_id):
+            return False
+
+        lang = _normalize_lang(lang)
+        order_type_text = format_order_type_text(order_type, lang)
+        message = build_transfer_notification(order_type_text, application_number, int(current_load or 0), lang)
+
+        await bot.send_message(
+            chat_id=recipient_telegram_id,
+            text=message,
+            parse_mode="HTML",
+        )
+        logger.info(
+            f"Role-change notification sent to {recipient_telegram_id} | type={order_type} | app={application_number} | load={current_load}"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send cross-role notification: {e}")
+        return False
+
 async def send_role_notification(
     bot: Bot,
     recipient_telegram_id: int,

@@ -483,7 +483,8 @@ async def assign_controller_pick(callback: CallbackQuery, state: FSMContext):
             manager_db_id = manager_user["id"]
             
             # Staff ariza -> Controller
-            await assign_to_controller_for_staff(current_item["id"], controller_id, manager_db_id)
+            from database.manager.queries import assign_to_controller_for_staff
+            result = await assign_to_controller_for_staff(current_item["id"], controller_id, manager_db_id)
             
             if lang == "ru":
                 text = f"✅ Заявка назначена контроллеру"
@@ -494,38 +495,27 @@ async def assign_controller_pick(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(text, reply_markup=None)
         await callback.answer()
         
-        # Controller'ga notification yuboramiz (state'ga ta'sir qilmaydi)
-        if mode == "staff":
+        # Controller'ga notification - markaziy helper orqali
+        if mode == "staff" and result:
             try:
                 from loader import bot
-                import asyncpg
-                from config import settings
-                
-                conn = await asyncpg.connect(settings.DB_URL)
-                try:
-                    controller_info = await conn.fetchrow(
-                        "SELECT id, telegram_id, language, full_name FROM users WHERE id = $1 AND role = 'controller'",
-                        controller_id
-                    )
-                    if controller_info:
-                        # Notification xabari
-                        if controller_info.get("language") == "ru":
-                            notification = f"📬 <b>Новая заявка сотрудника</b>\n\n🆔 {current_item.get('application_number', 'N/A')}\n\n📊 У вас теперь новая заявка"
-                        else:
-                            notification = f"📬 <b>Yangi xodim arizasi</b>\n\n🆔 {current_item.get('application_number', 'N/A')}\n\n📊 Sizda yangi ariza bor"
-                        
-                        # Notification yuborish
-                        await bot.send_message(
-                            chat_id=controller_info["telegram_id"],
-                            text=notification,
-                            parse_mode="HTML"
-                        )
-                        logger.info(f"Notification sent to controller {controller_id} for staff order {current_item.get('id')}")
-                finally:
-                    await conn.close()
+                from utils.notification_service import send_cross_role_notification
+
+                await send_cross_role_notification(
+                    bot,
+                    sender_role=result.get("sender_role", "manager"),
+                    recipient_role=result.get("recipient_role", "controller"),
+                    sender_id=result.get("sender_id"),
+                    recipient_id=result.get("recipient_id"),
+                    creator_id=result.get("creator_id"),
+                    recipient_telegram_id=result.get("telegram_id"),
+                    application_number=result.get("application_number") or f"ID:{current_item.get('id')}",
+                    order_type=result.get("order_type", "staff"),
+                    current_load=result.get("current_load", 0),
+                    lang=result.get("language") or "uz",
+                )
             except Exception as notif_error:
                 logger.error(f"Failed to send notification: {notif_error}")
-                # Notification xatosi asosiy jarayonga ta'sir qilmaydi
         
         # Inboxni yangilaymiz
         if mode == "connection":

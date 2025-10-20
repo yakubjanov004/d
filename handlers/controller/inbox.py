@@ -930,19 +930,23 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
         else:  # staff
             result = await assign_to_technician_staff(request_id=request_id, tech_id=tech_id, actor_id=user["id"])
         
-        # Notification yuborish - qayta faollashtirildi
+        # Notification yuborish - markaziy helper orqali
         if result:
-            notif_lang = normalize_lang(result.get("language"))
-            app_num = result.get("application_number", "")
-            load = result.get("current_load", 0)
-            
-            if notif_lang == "uz":
-                notif_text = f"📬 Yangi texnik xizmat arizasi\n\n🆔 {app_num}\n\n📊 Sizda yana {load}ta ariza bor"
-            else:
-                notif_text = f"📬 Новая заявка на техническое обслуживание\n\n🆔 {app_num}\n\n📊 У вас ещё {load} заявок"
-            
             try:
-                await bot.send_message(result["telegram_id"], notif_text)
+                from utils.notification_service import send_cross_role_notification
+                await send_cross_role_notification(
+                    bot,
+                    sender_role=result.get("sender_role", "controller"),
+                    recipient_role=result.get("recipient_role", "technician"),
+                    sender_id=result.get("sender_id"),
+                    recipient_id=result.get("recipient_id"),
+                    creator_id=result.get("creator_id"),
+                    recipient_telegram_id=result.get("telegram_id"),
+                    application_number=result.get("application_number") or f"ID:{request_id}",
+                    order_type=result.get("order_type", "technician"),
+                    current_load=result.get("current_load", 0),
+                    lang=result.get("language") or "uz",
+                )
             except Exception as e:
                 logger.error(f"Failed to send notification: {e}")
     

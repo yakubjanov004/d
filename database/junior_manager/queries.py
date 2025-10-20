@@ -188,14 +188,16 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
                 raise ValueError("Controller topilmadi")
             
             controller_id = controller_info["id"]
+            controller_lang = controller_info["language"] or "uz"
             
             # Check if it's a connection order
             connection_order = await conn.fetchrow(
-                "SELECT id, application_number FROM connection_orders WHERE id = $1", order_id
+                "SELECT id, application_number, user_id, status FROM connection_orders WHERE id = $1 FOR UPDATE", order_id
             )
             
             app_number = None
             order_type = "staff"
+            creator_id: Optional[int] = None
             
             if connection_order:
                 # Update connection order status
@@ -210,10 +212,11 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
                 )
                 app_number = connection_order["application_number"]
                 order_type = "connection"
+                creator_id = connection_order["user_id"]
             else:
                 # Check if it's a staff order
                 staff_order = await conn.fetchrow(
-                    "SELECT id, application_number FROM staff_orders WHERE id = $1", order_id
+                    "SELECT id, application_number, user_id, status, type_of_zayavka FROM staff_orders WHERE id = $1 FOR UPDATE", order_id
                 )
                 
                 if staff_order:
@@ -229,14 +232,20 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
                     )
                     app_number = staff_order["application_number"]
                     order_type = "staff"
+                    creator_id = staff_order["user_id"]
                 else:
                     raise ValueError("Order topilmadi")
             
             # Connection yozuvini yaratish
             await conn.execute(
                 """
-                INSERT INTO connections (sender_id, recipient_id, connection_id, staff_id, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, NOW(), NOW())
+                INSERT INTO connections (sender_id, recipient_id, connection_id, staff_id, sender_status, recipient_status, created_at, updated_at)
+                VALUES (
+                  $1, $2,
+                  $3, $4,
+                  'in_junior_manager', 'in_controller',
+                  NOW(), NOW()
+                )
                 """,
                 jm_id, controller_id, order_id if order_type == "connection" else None, order_id if order_type == "staff" else None
             )
@@ -245,31 +254,39 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
             current_load = await conn.fetchval(
                 """
                 WITH last_conn AS (
-                    SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
-                           COALESCE(c.connection_id, c.staff_id) as order_id,
-                           c.recipient_id,
-                           c.recipient_status
-                    FROM connections c
-                    WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
-                    ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+                  SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
+                         COALESCE(c.connection_id, c.staff_id) AS order_id,
+                         c.recipient_id,
+                         c.recipient_status
+                  FROM connections c
+                  WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
+                  ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_conn lc
-                LEFT JOIN connection_orders co ON co.id = lc.order_id AND co.is_active = TRUE AND co.status = 'in_controller'
-                LEFT JOIN staff_orders so ON so.id = lc.order_id AND COALESCE(so.is_active, TRUE) = TRUE AND so.status = 'in_controller'
+                LEFT JOIN connection_orders co
+                  ON co.id = lc.order_id AND COALESCE(co.is_active, TRUE) = TRUE AND co.status = 'in_controller'
+                LEFT JOIN staff_orders so
+                  ON so.id = lc.order_id AND COALESCE(so.is_active, TRUE) = TRUE AND so.status = 'in_controller'
                 WHERE lc.recipient_id = $1
-                  AND (co.id IS NOT NULL OR so.id IS NOT NULL)
                   AND lc.recipient_status = 'in_controller'
+                  AND (co.id IS NOT NULL OR so.id IS NOT NULL)
                 """,
-                controller_id
+                controller_id,
             )
             
             return {
                 "telegram_id": controller_info["telegram_id"],
-                "language": controller_info["language"] or "uz",
+                "language": controller_lang,
                 "application_number": app_number,
                 "order_type": order_type,
-                "current_load": current_load or 0
+                "current_load": int(current_load or 0),
+                # For helper exceptions
+                "recipient_id": controller_id,
+                "recipient_role": "controller",
+                "sender_id": jm_id,
+                "sender_role": "junior_manager",
+                "creator_id": creator_id,
             }
     except Exception as e:
         raise e

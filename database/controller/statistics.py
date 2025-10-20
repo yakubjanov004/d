@@ -167,16 +167,17 @@ async def get_controller_order_types_statistics() -> Dict[str, Any]:
 
 async def ctrl_total_tech_orders_count() -> int:
     """
-    Controller uchun jami texnik buyurtmalar soni.
-    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Controller uchun jami aktiv buyurtmalar soni.
+    technician_orders + staff_orders(technician) + connection_orders('in_controller').
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         count = await conn.fetchval(
             """
             SELECT 
-                (SELECT COUNT(*) FROM technician_orders WHERE COALESCE(is_active, TRUE) = TRUE) +
-                (SELECT COUNT(*) FROM staff_orders WHERE type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
+                (SELECT COUNT(*) FROM technician_orders WHERE COALESCE(is_active, TRUE) = TRUE AND status IN ('in_controller','between_controller_technician','in_technician','in_technician_work','in_repairs','in_warehouse','completed')) +
+                (SELECT COUNT(*) FROM staff_orders WHERE type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE AND status IN ('in_controller','between_controller_technician','in_technician','in_technician_work','in_repairs','in_warehouse','completed')) +
+                (SELECT COUNT(*) FROM connection_orders WHERE COALESCE(is_active, TRUE) = TRUE AND status IN ('in_controller','between_controller_technician','in_technician','completed'))
             """
         )
         return int(count or 0)
@@ -194,7 +195,8 @@ async def ctrl_new_in_controller_count() -> int:
             """
             SELECT 
                 (SELECT COUNT(*) FROM technician_orders WHERE status = 'in_controller' AND COALESCE(is_active, TRUE) = TRUE) +
-                (SELECT COUNT(*) FROM staff_orders WHERE status = 'in_controller' AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
+                (SELECT COUNT(*) FROM staff_orders WHERE status = 'in_controller' AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM connection_orders WHERE status = 'in_controller' AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -213,7 +215,8 @@ async def ctrl_in_progress_count() -> int:
             """
             SELECT 
                 (SELECT COUNT(*) FROM technician_orders WHERE status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') AND COALESCE(is_active, TRUE) = TRUE) +
-                (SELECT COUNT(*) FROM staff_orders WHERE status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
+                (SELECT COUNT(*) FROM staff_orders WHERE status IN ('between_controller_technician', 'in_technician', 'in_technician_work', 'in_repairs', 'in_warehouse') AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM connection_orders WHERE status IN ('between_controller_technician','in_technician') AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -232,7 +235,8 @@ async def ctrl_completed_today_count() -> int:
             """
             SELECT 
                 (SELECT COUNT(*) FROM technician_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND COALESCE(is_active, TRUE) = TRUE) +
-                (SELECT COUNT(*) FROM staff_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE)
+                (SELECT COUNT(*) FROM staff_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND type_of_zayavka = 'technician' AND COALESCE(is_active, TRUE) = TRUE) +
+                (SELECT COUNT(*) FROM connection_orders WHERE status = 'completed' AND DATE(updated_at) = CURRENT_DATE AND COALESCE(is_active, TRUE) = TRUE)
             """
         )
         return int(count or 0)
@@ -313,6 +317,34 @@ async def ctrl_get_new_orders(limit: int = 20) -> List[Dict[str, Any]]:
             WHERE so.status::text = 'in_controller'
               AND so.type_of_zayavka = 'technician'
               AND COALESCE(so.is_active, TRUE) = TRUE
+            
+            UNION ALL
+            
+            -- Connection orders (ulanish arizalari) JM dan kelganlar
+            SELECT
+                co.id,
+                co.application_number,
+                co.user_id,
+                NULL as abonent_id,
+                co.region,
+                co.address,
+                co.tarif_id,
+                NULL as description,
+                'B2C' as business_type,
+                'connection' as type_of_zayavka,
+                co.status::text,
+                co.created_at,
+                co.updated_at,
+                u_co.full_name as client_name,
+                u_co.phone as client_phone,
+                t.name as tariff,
+                NULL as media_file_id,
+                NULL as media_type
+            FROM connection_orders co
+            LEFT JOIN users u_co ON u_co.id = co.user_id
+            LEFT JOIN tarif t ON t.id = co.tarif_id
+            WHERE co.status::text = 'in_controller'
+              AND COALESCE(co.is_active, TRUE) = TRUE
             
             ORDER BY created_at DESC
             LIMIT $1

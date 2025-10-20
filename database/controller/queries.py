@@ -62,8 +62,8 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
                 so.is_active,
                 so.created_at,
                 so.updated_at,
-                COALESCE(client.full_name, 'Mijoz') as client_name,
-                so.phone as client_phone,
+                COALESCE(client.full_name, u_owner.full_name, 'Mijoz') as client_name,
+                COALESCE(client.phone, u_owner.phone, so.phone) as client_phone,
                 CASE 
                     WHEN so.type_of_zayavka = 'connection' THEN t.name
                     WHEN so.type_of_zayavka = 'technician' THEN so.description
@@ -86,6 +86,7 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
             LEFT JOIN tarif t ON t.id = so.tarif_id
             LEFT JOIN users creator ON creator.id = so.user_id
             LEFT JOIN users client ON client.id::text = so.abonent_id
+            LEFT JOIN users u_owner ON u_owner.id = so.user_id
             LEFT JOIN technician_orders tech_ord ON tech_ord.id = so.id AND so.type_of_zayavka = 'technician'
             WHERE la.recipient_status = 'in_controller'
               AND so.status = 'in_controller'
@@ -248,7 +249,14 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
                 "language": tech_info["language"] or "uz",
                 "application_number": app_number,
                 "order_type": order_type,
-                "current_load": current_load or 0
+                "current_load": current_load or 0,
+                # for notifications helper
+                "recipient_id": tech_info["id"],
+                "recipient_role": "technician",
+                "sender_id": actor_id,
+                "sender_role": "controller",
+                # self-created check (not applicable for staff-to-tech typically)
+                "creator_id": None,
             }
     finally:
         await conn.close()

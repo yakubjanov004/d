@@ -95,7 +95,7 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
             # 1) Eski statusni va application_number'ni lock bilan o'qiymiz
             row_old = await conn.fetchrow(
                 """
-                SELECT status, application_number
+                SELECT status, application_number, user_id
                   FROM connection_orders
                  WHERE id = $1
                  FOR UPDATE
@@ -107,6 +107,7 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
 
             old_status: str = row_old["status"]
             app_number: str = row_old["application_number"]
+            creator_id: Optional[int] = row_old["user_id"]
 
             # 2) Yangi statusga o'tkazamiz
             row_new = await conn.fetchrow(
@@ -154,21 +155,21 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
             current_load = await conn.fetchval(
                 """
                 WITH last_assign AS (
-                    SELECT DISTINCT ON (c.connection_id)
-                           c.connection_id,
+                    SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
+                           COALESCE(c.connection_id, c.staff_id) AS oid,
                            c.recipient_id,
                            c.recipient_status
                     FROM connections c
-                    WHERE c.connection_id IS NOT NULL
-                    ORDER BY c.connection_id, c.created_at DESC
+                    WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
+                    ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_assign la
-                JOIN connection_orders co ON co.id = la.connection_id
+                LEFT JOIN connection_orders co ON co.id = la.oid AND COALESCE(co.is_active, TRUE) AND co.status = 'in_junior_manager'
+                LEFT JOIN staff_orders so ON so.id = la.oid AND COALESCE(so.is_active, TRUE) AND so.status = 'in_junior_manager'
                 WHERE la.recipient_id = $1
-                  AND co.is_active = TRUE
-                  AND co.status = 'in_junior_manager'
                   AND la.recipient_status = 'in_junior_manager'
+                  AND (co.id IS NOT NULL OR so.id IS NOT NULL)
                 """,
                 jm_id
             )
@@ -178,7 +179,14 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
                 "language": jm_info["language"] or "uz",
                 "application_number": app_number,
                 "current_load": current_load or 0,
-                "jm_name": jm_info["full_name"] or "Noma'lum"
+                "jm_name": jm_info["full_name"] or "Noma'lum",
+                # for notifications helper
+                "recipient_id": jm_info["id"],
+                "recipient_role": "junior_manager",
+                "sender_id": actor_id,
+                "sender_role": "manager",
+                "creator_id": creator_id,
+                "order_type": "connection",
             }
     finally:
         await conn.close()
@@ -470,21 +478,21 @@ async def assign_to_controller_for_staff(request_id: int | str, controller_id: i
             current_load = await conn.fetchval(
                 """
                 WITH last_assign AS (
-                    SELECT DISTINCT ON (c.staff_id)
-                           c.staff_id,
+                    SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
+                           COALESCE(c.connection_id, c.staff_id) AS oid,
                            c.recipient_id,
                            c.recipient_status
                     FROM connections c
-                    WHERE c.staff_id IS NOT NULL
-                    ORDER BY c.staff_id, c.created_at DESC
+                    WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
+                    ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_assign la
-                JOIN staff_orders so ON so.id = la.staff_id
+                LEFT JOIN connection_orders co ON co.id = la.oid AND COALESCE(co.is_active, TRUE) AND co.status = 'in_controller'
+                LEFT JOIN staff_orders so ON so.id = la.oid AND COALESCE(so.is_active, TRUE) AND so.status = 'in_controller'
                 WHERE la.recipient_id = $1
-                  AND COALESCE(so.is_active, TRUE) = TRUE
-                  AND so.status = 'in_controller'
                   AND la.recipient_status = 'in_controller'
+                  AND (co.id IS NOT NULL OR so.id IS NOT NULL)
                 """,
                 controller_id
             )
@@ -494,7 +502,14 @@ async def assign_to_controller_for_staff(request_id: int | str, controller_id: i
                 "language": controller_info["language"] or "uz",
                 "application_number": app_number,
                 "order_type": order_type,
-                "current_load": current_load or 0
+                "current_load": current_load or 0,
+                # for notifications helper
+                "recipient_id": controller_info["id"],
+                "recipient_role": "controller",
+                "sender_id": actor_id,
+                "sender_role": "manager",
+                # self-created check
+                "creator_id": None,
             }
     finally:
         await conn.close()
