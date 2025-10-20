@@ -322,7 +322,11 @@ async def start_smart_service(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in start_smart_service: {e}")
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = await get_user_language(message.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
 # Kategoriya tanlash
@@ -357,7 +361,11 @@ async def handle_category_selection(callback: CallbackQuery, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in handle_category_selection: {e}")
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(callback.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await callback.answer(error_text, show_alert=True)
 
 # Fallback handler for old callback data format
@@ -447,7 +455,11 @@ async def handle_service_type_selection(callback: CallbackQuery, state: FSMConte
         
     except Exception as e:
         logger.error(f"Error in handle_service_type_selection: {e}")
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(callback.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await callback.answer(error_text, show_alert=True)
 
 # Fallback handler for old service callback data format
@@ -539,7 +551,11 @@ async def handle_address_input(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in handle_address_input: {e}")
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(message.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
 # Lokatsiya so'rash
@@ -608,8 +624,11 @@ async def handle_location(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in handle_location: {e}")
-        user_lang = await get_user_language(message.from_user.id)
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(message.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
 # Tasdiqlash ko'rsatish
@@ -629,10 +648,14 @@ async def show_confirmation(message: Message, state: FSMContext):
         
         location_info = ""
         if longitude and latitude:
-            location_info = (
-                f"🌍 <b>Geolokatsiya:</b> {latitude:.6f}, {longitude:.6f}\n"
-                f"🌍 <b>Геолокация:</b> {latitude:.6f}, {longitude:.6f}\n"
-            )
+            if user_lang == "uz":
+                location_info = (
+                    f"🌍 <b>Geolokatsiya:</b> {latitude:.6f}, {longitude:.6f}\n"
+                )
+            else:
+                location_info = (
+                    f"🌍 <b>Геолокация:</b> {latitude:.6f}, {longitude:.6f}\n"
+                )
         
         confirmation_text = (
             "📋 <b>Buyurtma ma'lumotlari</b>\n\n"
@@ -659,8 +682,11 @@ async def show_confirmation(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in show_confirmation: {e}")
-        user_lang = await get_user_language(message.from_user.id)
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(message.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
 # Tasdiqlash
@@ -688,8 +714,11 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
             
     except Exception as e:
         logger.error(f"Error in handle_confirmation: {e}")
-        user_lang = await get_user_language(callback.from_user.id)
-        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
+        try:
+            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(callback.from_user.id) or "uz"
+        except Exception:
+            lang_fallback = "uz"
+        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
         await callback.answer(error_text, show_alert=True)
 
 
@@ -699,16 +728,15 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
         telegram_id = message.from_user.id
         user_lang = (await state.get_data()).get('user_lang') or await get_user_language(telegram_id)
         
-        user_record = await get_user_by_telegram_id(telegram_id)
-        user = dict(user_record) if user_record is not None else {}
-        
-        if not user:
-            error_text = (
-                "❌ Foydalanuvchi topilmadi. Iltimos, avval ro'yxatdan o'ting."
-                "❌ Пользователь не найден. Пожалуйста, сначала зарегистрируйтесь."
-            )
-            await message.answer(error_text)
-            return
+        # Ensure user exists; auto-register client if missing
+        from database.basic.user import ensure_user
+        ensured = await ensure_user(
+            telegram_id=telegram_id,
+            full_name=message.from_user.full_name,
+            username=message.from_user.username,
+            role='client'
+        )
+        user = dict(ensured) if ensured is not None else {}
         
         order_data = {
             'user_id': user.get('id'),

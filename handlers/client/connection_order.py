@@ -210,12 +210,19 @@ async def get_connection_address_client(message: Message, state: FSMContext):
         logger.error(f"Error in get_connection_address_client: {e}")
         await message.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
-@router.callback_query(F.data.in_(["send_location_yes", "send_location_no"]), StateFilter(ConnectionOrderStates.asking_for_geo))
+@router.callback_query(F.data.in_( ["send_location_yes", "send_location_no"]), StateFilter(ConnectionOrderStates.asking_for_geo))
 async def ask_for_geo_client(callback: CallbackQuery, state: FSMContext):
     try:
         lang = (await state.get_data()).get("lang", "uz")
         await callback.answer()
-        await callback.message.edit_reply_markup(reply_markup=None)
+        try:
+            if callback.message.reply_markup is not None:
+                await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest as e:
+            if "not modified" in str(e).lower():
+                pass
+            else:
+                raise
 
         if callback.data == "send_location_yes":
             location_keyboard = ReplyKeyboardMarkup(
