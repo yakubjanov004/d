@@ -63,6 +63,7 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
                 co.jm_notes AS order_jm_notes,
                 -- Staff orders ma'lumotlari
                 so.id AS staff_order_id,
+                so.application_number AS staff_application_number,
                 so.user_id AS staff_user_id,
                 so.phone AS staff_phone,
                 so.abonent_id AS staff_abonent_id,

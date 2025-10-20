@@ -290,14 +290,18 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     # Get creation date
     order_created = _fmt_dt(it.get("created_at"))
     
-    # Get client information - handle staff orders differently
+    # Get client information - ensure we always show name from DB
     if is_staff_order:
-        # For staff orders, use the actual client information
-        client_name_raw = it.get("client_name") or (_t(lang, "client_id_label") + f": {it.get('abonent_id')}")
-        client_phone_raw = it.get("client_phone_number") or it.get("phone")
+        # Prefer explicit client fields from query, then fallback
+        client_name_raw = (
+            it.get("client_name")
+            or it.get("staff_client_full_name")
+            or (_t(lang, "client_id_label") + f": {it.get('staff_abonent_id')}")
+        )
+        client_phone_raw = it.get("client_phone_number") or it.get("staff_client_phone") or it.get("staff_phone") or it.get("phone")
     else:
-        # For connection orders, user_name is the actual client
-        client_name_raw = it.get("user_name")
+        # For connection orders, prefer joined user fields
+        client_name_raw = it.get("client_full_name") or it.get("user_name")
         client_phone_raw = it.get("client_phone")
     
     # Get location information - handle staff vs connection orders
@@ -359,10 +363,8 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         f"🆔 <b>{_t(lang,'abonent_id_label')}:</b> {order_id_txt}\n"
         f"📋 <b>{_t(lang,'order_type_label')}:</b> {service_type}\n"
         f"🏢 <b>{_t(lang,'business_type_label')}:</b> B2C\n"
-        f"📊 <b>{_t(lang,'status_label')}:</b> {it.get('status', 'Noma\'lum')}\n"
         f"📝 <b>{_t(lang,'description_label')}:</b> {_esc(it.get('description', '-'))}\n"
         f"🕒 <b>{_t(lang,'created_label')}:</b> {order_created}\n"
-        f"🔄 <b>{_t(lang,'updated_label')}:</b> {_fmt_dt(it.get('updated_at'))}\n"
         f"{tariff_label} {tariff_or_problem}\n"
         f"{notes_block}\n\n"
         f"{_t(lang,'card_pager').format(idx=idx+1, total=total)}"
@@ -554,11 +556,21 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
                 else:
                     order_type_text = "xodim"
             
-            # Notification xabari
+            # Notification xabari (jami va nechinchisi)
             if recipient_lang == "ru":
-                notification = f"📬 <b>Новая заявка {order_type_text}</b>\n\n🆔 {app_num}\n\n📊 У вас теперь <b>{current_load}</b> активных заявок"
+                notification = (
+                    f"📬 <b>Новая заявка {order_type_text}</b>\n\n"
+                    f"🆔 {app_num}\n\n"
+                    f"📊 Всего: <b>{current_load}</b>\n"
+                    f"#️⃣ Это <b>{current_load}</b>-я в списке"
+                )
             else:
-                notification = f"📬 <b>Yangi {order_type_text} arizasi</b>\n\n🆔 {app_num}\n\n📊 Sizda yana <b>{current_load}ta</b> ariza bor"
+                notification = (
+                    f"📬 <b>Yangi {order_type_text} arizasi</b>\n\n"
+                    f"🆔 {app_num}\n\n"
+                    f"📊 Jami: <b>{current_load} ta</b>\n"
+                    f"#️⃣ Bu <b>{current_load}</b>-ariza"
+                )
             
             # Notification yuborish
             await bot.send_message(
