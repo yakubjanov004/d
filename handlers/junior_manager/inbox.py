@@ -472,7 +472,7 @@ async def jm_contact_message_handler(msg: Message, state: FSMContext):
     # Get the message text
     message_text = msg.text or ""
     
-    # Determine order type from current items
+    # Determine order type from current items (reliable by presence of IDs)
     items = data.get("items", [])
     idx = data.get("idx", 0)
     
@@ -481,7 +481,13 @@ async def jm_contact_message_handler(msg: Message, state: FSMContext):
         return await msg.answer(_t(lang, "error_occurred"))
     
     current_item = items[idx]
-    order_type = "connection" if current_item.get("order_type") == "connection" else "staff"
+    if current_item.get("order_id") is not None:
+        order_type = "connection"
+    elif current_item.get("staff_order_id") is not None:
+        order_type = "staff"
+    else:
+        # Fallback: if explicit keys missing, default to connection for safety
+        order_type = "connection"
     
     # Save the note to database
     success = await update_jm_notes(order_id, message_text, order_type)
