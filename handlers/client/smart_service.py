@@ -567,10 +567,19 @@ async def handle_address_input(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error in handle_address_input: {e}")
         try:
-            lang_fallback = (await state.get_data()).get('user_lang') or await get_user_language(message.from_user.id) or "uz"
+            # Get user language with proper fallback
+            data = await state.get_data()
+            user_lang = data.get('user_lang')
+            if not user_lang:
+                try:
+                    user_lang = await get_user_language(message.from_user.id)
+                except Exception:
+                    user_lang = "uz"
+            if not user_lang:
+                user_lang = "uz"
         except Exception:
-            lang_fallback = "uz"
-        error_text = "❌ Xatolik yuz berdi." if lang_fallback == "uz" else "❌ Произошла ошибка."
+            user_lang = "uz"
+        error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
 # Lokatsiya so'rash

@@ -194,7 +194,8 @@ def main():
         '029_unique_material_requests.sql',
         '030_improve_material_requests_persistence.sql', 
         '031_add_application_number_to_material_requests.sql',
-        '032_remove_unused_columns.sql'
+        '032_remove_unused_columns.sql',
+        '033_create_staff_orders_table.sql'
     ]
     
     logger.info("[START] Starting migration process...")

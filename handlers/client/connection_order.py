@@ -219,10 +219,12 @@ async def ask_for_geo_client(callback: CallbackQuery, state: FSMContext):
             if callback.message.reply_markup is not None:
                 await callback.message.edit_reply_markup(reply_markup=None)
         except TelegramBadRequest as e:
-            if "not modified" in str(e).lower():
+            if "not modified" in str(e).lower() or "message is not modified" in str(e).lower():
+                # Ignore "message not modified" errors
                 pass
             else:
-                raise
+                logger.warning(f"Failed to edit reply markup: {e}")
+                # Continue execution even if we can't remove the markup
 
         if callback.data == "send_location_yes":
             location_keyboard = ReplyKeyboardMarkup(

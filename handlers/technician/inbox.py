@@ -959,7 +959,17 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                         )
                     except Exception as e2:
                         logger.error(f"Video send also failed: {e2}")
-                        sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                        try:
+                            sent_msg = await bot.send_document(
+                                chat_id=message.chat.id,
+                                document=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=kb
+                            )
+                        except Exception as e3:
+                            logger.error(f"Document send also failed: {e3}")
+                            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
             else:
                 # media_type yo'q yoki noma'lum - fallback zanjiri
                 try:
@@ -982,7 +992,18 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                         )
                     except Exception as e2:
                         logger.error(f"Video send also failed: {e2}")
-                        sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                        # Try as document if both photo and video fail
+                        try:
+                            sent_msg = await bot.send_document(
+                                chat_id=message.chat.id,
+                                document=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=kb
+                            )
+                        except Exception as e3:
+                            logger.error(f"Document send also failed: {e3}")
+                            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         else:
             sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
         
