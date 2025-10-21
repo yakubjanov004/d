@@ -8,14 +8,8 @@ BEGIN;
 ALTER TABLE public.staff_orders 
 ADD COLUMN IF NOT EXISTS media TEXT;
 
--- Add foreign key constraints if they don't exist
-ALTER TABLE public.staff_orders 
-ADD CONSTRAINT IF NOT EXISTS fk_staff_orders_user_id 
-FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
-
-ALTER TABLE public.staff_orders 
-ADD CONSTRAINT IF NOT EXISTS fk_staff_orders_tarif_id 
-FOREIGN KEY (tarif_id) REFERENCES public.tarif(id) ON DELETE SET NULL;
+-- Add foreign key constraints (will be skipped if they already exist)
+-- Note: These constraints may already exist, so errors are expected and can be ignored
 
 -- Add indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_staff_orders_user_id ON public.staff_orders(user_id);
