@@ -1,51 +1,31 @@
--- Migration: Create staff_orders table
+-- Migration: Add missing media column to staff_orders table
 -- Date: 2025-10-21
--- Description: Creates the missing staff_orders table with all required columns
+-- Description: Adds the missing media column to the existing staff_orders table
 
 BEGIN;
 
--- Create sequence if it doesn't exist
-CREATE SEQUENCE IF NOT EXISTS public.staff_orders_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
--- Create staff_orders table
-CREATE TABLE IF NOT EXISTS public.staff_orders (
-    id bigint NOT NULL DEFAULT nextval('public.staff_orders_id_seq'::regclass),
-    application_number text,
-    user_id bigint,
-    phone text,
-    abonent_id text,
-    region text,
-    address text,
-    tarif_id bigint,
-    description text,
-    problem_description text,
-    diagnostics text,
-    media text,
-    business_type text DEFAULT 'B2C',
-    type_of_zayavka text DEFAULT 'connection',
-    status text DEFAULT 'in_call_center',
-    jm_notes text,
-    cancellation_note text,
-    is_active boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by_role text,
-    CONSTRAINT staff_orders_pkey PRIMARY KEY (id)
-);
-
--- Add foreign key constraints
+-- Add missing media column if it doesn't exist
 ALTER TABLE public.staff_orders 
-ADD CONSTRAINT fk_staff_orders_user_id 
-FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+ADD COLUMN IF NOT EXISTS media TEXT;
 
-ALTER TABLE public.staff_orders 
-ADD CONSTRAINT fk_staff_orders_tarif_id 
-FOREIGN KEY (tarif_id) REFERENCES public.tarif(id) ON DELETE SET NULL;
+-- Add foreign key constraints if they don't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_staff_orders_user_id') THEN
+        ALTER TABLE public.staff_orders 
+        ADD CONSTRAINT fk_staff_orders_user_id 
+        FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_staff_orders_tarif_id') THEN
+        ALTER TABLE public.staff_orders 
+        ADD CONSTRAINT fk_staff_orders_tarif_id 
+        FOREIGN KEY (tarif_id) REFERENCES public.tarif(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- Add indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_staff_orders_user_id ON public.staff_orders(user_id);
