@@ -6,6 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 import html
 import logging
 
+from config import settings
 from database.basic.user import get_or_create_user, find_user_by_telegram_id, update_user_phone, update_user_full_name, update_user_username
 from database.basic.language import get_user_language
 
@@ -31,27 +32,24 @@ async def start_handler(message: Message, state: FSMContext):
         await state.clear()
         user = message.from_user
         
-        # Username ni yangilash (hech qanday xabar yuborilmaydi)
+        if user.id == settings.BOT_ID:
+            return  
+        
         await update_user_username(user.id, user.username)
         
-        # Check if user exists in database
         db_user = await find_user_by_telegram_id(user.id)
-        # Resolve language early for correct replies
         lang = await get_user_language(user.id) or "uz"
         
-        # If user doesn't exist, create with minimal info
         if not db_user:
             role = await get_or_create_user(
                 telegram_id=user.id,
                 username=user.username,
-                full_name=None  # Don't save Telegram full_name initially
+                full_name=None  
             )
             db_user = await find_user_by_telegram_id(user.id)
         else:
-            # Get existing role
             role = db_user.get("role", "client")
 
-        # If user does not have a phone number yet, request contact share
         user_phone = db_user.get("phone") if db_user else None
         if not user_phone:
             await message.answer(
@@ -60,7 +58,6 @@ async def start_handler(message: Message, state: FSMContext):
             )
             return
         
-        # Always check for full_name and ask if not present
         if not db_user.get("full_name"):
             await state.set_state(UserRegistration.waiting_for_full_name)
             await message.answer(
@@ -85,7 +82,9 @@ async def handle_contact_share(message: Message, state: FSMContext):
         if not message.contact:
             return
 
-        # Only accept the sender's own contact
+        if message.from_user.id == settings.BOT_ID:
+            return  
+
         if message.contact.user_id and message.contact.user_id != message.from_user.id:
             lang = await get_user_language(message.from_user.id) or "uz"
             await message.answer(
@@ -94,11 +93,9 @@ async def handle_contact_share(message: Message, state: FSMContext):
             )
             return
 
-        # If phone already saved previously, don't overwrite or ask again
         db_user = await find_user_by_telegram_id(message.from_user.id)
         existing_phone = db_user.get("phone") if db_user else None
         if existing_phone:
-            # If full name missing, continue to full name collection; else show menu
             if not db_user.get("full_name"):
                 await state.set_state(UserRegistration.waiting_for_full_name)
                 lang = await get_user_language(message.from_user.id) or "uz"
@@ -107,7 +104,6 @@ async def handle_contact_share(message: Message, state: FSMContext):
                     reply_markup=None
                 )
             else:
-                # Already complete; show menu
                 role = db_user.get("role", "client")
                 await show_main_menu(message, role)
             return
@@ -135,6 +131,10 @@ async def handle_contact_share(message: Message, state: FSMContext):
 @router.message(UserRegistration.waiting_for_full_name)
 async def process_full_name(message: Message, state: FSMContext):
     """Process user's full name input."""
+    # Bot o'zini bazaga saqlamasligi uchun tekshirish
+    if message.from_user.id == settings.BOT_ID:
+        return  # Bot o'zini bazaga saqlamaydi
+    
     full_name = message.text.strip()
     lang = await get_user_language(message.from_user.id) or "uz"
     

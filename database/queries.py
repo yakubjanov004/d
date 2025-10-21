@@ -13,6 +13,10 @@ async def get_or_create_user(telegram_id: int, username: Optional[str], full_nam
     Returns:
         str: Foydalanuvchi roli
     """
+    # Bot o'zini bazaga saqlamasligi uchun tekshirish
+    if telegram_id == settings.BOT_ID:
+        return "client"  # Bot uchun default role qaytaradi, lekin bazaga saqlamaydi
+    
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         user = await conn.fetchrow(
