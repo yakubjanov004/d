@@ -18,6 +18,15 @@ except Exception as e:
     sys.exit(1)
 
 async def main():
+    # Server qayta ishga tushganda material recovery
+    try:
+        from database.technician.materials import recover_technician_materials_after_crash, recover_warehouse_materials_after_crash
+        await recover_technician_materials_after_crash()
+        await recover_warehouse_materials_after_crash()
+        logger.info("Material recovery completed successfully")
+    except Exception as e:
+        logger.error(f"Material recovery failed: {e}")
+    
     bot, dp = await create_bot_and_dp()
     dp.include_router(handlers_router)
     

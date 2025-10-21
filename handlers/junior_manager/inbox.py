@@ -501,18 +501,11 @@ async def jm_contact_message_handler(msg: Message, state: FSMContext):
     items[idx]["order_jm_notes"] = message_text
     items[idx]["staff_jm_notes"] = message_text
     
-    # Move to next item
-    if idx < len(items) - 1:
-        idx += 1
-    elif idx >= len(items) - 1:
-        idx = 0  # Loop back to first
+    await msg.answer(_t(lang, "message_sent_to_client"))
     
-    # Update state
     await state.update_data(items=items, idx=idx, lang=lang)
     await state.set_state(None)  # Clear the contact state
     
-    # Show confirmation and render next card
-    await msg.answer(_t(lang, "message_sent_to_client"))
     await _render_card(target=msg, items=items, idx=idx, lang=lang)
 
 # =========================

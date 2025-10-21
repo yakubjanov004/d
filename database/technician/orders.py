@@ -173,6 +173,10 @@ async def finish_technician_work(applications_id: int,
                 """,
                 applications_id, uid
             )
+            
+            # Texnikda mavjud materiallar uchun material kamaytirish endi kerak emas,
+            # chunki ular material_requests ga yozilmaydi va darhol kamaytiriladi
+            
             return True
     finally:
         await conn.close()
@@ -358,6 +362,9 @@ async def finish_technician_work_for_tech(applications_id: int,
             except Exception:
                 pass
 
+            # Texnikda mavjud materiallar uchun material kamaytirish endi kerak emas,
+            # chunki ular material_requests ga yozilmaydi va darhol kamaytiriladi
+
             return True
     finally:
         await conn.close()
@@ -502,6 +509,9 @@ async def finish_technician_work_for_staff(applications_id: int,
                 )
             except Exception:
                 pass
+
+            # Texnikda mavjud materiallar uchun material kamaytirish endi kerak emas,
+            # chunki ular material_requests ga yozilmaydi va darhol kamaytiriladi
 
             return True
     finally:

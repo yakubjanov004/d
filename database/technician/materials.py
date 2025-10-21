@@ -2,6 +2,8 @@
 import asyncpg
 from typing import List, Dict, Any, Optional
 from config import settings
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ----------------- YORDAMCHI -----------------
@@ -28,32 +30,16 @@ async def fetch_technician_materials(user_id: int = None, current_application_id
                   m.price,
                   m.serial_number,
                   t.quantity    AS assigned_quantity,
-                  COALESCE(
-                    (SELECT SUM(mr.quantity) 
-                     FROM material_requests mr 
-                     WHERE mr.user_id = t.user_id 
-                       AND mr.material_id = t.material_id
-                       AND mr.source_type = 'technician_stock'
-                       AND ($2::int IS NULL OR mr.applications_id != $2::int)
-                    ), 0
-                  ) AS pending_usage,
-                  t.quantity - COALESCE(
-                    (SELECT SUM(mr.quantity) 
-                     FROM material_requests mr 
-                     WHERE mr.user_id = t.user_id 
-                       AND mr.material_id = t.material_id
-                       AND mr.source_type = 'technician_stock'
-                       AND ($2::int IS NULL OR mr.applications_id != $2::int)
-                    ), 0
-                  ) AS stock_quantity
+                  0 AS pending_usage,  -- Texnikda mavjud materiallar uchun pending_usage yo'q
+                  t.quantity AS stock_quantity  -- Texnikda mavjud materiallar uchun to'liq miqdor
                 FROM material_and_technician t
                 JOIN materials m ON m.id = t.material_id
                 WHERE t.user_id = $1
                   AND t.quantity > 0
                 ORDER BY m.name
-                LIMIT $3 OFFSET $4
+                LIMIT $2 OFFSET $3
                 """,
-                user_id, current_application_id, limit, offset
+                user_id, limit, offset
             )
         else:
             rows = await conn.fetch(
@@ -64,22 +50,8 @@ async def fetch_technician_materials(user_id: int = None, current_application_id
                   m.price,
                   m.serial_number,
                   t.quantity    AS assigned_quantity,
-                  COALESCE(
-                    (SELECT SUM(mr.quantity) 
-                     FROM material_requests mr 
-                     WHERE mr.user_id = t.user_id 
-                       AND mr.material_id = t.material_id
-                       AND mr.source_type = 'technician_stock'
-                    ), 0
-                  ) AS pending_usage,
-                  t.quantity - COALESCE(
-                    (SELECT SUM(mr.quantity) 
-                     FROM material_requests mr 
-                     WHERE mr.user_id = t.user_id 
-                       AND mr.material_id = t.material_id
-                       AND mr.source_type = 'technician_stock'
-                    ), 0
-                  ) AS stock_quantity
+                  0 AS pending_usage,  -- Texnikda mavjud materiallar uchun pending_usage yo'q
+                  t.quantity AS stock_quantity  -- Texnikda mavjud materiallar uchun to'liq miqdor
                 FROM material_and_technician t
                 JOIN materials m ON m.id = t.material_id
                 WHERE t.quantity > 0
@@ -169,37 +141,8 @@ async def fetch_assigned_qty(user_id: int, material_id: int) -> int:
         await conn.close()
 
 
-async def fetch_pending_material_usage(user_id: int, material_id: int, exclude_application_id: int = None) -> int:
-    """
-    Texnikning boshqa arizalarda tanlagan lekin hali yakunlamagan material miqdorini hisoblash.
-    exclude_application_id - joriy ariza, uni hisobga olmaslik kerak.
-    """
-    conn = await _conn()
-    try:
-        if exclude_application_id:
-            pending = await conn.fetchval(
-                """
-                SELECT COALESCE(SUM(quantity), 0)
-                FROM material_requests
-                WHERE user_id = $1 AND material_id = $2 
-                  AND applications_id != $3
-                  AND source_type = 'technician_stock'
-                """,
-                user_id, material_id, exclude_application_id
-            )
-        else:
-            pending = await conn.fetchval(
-                """
-                SELECT COALESCE(SUM(quantity), 0)
-                FROM material_requests
-                WHERE user_id = $1 AND material_id = $2 
-                  AND source_type = 'technician_stock'
-                """,
-                user_id, material_id
-            )
-        return int(pending or 0)
-    finally:
-        await conn.close()
+# Bu funksiya endi ishlatilmaydi, chunki texnikda mavjud materiallar uchun 
+# material_requests ga yozilmaydi va pending_usage hisoblanmaydi
 
 
 # --- MUHIM: Tanlovni jamlamay, aynan o'rnatuvchi upsert (OVERWRITE) ---
@@ -275,13 +218,18 @@ async def upsert_material_selection(
     source_type: str = "warehouse"
 ) -> None:
     """
-    Tanlangan miqdorni to'g'ridan-to'g'ri o'rnatadi (jamlamaydi).
-    material_requests da UNIQUE (user_id, applications_id, material_id) tavsiya etiladi.
-    source_type: 'technician_stock' (texnikda bor) yoki 'warehouse' (ombordan so'rash)
+    Material tanlash funksiyasi.
     
-    MUHIM: Agar source_type='technician_stock' bo'lsa, DARHOL material_and_technician.quantity kamayadi!
-    Material_issued ga yozmaslik - faqat yakuniy ko'rinishda yoziladi.
+    source_type='technician_stock': Texnikda mavjud material - darhol kamaytiriladi va material_requests ga yoziladi
+    source_type='warehouse': Ombordan so'ralgan material - material_requests ga yoziladi
+    
+    MUHIM: Barcha material tanlovlari darhol material_requests ga yoziladi!
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"upsert_material_selection called: user_id={user_id}, applications_id={applications_id}, material_id={material_id}, qty={qty}, source_type={source_type}")
+    
     if qty <= 0:
         raise ValueError("Miqdor 0 dan katta bo'lishi kerak")
 
@@ -300,9 +248,8 @@ async def upsert_material_selection(
             material_name = material_info['name']
             total = price * qty
 
-            # Agar texnikda mavjud material bo'lsa, DARHOL kamaytiramiz
+            # Texnikda mavjud material uchun tekshirish
             if source_type == 'technician_stock':
-                # Texnikda yetarli miqdor borligini tekshirish
                 current_qty = await conn.fetchval(
                     """
                     SELECT COALESCE(quantity, 0) 
@@ -315,91 +262,165 @@ async def upsert_material_selection(
                 if current_qty is None:
                     raise ValueError(f"Texnikda bu material yo'q")
                 
-                # Joriy ariza uchun avval tanlangan miqdorni olish
-                current_selection = await conn.fetchval(
-                    """
-                    SELECT COALESCE(quantity, 0) 
-                    FROM material_requests 
-                    WHERE user_id = $1 AND applications_id = $2 AND material_id = $3
-                    """,
-                    user_id, applications_id, material_id
-                )
-                current_selection = int(current_selection or 0)
-                
-                # Boshqa arizelarda band qilingan miqdorni hisoblash
-                pending_other = await fetch_pending_material_usage(user_id, material_id, applications_id)
-                
-                # Haqiqiy mavjud miqdor
-                real_available = current_qty - pending_other + current_selection
-                
-                if real_available < qty:
+                if current_qty < qty:
                     raise ValueError(
                         f"Texnikda yetarli material yo'q. "
-                        f"Umumiy: {current_qty}, Boshqa arizelarda: {pending_other}, "
-                        f"Mavjud: {real_available}, Kerak: {qty}"
+                        f"Mavjud: {current_qty}, Kerak: {qty}"
                     )
-                
-                # DARHOL material_and_technician dan kamaytiramiz
-                await conn.execute(
-                    """
-                    UPDATE material_and_technician 
-                    SET quantity = quantity - $3
-                    WHERE user_id = $1 AND material_id = $2
-                    """,
-                    user_id, material_id, qty
-                )
 
+            # Order IDlarni aniqlash - faqat tegishli tur uchun
+            # applications_id - bu material request ID, order IDlarni alohida olish kerak
+            connection_order_id = None
+            technician_order_id = None
+            staff_order_id = None
+            
+            # Order IDlarni database'dan olish
+            if request_type == "connection":
+                # Connection order ID ni olish
+                order_id = await conn.fetchval(
+                    "SELECT id FROM connection_orders WHERE id = $1",
+                    applications_id
+                )
+                if order_id:
+                    connection_order_id = order_id
+            elif request_type == "technician":
+                # Technician order ID ni olish
+                order_id = await conn.fetchval(
+                    "SELECT id FROM technician_orders WHERE id = $1",
+                    applications_id
+                )
+                if order_id:
+                    technician_order_id = order_id
+            elif request_type == "staff":
+                # Staff order ID ni olish
+                order_id = await conn.fetchval(
+                    "SELECT id FROM staff_orders WHERE id = $1",
+                    applications_id
+                )
+                if order_id:
+                    staff_order_id = order_id
+            
+            # Application number ni olish
+            application_number = await _get_application_number_for_material_issued(conn, applications_id, request_type)
+            
+            # Barcha material tanlovlari uchun material_requests ga DARHOL yozish
+            logger.info(f"Writing to material_requests: user_id={user_id}, applications_id={applications_id}, material_id={material_id}, qty={qty}, price={price}, total={total}, source_type={source_type}, connection_order_id={connection_order_id}, technician_order_id={technician_order_id}, staff_order_id={staff_order_id}")
+            
             has_updated_at = await _has_column(conn, "material_requests", "updated_at")
+            logger.info(f"has_updated_at column: {has_updated_at}")
 
             # Check if record exists first
             existing_record = await conn.fetchrow(
                 "SELECT id FROM material_requests WHERE user_id = $1 AND applications_id = $2 AND material_id = $3",
                 user_id, applications_id, material_id
             )
+            logger.info(f"Existing record: {existing_record}")
 
             if existing_record:
-                # Update existing record
+                # Update existing record - QO'SHISH (qty ni qo'shish)
+                logger.info(f"Updating existing record with id: {existing_record['id']} - adding {qty} to existing quantity")
+                
+                # Avval joriy ma'lumotlarni olish
+                current_record = await conn.fetchrow(
+                    "SELECT quantity, price FROM material_requests WHERE id = $1",
+                    existing_record['id']
+                )
+                new_quantity = current_record['quantity'] + qty
+                new_total = new_quantity * price
+                
                 if has_updated_at:
                     await conn.execute(
                         """
                         UPDATE material_requests 
-                        SET quantity = $1, price = $2, total_price = $3, source_type = $4, updated_at = NOW()
-                        WHERE id = $5
+                        SET quantity = $1, price = $2, total_price = $3, source_type = $4, 
+                            connection_order_id = $5, technician_order_id = $6, staff_order_id = $7, application_number = $8, updated_at = NOW()
+                        WHERE id = $9
                         """,
-                        qty, price, total, source_type, existing_record['id']
+                        new_quantity, price, new_total, source_type, connection_order_id, technician_order_id, staff_order_id, application_number, existing_record['id']
                     )
                 else:
                     await conn.execute(
                         """
                         UPDATE material_requests 
-                        SET quantity = $1, price = $2, total_price = $3, source_type = $4
-                        WHERE id = $5
+                        SET quantity = $1, price = $2, total_price = $3, source_type = $4,
+                            connection_order_id = $5, technician_order_id = $6, staff_order_id = $7, application_number = $8
+                        WHERE id = $9
                         """,
-                        qty, price, total, source_type, existing_record['id']
+                        new_quantity, price, new_total, source_type, connection_order_id, technician_order_id, staff_order_id, application_number, existing_record['id']
                     )
+                logger.info("Record updated successfully - quantity added")
             else:
                 # Insert new record
+                logger.info("Inserting new record")
                 if has_updated_at:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type, 
+                            connection_order_id, technician_order_id, staff_order_id, application_number, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
                         """,
-                        user_id, applications_id, material_id, qty, price, total, source_type
+                        user_id, applications_id, material_id, qty, price, total, source_type, 
+                        connection_order_id, technician_order_id, staff_order_id, application_number
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type,
+                            connection_order_id, technician_order_id, staff_order_id, application_number)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                         """,
-                        user_id, applications_id, material_id, qty, price, total, source_type
+                        user_id, applications_id, material_id, qty, price, total, source_type,
+                        connection_order_id, technician_order_id, staff_order_id, application_number
                     )
+                logger.info("Record inserted successfully")
 
-            # Material_issued ga yozmaslik - faqat yakuniy ko'rinishda yoziladi
+            # Texnikda mavjud materiallar uchun darhol kamaytirish
+            if source_type == 'technician_stock':
+                await conn.execute(
+                    """
+                    UPDATE material_and_technician 
+                    SET quantity = quantity - $1
+                    WHERE user_id = $2 AND material_id = $3
+                    """,
+                    qty, user_id, material_id
+                )
+                logger.info(f"Decreased technician stock: material_id={material_id}, qty={qty}")
+            elif source_type == 'warehouse':
+                # Warehouse materiallari uchun ham texnikda kamaytirish kerak
+                # (agar texnikda bu material bo'lsa)
+                current_qty = await conn.fetchval(
+                    """
+                    SELECT COALESCE(quantity, 0) 
+                    FROM material_and_technician 
+                    WHERE user_id = $1 AND material_id = $2
+                    """,
+                    user_id, material_id
+                )
+                
+                if current_qty and current_qty > 0:
+                    # Texnikda bu material bor, uni kamaytirish
+                    await conn.execute(
+                        """
+                        UPDATE material_and_technician 
+                        SET quantity = quantity - $1
+                        WHERE user_id = $2 AND material_id = $3
+                        """,
+                        qty, user_id, material_id
+                    )
+                    logger.info(f"Decreased technician stock for warehouse material: material_id={material_id}, qty={qty}")
+                else:
+                    logger.info(f"Warehouse material not in technician stock: material_id={material_id}")
 
+    except asyncpg.UniqueViolationError:
+        raise ValueError("Material allaqachon tanlangan. Miqdorni o'zgartirish uchun qayta tanlang.")
+    except ValueError as ve:
+        # Re-raise validation errors as-is
+        raise ve
     except Exception as e:
-        # Re-raise with more context
+        # Log error and re-raise with more context
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Material selection upsert failed: {str(e)}")
         raise Exception(f"Material selection upsert failed: {str(e)}")
     finally:
         await conn.close()
@@ -442,38 +463,36 @@ async def create_material_issued_from_review(
 
 async def restore_technician_materials_on_cancel(user_id: int, applications_id: int) -> None:
     """
-    Ariza bekor qilinganda texnik o'zidan olgan materiallarni qaytarish.
-    - material_requests dan source_type='technician_stock' bo'lgan materiallarni oladi
-    - Ularni material_and_technician ga qaytaradi
-    - Barcha material_requests yozuvlarini o'chiradi
+    Ariza bekor qilinganda material tanlovlarini o'chirish.
+    - Barcha material tanlovlarini o'chiradi (warehouse va technician_stock)
+    - Texnikda mavjud materiallarni qaytaradi
     """
     conn = await _conn()
     try:
         async with conn.transaction():
-            # Texnikdan olingan materiallarni topish
-            technician_materials = await conn.fetch(
+            # Avval tanlangan materiallarni olish
+            selected_materials = await conn.fetch(
                 """
-                SELECT material_id, quantity 
-                FROM material_requests
-                WHERE user_id = $1 
-                  AND applications_id = $2 
-                  AND source_type = 'technician_stock'
+                SELECT material_id, quantity, source_type
+                FROM material_requests 
+                WHERE user_id = $1 AND applications_id = $2
                 """,
                 user_id, applications_id
             )
             
-            # Har bir materialni material_and_technician ga qaytarish
-            for mat in technician_materials:
-                await conn.execute(
-                    """
-                    UPDATE material_and_technician 
-                    SET quantity = quantity + $3
-                    WHERE user_id = $1 AND material_id = $2
-                    """,
-                    user_id, mat['material_id'], mat['quantity']
-                )
+            # Texnikda mavjud materiallarni qaytarish
+            for material in selected_materials:
+                if material['source_type'] == 'technician_stock':
+                    await conn.execute(
+                        """
+                        UPDATE material_and_technician 
+                        SET quantity = quantity + $1
+                        WHERE user_id = $2 AND material_id = $3
+                        """,
+                        material['quantity'], user_id, material['material_id']
+                    )
             
-            # Barcha material_requests yozuvlarini o'chirish
+            # Barcha material tanlovlarini o'chirish
             await conn.execute(
                 """
                 DELETE FROM material_requests 
@@ -486,6 +505,80 @@ async def restore_technician_materials_on_cancel(user_id: int, applications_id: 
 
 
 # Orqa-ward compat: eski nomli funksiya ham shu mantiqqa yo'naltiriladi
+async def recover_technician_materials_after_crash() -> None:
+    """
+    Server qayta ishga tushganda ishlatiladi.
+    material_requests da qolgan technician_stock materiallarni qaytaradi.
+    MUHIM: material_requests o'chirilmaydi - u saqlanadi!
+    """
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Barcha technician_stock materiallarni topish
+            orphaned_materials = await conn.fetch(
+                """
+                SELECT user_id, material_id, quantity
+                FROM material_requests 
+                WHERE source_type = 'technician_stock'
+                """
+            )
+            
+            # Texnikda mavjud materiallarni qaytarish
+            for material in orphaned_materials:
+                await conn.execute(
+                    """
+                    UPDATE material_and_technician 
+                    SET quantity = quantity + $1
+                    WHERE user_id = $2 AND material_id = $3
+                    """,
+                    material['quantity'], material['user_id'], material['material_id']
+                )
+            
+            # MUHIM: material_requests o'chirilmaydi! U saqlanadi.
+            # Faqat material_and_technician qaytariladi.
+            
+            print(f"Recovered {len(orphaned_materials)} technician materials after crash")
+    finally:
+        await conn.close()
+
+
+async def recover_warehouse_materials_after_crash() -> None:
+    """
+    Server qayta ishga tushganda ishlatiladi.
+    material_requests da qolgan warehouse materiallarni qaytaradi.
+    MUHIM: material_requests o'chirilmaydi - u saqlanadi!
+    """
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Barcha warehouse materiallarni topish
+            orphaned_materials = await conn.fetch(
+                """
+                SELECT user_id, material_id, quantity
+                FROM material_requests 
+                WHERE source_type = 'warehouse'
+                """
+            )
+            
+            # Ombordagi materiallarni qaytarish
+            for material in orphaned_materials:
+                await conn.execute(
+                    """
+                    UPDATE materials 
+                    SET quantity = quantity + $1
+                    WHERE id = $2
+                    """,
+                    material['quantity'], material['material_id']
+                )
+            
+            # MUHIM: material_requests o'chirilmaydi! U saqlanadi.
+            # Faqat materials qaytariladi.
+            
+            print(f"Recovered {len(orphaned_materials)} warehouse materials after crash")
+    finally:
+        await conn.close()
+
+
 async def upsert_material_request_and_decrease_stock(
     user_id: int,
     applications_id: int,
@@ -502,7 +595,7 @@ async def fetch_selected_materials_for_request(
 ) -> list[dict]:
     """
     Tanlangan materiallar ro'yxati.
-    Eski testlarda dublikat yozuvlar bo'lishi mumkinligi uchun SUM(...) qilib jamlaymiz.
+    UNIQUE constraint tufayli GROUP BY kerak emas.
     """
     conn = await _conn()
     try:
@@ -512,21 +605,87 @@ async def fetch_selected_materials_for_request(
                 mr.material_id,
                 m.name,
                 COALESCE(m.price, 0) AS price,
-                SUM(
-                    COALESCE(mr.quantity, 0)
-                    + COALESCE(NULLIF(mr.description, '')::int, 0)
-                ) AS qty,
+                mr.quantity AS qty,
                 mr.source_type
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.user_id = $1
               AND mr.applications_id = $2
-            GROUP BY mr.material_id, m.name, m.price, mr.source_type
             ORDER BY m.name
             """,
             user_id, applications_id
         )
         return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def return_materials_to_technician_stock(
+    user_id: int,
+    applications_id: int
+) -> None:
+    """
+    Ariza bekor qilinganda materiallarni texnik stock'ga qaytarish.
+    Faqat technician_stock source_type uchun qaytariladi.
+    """
+    conn = await _conn()
+    try:
+        async with conn.transaction():
+            # Technician stock materiallarini topish
+            technician_materials = await conn.fetch(
+                """
+                SELECT material_id, quantity
+                FROM material_requests 
+                WHERE user_id = $1 AND applications_id = $2 AND source_type = 'technician_stock'
+                """,
+                user_id, applications_id
+            )
+            
+            # Har bir materialni qaytarish
+            for material in technician_materials:
+                await conn.execute(
+                    """
+                    UPDATE material_and_technician 
+                    SET quantity = quantity + $1
+                    WHERE user_id = $2 AND material_id = $3
+                    """,
+                    material['quantity'], user_id, material['material_id']
+                )
+            
+            # Warehouse materiallarni ham qaytarish (agar texnikda mavjud bo'lsa)
+            warehouse_materials = await conn.fetch(
+                """
+                SELECT material_id, quantity
+                FROM material_requests 
+                WHERE user_id = $1 AND applications_id = $2 AND source_type = 'warehouse'
+                """,
+                user_id, applications_id
+            )
+            
+            for material in warehouse_materials:
+                # Texnikda bu material bor-yo'qligini tekshirish
+                current_qty = await conn.fetchval(
+                    """
+                    SELECT COALESCE(quantity, 0) 
+                    FROM material_and_technician 
+                    WHERE user_id = $1 AND material_id = $2
+                    """,
+                    user_id, material['material_id']
+                )
+                
+                if current_qty is not None:
+                    # Texnikda bu material bor, qaytarish
+                    await conn.execute(
+                        """
+                        UPDATE material_and_technician 
+                        SET quantity = quantity + $1
+                        WHERE user_id = $2 AND material_id = $3
+                        """,
+                        material['quantity'], user_id, material['material_id']
+                    )
+            
+            logger.info(f"Returned materials to technician stock for user_id={user_id}, applications_id={applications_id}")
+            
     finally:
         await conn.close()
 

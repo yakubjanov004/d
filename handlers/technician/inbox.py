@@ -6,7 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import State, StatesGroup
 from database.basic.user import find_user_by_telegram_id
-from database.technician.materials import fetch_pending_material_usage
+from database.technician.materials import fetch_technician_materials
 from loader import bot
 import logging
 import asyncpg
@@ -1552,7 +1552,7 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
         if len(parts) != 2:
             raise ValueError("Invalid format")
         material_id, req_id = map(int, parts)
-    except Exception:
+    except Exception as e:
         return await cb.answer(t("format_err", lang), show_alert=True)
 
     user = await find_user_by_telegram_id(cb.from_user.id)
@@ -1563,15 +1563,24 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
     if not mat:
         return await cb.answer(t("not_found_mat", lang), show_alert=True)
 
-    assigned_left = await fetch_assigned_qty(user["id"], material_id)
-    assigned_left = int(assigned_left or 0)
+    # Texnikda mavjud materiallarni olish
+    technician_materials = await fetch_technician_materials(user["id"])
     
-    # Boshqa arizelarda band qilingan miqdorni hisoblash
-    pending_other = await fetch_pending_material_usage(user["id"], material_id, req_id)
-    real_available = assigned_left - pending_other
-
-    # Source type ni aniqlash - texnikda bor yoki ombordan so'rash
-    source_type = "technician_stock" if real_available > 0 else "warehouse"
+    # Joriy materialni topish
+    current_material = None
+    for mat in technician_materials:
+        if mat['material_id'] == material_id:
+            current_material = mat
+            break
+    
+    if not current_material:
+        # Texnikda bu material yo'q, ombordan so'rash kerak
+        source_type = "warehouse"
+        real_available = 0
+    else:
+        # Texnikda mavjud, miqdorini tekshirish
+        real_available = current_material['stock_quantity']
+        source_type = "technician_stock" if real_available > 0 else "warehouse"
 
     # Purge tracked messages and delete current message
     await purge_tracked_messages(state, cb.message.chat.id)
@@ -1589,8 +1598,6 @@ async def tech_mat_select(cb: CallbackQuery, state: FSMContext):
         f"{t('order_id', lang)} {esc(app_number)}\n"
         f"{t('chosen_prod', lang)} {esc(mat['name'])}\n"
         f"{t('price', lang)} {_fmt_price_uzs(mat['price'])} {'so\'m' if lang=='uz' else 'сум'}\n"
-        f"📊 Umumiy: {assigned_left} {'dona' if lang=='uz' else 'шт'}\n"
-        f"⏳ Boshqa arizelarda: {pending_other} {'dona' if lang=='uz' else 'шт'}\n"
         f"✅ Mavjud: {real_available} {'dona' if lang=='uz' else 'шт'}\n\n"
         + t("enter_qty_hint", lang, max=real_available)
     )
@@ -1736,8 +1743,7 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     if qty > max_qty:
         return await msg.answer(t("max_exceeded", lang, max=max_qty))
 
-    # Faqat tanlov saqlansin, material_requests ga yozilmasin
-    # Yakunlashda barcha tanlangan materiallar yoziladi
+    # Material tanlovini darhol saqlash
     try:
         mode = st.get("tech_mode", "connection")
         await upsert_material_selection(
@@ -2157,7 +2163,7 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
     original_text = short_view_text(item, 0, 1, lang, mode)
     
     # Get technician's materials only
-    mats = await fetch_technician_materials(user_id=user["id"], current_application_id=req_id)
+    mats = await fetch_technician_materials(user_id=user["id"])
     
     # Combine original text (materials text qo'shilmadi)
     full_text = original_text
@@ -2516,6 +2522,14 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
             )
     finally:
         await conn.close()
+    
+    # Materiallarni texnik stock'ga qaytarish
+    try:
+        from database.technician.materials import return_materials_to_technician_stock
+        await return_materials_to_technician_stock(user["id"], req_id)
+        logger.info(f"Materials returned to technician stock for cancelled application {req_id}")
+    except Exception as e:
+        logger.error(f"Failed to return materials to technician stock: {e}")
     
     # Purge tracked messages and delete user's text input
     await purge_tracked_messages(state, msg.chat.id)

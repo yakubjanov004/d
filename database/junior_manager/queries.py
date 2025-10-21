@@ -36,12 +36,24 @@ async def get_user_by_telegram_id(telegram_id: int) -> Optional[Dict[str, Any]]:
 async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> List[Dict[str, Any]]:
     """
     Junior Manager inboxdagi connections ro'yxati.
+    Faqat hali controller'ga yuborilmagan arizalar ko'rsatiladi.
     Connection_orders va staff_orders bilan join qilib to'liq ma'lumot olish.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
+            WITH last_assignments AS (
+                -- Eng oxirgi assignment'ni topish
+                SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
+                       COALESCE(c.connection_id, c.staff_id) AS order_id,
+                       c.recipient_id,
+                       c.recipient_status,
+                       c.created_at
+                FROM connections c
+                WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
+                ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+            )
             SELECT
                 c.id,
                 c.sender_id,
@@ -92,7 +104,14 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
             LEFT JOIN users u_so ON u_so.id = so.user_id
             LEFT JOIN tarif t_co ON t_co.id = co.tarif_id
             LEFT JOIN tarif t_so ON t_so.id = so.tarif_id
+            JOIN last_assignments la ON la.order_id = COALESCE(c.connection_id, c.staff_id)
             WHERE c.recipient_id = $1
+              AND la.recipient_id = $1
+              AND la.recipient_status = 'in_junior_manager'
+              AND (
+                  (co.id IS NOT NULL AND co.status = 'in_junior_manager') OR
+                  (so.id IS NOT NULL AND so.status = 'in_junior_manager')
+              )
             ORDER BY c.created_at DESC
             LIMIT $2
             """,
