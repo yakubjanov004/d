@@ -9,23 +9,13 @@ ALTER TABLE public.staff_orders
 ADD COLUMN IF NOT EXISTS media TEXT;
 
 -- Add foreign key constraints if they don't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_staff_orders_user_id') THEN
-        ALTER TABLE public.staff_orders 
-        ADD CONSTRAINT fk_staff_orders_user_id 
-        FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
-    END IF;
-END $$;
+ALTER TABLE public.staff_orders 
+ADD CONSTRAINT IF NOT EXISTS fk_staff_orders_user_id 
+FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_staff_orders_tarif_id') THEN
-        ALTER TABLE public.staff_orders 
-        ADD CONSTRAINT fk_staff_orders_tarif_id 
-        FOREIGN KEY (tarif_id) REFERENCES public.tarif(id) ON DELETE SET NULL;
-    END IF;
-END $$;
+ALTER TABLE public.staff_orders 
+ADD CONSTRAINT IF NOT EXISTS fk_staff_orders_tarif_id 
+FOREIGN KEY (tarif_id) REFERENCES public.tarif(id) ON DELETE SET NULL;
 
 -- Add indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_staff_orders_user_id ON public.staff_orders(user_id);
