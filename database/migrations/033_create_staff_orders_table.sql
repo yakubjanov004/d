@@ -4,6 +4,14 @@
 
 BEGIN;
 
+-- Create sequence if it doesn't exist
+CREATE SEQUENCE IF NOT EXISTS public.staff_orders_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
 -- Create staff_orders table
 CREATE TABLE IF NOT EXISTS public.staff_orders (
     id bigint NOT NULL DEFAULT nextval('public.staff_orders_id_seq'::regclass),
@@ -26,12 +34,9 @@ CREATE TABLE IF NOT EXISTS public.staff_orders (
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by_role text
+    created_by_role text,
+    CONSTRAINT staff_orders_pkey PRIMARY KEY (id)
 );
-
--- Add primary key
-ALTER TABLE public.staff_orders 
-ADD CONSTRAINT staff_orders_pkey PRIMARY KEY (id);
 
 -- Add foreign key constraints
 ALTER TABLE public.staff_orders 
