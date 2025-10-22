@@ -179,8 +179,8 @@ async def fetch_technician_inbox_tech(
                 END AS media_type,
                 to2.description_operator,
                 to2.description_ish,
-                COALESCE(client_user.full_name, user_user.full_name) AS client_name,
-                COALESCE(client_user.phone, user_user.phone) AS client_phone,
+                COALESCE(client_user.full_name, user_user.full_name, 'Mijoz') AS client_name,
+                COALESCE(client_user.phone, user_user.phone, '-') AS client_phone,
                 NULL        AS tariff
             FROM last_conn lc
             JOIN technician_orders to2 ON to2.id = lc.tech_order_id
@@ -256,7 +256,7 @@ async def fetch_technician_inbox_staff(
                 
                 -- Client (abonent) ma'lumotlari
                 COALESCE(client_user.full_name, 'Mijoz') AS client_name,
-                COALESCE(client_user.phone, so.phone) AS client_phone,
+                COALESCE(client_user.phone, so.phone, '-') AS client_phone,
                 client_user.telegram_id,
                 
                 -- Yaratuvchi xodim ma'lumotlari

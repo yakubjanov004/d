@@ -599,37 +599,37 @@ async def get_client_data_for_notification(request_id: int, request_type: str):
             if request_type == "connection":
                 query = """
                     SELECT 
-                        co.client_telegram_id,
+                        u.telegram_id as client_telegram_id,
                         u.lang as client_lang,
-                        co.client_name,
-                        co.client_phone,
+                        u.full_name as client_name,
+                        u.phone as client_phone,
                         co.address
                     FROM connection_orders co
-                    LEFT JOIN users u ON u.telegram_id = co.client_telegram_id
+                    LEFT JOIN users u ON u.id = co.user_id
                     WHERE co.id = $1
                 """
             elif request_type == "technician":
                 query = """
                     SELECT 
-                        to.client_telegram_id,
+                        u.telegram_id as client_telegram_id,
                         u.lang as client_lang,
-                        to.client_name,
-                        to.client_phone,
+                        u.full_name as client_name,
+                        u.phone as client_phone,
                         to.address
                     FROM technician_orders to
-                    LEFT JOIN users u ON u.telegram_id = to.client_telegram_id
+                    LEFT JOIN users u ON u.id = to.user_id
                     WHERE to.id = $1
                 """
             elif request_type == "staff":
                 query = """
                     SELECT 
-                        so.client_telegram_id,
+                        u.telegram_id as client_telegram_id,
                         u.lang as client_lang,
-                        so.client_name,
-                        so.client_phone,
+                        u.full_name as client_name,
+                        u.phone as client_phone,
                         so.address
                     FROM staff_orders so
-                    LEFT JOIN users u ON u.telegram_id = so.client_telegram_id
+                    LEFT JOIN users u ON u.id::text = so.abonent_id
                     WHERE so.id = $1
                 """
             else:
@@ -1312,17 +1312,7 @@ async def tech_accept(cb: CallbackQuery, state: FSMContext):
                         ORDER BY c.created_at DESC LIMIT 1
                     """, req_id)
                 
-                if controller_info and controller_info.get('telegram_id'):
-                    # Notification yuborish
-                    await send_role_notification(
-                        bot=bot,
-                        recipient_telegram_id=controller_info['telegram_id'],
-                        order_id=f"#{req_id}",
-                        order_type=mode if mode != "connection" else "connection",
-                        current_load=1,  # Controller'ning hozirgi yuklamasi
-                        lang=controller_info.get('language', 'uz')
-                    )
-                    logger.info(f"Notification sent to controller - technician accepted order {req_id}")
+
             finally:
                 await conn.close()
         except Exception as notif_error:

@@ -891,6 +891,22 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
     # Itemni listdan o'chirish
     items = [it for it in items if str(it.get("id")) != full_id]
     await state.update_data(inbox=items)
+    
+    # Inbox'ni qaytib ochish - mode bo'yicha
+    if items:  # Agar boshqa arizalar bo'lsa
+        try:
+            await cb.message.delete()
+        except:
+            pass
+        
+        # Mode bo'yicha tegishli inbox funksiyasini chaqirish
+        if mode == "connection":
+            await render_connection_inbox(cb.message, state, items, 0, lang)
+        elif mode == "tech":
+            await render_tech_inbox(cb.message, state, items, 0, lang)
+        elif mode == "staff":
+            await render_staff_inbox(cb.message, state, items, 0, lang)
+    
     await cb.answer()
 
 @router.callback_query(F.data.startswith("ctrl_inbox_tech_"))
@@ -990,6 +1006,22 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
     # Itemni listdan o'chirish
     items = [it for it in items if str(it.get("id")) != full_id]
     await state.update_data(inbox=items)
+    
+    # Inbox'ni qaytib ochish - mode bo'yicha
+    if items:  # Agar boshqa arizalar bo'lsa
+        try:
+            await cb.message.delete()
+        except:
+            pass
+        
+        # Mode bo'yicha tegishli inbox funksiyasini chaqirish
+        if mode == "connection":
+            await render_connection_inbox(cb.message, state, items, 0, lang)
+        elif mode == "tech":
+            await render_tech_inbox(cb.message, state, items, 0, lang)
+        elif mode == "staff":
+            await render_staff_inbox(cb.message, state, items, 0, lang)
+    
     await cb.answer()
 
 

@@ -471,6 +471,14 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
         region_db_value = (region or '').lower()
 
         user_record = await get_user_by_telegram_id(message.from_user.id)
+        if user_record is None:
+            from database.basic.user import ensure_user
+            user_record = await ensure_user(
+                telegram_id=message.from_user.id,
+                full_name=message.from_user.full_name,
+                username=message.from_user.username,
+                role='client'
+            )
         user = dict(user_record) if user_record is not None else {}
 
         if geo:
@@ -545,13 +553,14 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     geo_text = f"\n📍 <b>Lokatsiya:</b> {data.get('location')}"
 
                 phone_for_msg = data.get('phone') or user.get('phone') or '-'
+                client_name_for_msg = user.get('full_name') or message.from_user.full_name or 'Noma\'lum'
                 region_name = normalize_region(region) if region else "Tanlanmagan"
                 
                 group_msg = (
                     f"🔧 <b>YANGI TEXNIK XIZMAT ARIZASI</b>\n"
                     f"{'='*30}\n"
                     f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
-                    f"👤 <b>Mijoz:</b> {user.get('full_name') or message.from_user.full_name or '-'}\n"
+                    f"👤 <b>Mijoz:</b> {client_name_for_msg}\n"
                     f"📞 <b>Tel:</b> {phone_for_msg}\n"
                     f"🏢 <b>Region:</b> {region_name}\n"
                     f"🏢 <b>Abonent:</b> {data.get('abonent_type')} - {data.get('abonent_id')}\n"

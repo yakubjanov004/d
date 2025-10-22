@@ -320,10 +320,8 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         latitude = getattr(geo_data, 'latitude', None) if geo_data else None
         longitude = getattr(geo_data, 'longitude', None) if geo_data else None
 
-        # Force B2C for clients - always default to B2C
         connection_type = data.get('connection_type', 'b2c')
 
-        # Force B2C unless explicitly B2B
         if connection_type != 'b2b':
             connection_type = 'b2c'
 
@@ -340,17 +338,14 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             business_type=business_type
         )
 
-        # Get the full application number from the database and add connection record for workflow history
         conn = await asyncpg.connect(settings.DB_URL)
         try:
-            # Fetch the application number using the request_id
             result = await conn.fetchrow(
                 "SELECT application_number FROM connection_orders WHERE id = $1", 
                 request_id
             )
             app_number = result['application_number'] if result else f"CONN-{request_id:04d}"
             
-            # Add connection record for workflow history (client -> manager)
             await conn.execute(
                 """
                 INSERT INTO connections (
@@ -364,7 +359,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                 )
                 VALUES ($1, $2, $3, 'client_created', 'in_manager', NOW(), NOW())
                 """,
-                request_id, user_id, user_id  # sender: client, recipient: manager (same user for now)
+                request_id, user_id, user_id  
             )
         except Exception as e:
             logger.error(f"Error fetching application number or creating connection record: {e}")
@@ -374,6 +369,10 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
 
         if settings.ZAYAVKA_GROUP_ID:
             try:
+                # Mijoz ma'lumotlarini bazadan olish
+                user_info = await get_user_by_telegram_id(callback.from_user.id)
+                client_name = user_info.get('full_name') if user_info else callback.from_user.full_name or 'Noma\'lum'
+                
                 geo_text = ""
                 if geo_data:
                     geo_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={geo_data.latitude},{geo_data.longitude}'>Google Maps</a>"
@@ -382,7 +381,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                     f"🔌 <b>YANGI ULANISH ARIZASI</b>\n" 
                     f"{'='*30}\n"
                     f"🆔 <b>ID:</b> <code>{app_number}</code>\n"
-                    f"👤 <b>Mijoz:</b> {callback.from_user.full_name}\n"
+                    f"👤 <b>Mijoz:</b> {client_name}\n"
                     f"📞 <b>Tel:</b> {phone_for_msg}\n"
                     f"🏢 <b>Region:</b> {region}\n"
                     f"💳 <b>Tarif:</b> {tariff_name}\n"
