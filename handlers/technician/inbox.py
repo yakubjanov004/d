@@ -905,6 +905,34 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
     media_file_id = item.get("media_file_id")
     media_type = item.get("media_type")
     
+    # Detect actual media type from file_id if database type is incorrect
+    def detect_media_type_from_file_id(file_id: str) -> str:
+        """Detect media type from Telegram file ID prefix"""
+        if not file_id:
+            return None
+        
+        # Telegram file ID prefixes for different media types
+        if file_id.startswith('BAADBAAD'):  # Video note
+            return 'video'
+        elif file_id.startswith('BAACAgI'):  # Video
+            return 'video'
+        elif file_id.startswith('BAAgAgI'):  # Video
+            return 'video'
+        elif file_id.startswith('AgACAgI'):  # Photo
+            return 'photo'
+        elif file_id.startswith('CAAQAgI'):  # Photo
+            return 'photo'
+        # Check for file extensions in local files
+        elif file_id.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+            return 'video'
+        elif file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+            return 'photo'
+        else:
+            return media_type  # Fallback to database value
+    
+    # Use detected media type instead of database value
+    actual_media_type = detect_media_type_from_file_id(media_file_id) if media_file_id else media_type
+    
     try:
         # Eski xabarni o'chirish (inline tugmalar qolmasligi uchun)
         try:
@@ -915,8 +943,7 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
         # Yangi xabar yuborish
         sent_msg = None
         if media_file_id and media_file_id.strip():
-            # Media turiga qarab to'g'ri usuldan boshlaymiz
-            if media_type == 'video':
+            if actual_media_type == 'video':
                 try:
                     sent_msg = await bot.send_video(
                         chat_id=message.chat.id,
@@ -938,7 +965,7 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                     except Exception as e2:
                         logger.error(f"Photo send also failed: {e2}")
                         sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
-            elif media_type == 'photo':
+            elif actual_media_type == 'photo':
                 try:
                     sent_msg = await bot.send_photo(
                         chat_id=message.chat.id,

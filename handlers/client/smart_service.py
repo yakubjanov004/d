@@ -566,19 +566,15 @@ async def handle_address_input(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in handle_address_input: {e}")
+        user_lang = "uz"  
         try:
-            # Get user language with proper fallback
             data = await state.get_data()
             user_lang = data.get('user_lang')
             if not user_lang:
-                try:
-                    user_lang = await get_user_language(message.from_user.id)
-                except Exception:
-                    user_lang = "uz"
-            if not user_lang:
-                user_lang = "uz"
+                user_lang = await get_user_language(message.from_user.id) or "uz"
         except Exception:
             user_lang = "uz"
+        
         error_text = "❌ Xatolik yuz berdi." if user_lang == "uz" else "❌ Произошла ошибка."
         await message.answer(error_text)
 
@@ -723,7 +719,7 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
         user_lang = data.get('user_lang') or await get_user_language(callback.from_user.id)
         
         if callback.data == "confirm_smart_service":
-            await finish_smart_service_order(callback.message, state)
+            await finish_smart_service_order(callback, state)
         else:
             cancel_text = (
                 "❌ Buyurtma bekor qilindi.\n"
@@ -746,21 +742,46 @@ async def handle_confirmation(callback: CallbackQuery, state: FSMContext):
         await callback.answer(error_text, show_alert=True)
 
 
-async def finish_smart_service_order(message: Message, state: FSMContext):
+async def finish_smart_service_order(callback_or_message, state: FSMContext):
     try:
+        # Prevent bot from creating smart service orders
+        logger.info(f"Smart service order attempt - User ID: {callback_or_message.from_user.id}, Bot ID: {settings.BOT_ID}, Username: {callback_or_message.from_user.username}, Full name: {callback_or_message.from_user.full_name}")
+        
+        if callback_or_message.from_user.id == settings.BOT_ID:
+            logger.warning(f"Bot attempted to create smart service order, ignoring - this might be a bot loop issue")
+            return
+            
+        if not callback_or_message.from_user.username and not callback_or_message.from_user.full_name:
+            logger.warning(f"User with no username/full_name attempted to create smart service order, ignoring")
+            return
+            
         data = await state.get_data()
-        telegram_id = message.from_user.id
+        telegram_id = callback_or_message.from_user.id
         user_lang = (await state.get_data()).get('user_lang') or await get_user_language(telegram_id)
         
-        # Ensure user exists; auto-register client if missing
+        # Ensure we have the correct user ID
+        logger.info(f"Processing smart service order for user ID: {telegram_id}, Username: {callback_or_message.from_user.username}, Full name: {callback_or_message.from_user.full_name}")
+        
         from database.basic.user import ensure_user
         ensured = await ensure_user(
             telegram_id=telegram_id,
-            full_name=message.from_user.full_name,
-            username=message.from_user.username,
+            full_name=callback_or_message.from_user.full_name,
+            username=callback_or_message.from_user.username,
             role='client'
         )
-        user = dict(ensured) if ensured is not None else {}
+        
+        if ensured is None or ensured.get('id') == 0:
+            error_msg = "❌ Foydalanuvchi ma'lumotlari yaratilmadi. Qaytadan urinib ko'ring." if user_lang == "uz" else "❌ Не удалось создать данные пользователя. Попробуйте еще раз."
+            if hasattr(callback_or_message, 'message'):
+                # It's a CallbackQuery
+                await callback_or_message.message.answer(error_msg)
+            else:
+                # It's a Message
+                await callback_or_message.answer(error_msg)
+            await state.clear()
+            return
+            
+        user = dict(ensured)
         
         order_data = {
             'user_id': user.get('id'),
@@ -788,34 +809,45 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
             category_name = resolve_category_label(data.get('selected_category'), user_lang)
             service_name = resolve_service_label(data.get('selected_service_type'), user_lang)
 
-            try:
-                location_text = ""
-                if data.get('latitude') and data.get('longitude'):
-                    location_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={data['latitude']},{data['longitude']}'>Google Maps</a>"
+            # Send group notification
+            group_notification_sent = False
+            if settings.ZAYAVKA_GROUP_ID:
+                try:
+                    location_text = ""
+                    if data.get('latitude') and data.get('longitude'):
+                        location_text = f"\n📍 <b>Lokatsiya:</b> <a href='https://maps.google.com/?q={data['latitude']},{data['longitude']}'>Google Maps</a>"
 
-                group_msg = (
-                    f"🛜 <b>YANGI SMARTSERVICE ARIZASI</b>\n"
-                    f"{'='*30}\n"
-                    f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
-                    f"👤 <b>Mijoz:</b> {user.get('full_name') or message.from_user.full_name or 'Noma\'lum'}\n"
-                    f"📞 <b>Telefon:</b> {user.get('phone', 'Noma\'lum')}\n"
-                    f"📂 <b>Kategoriya:</b> {category_name}\n"
-                    f"🔧 <b>Xizmat turi:</b> {service_name}\n"
-                    f"📍 <b>Manzil:</b> {data.get('address')}"
-                    f"{location_text}\n"
-                    f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-                    f"{'='*30}"
-                )
-                
-                if settings.ZAYAVKA_GROUP_ID:
+                    address_text = (data.get('address') or '')[:80]
+                    if len(address_text) < len(data.get('address') or ''):
+                        address_text += "..."
+
+                    group_msg = (
+                        f"🛜 <b>YANGI SMARTSERVICE ARIZASI</b>\n"
+                        f"{'='*30}\n"
+                        f"🆔 <b>ID:</b> <code>{application_number}</code>\n"
+                        f"👤 <b>Mijoz:</b> {user.get('full_name') or callback_or_message.from_user.full_name or 'Noma\'lum'}\n"
+                        f"📞 <b>Telefon:</b> {user.get('phone', 'Noma\'lum')}\n"
+                        f"📂 <b>Kategoriya:</b> {category_name}\n"
+                        f"🔧 <b>Xizmat turi:</b> {service_name}\n"
+                        f"📍 <b>Manzil:</b> {address_text}"
+                        f"{location_text}\n"
+                        f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+                        f"{'='*30}"
+                    )
+                    
+                    logger.info(f"Sending smart service group notification for order {application_number}")
                     await bot.send_message(
                         chat_id=settings.ZAYAVKA_GROUP_ID,
                         text=group_msg,
                         parse_mode='HTML'
                     )
+                    group_notification_sent = True
+                    logger.info(f"Smart service group notification sent successfully for order {application_number}")
                     
-            except Exception as group_error:
-                logger.error(f"Group notification error: {group_error}")
+                except Exception as group_error:
+                    logger.error(f"Smart service group notification error: {group_error}")
+            else:
+                logger.warning("ZAYAVKA_GROUP_ID not configured - skipping smart service group notification")
             
             if user_lang == "uz":
                 success_text = (
@@ -836,10 +868,18 @@ async def finish_smart_service_order(message: Message, state: FSMContext):
                     f"В ближайшее время наши специалисты свяжутся с вами."
                 )
             
-            await message.edit_text(
-                success_text,
-                parse_mode='HTML'
-            )
+            if hasattr(callback_or_message, 'message'):
+                # It's a CallbackQuery
+                await callback_or_message.message.edit_text(
+                    success_text,
+                    parse_mode='HTML'
+                )
+            else:
+                # It's a Message
+                await callback_or_message.edit_text(
+                    success_text,
+                    parse_mode='HTML'
+                )
         else:
             # Use the user_lang that was already determined at the beginning of the function
             if user_lang == "uz":

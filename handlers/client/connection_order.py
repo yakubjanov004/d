@@ -21,7 +21,7 @@ from keyboards.client_buttons import (
 )
 from states.client_states import ConnectionOrderStates
 from config import settings
-from database.basic.user import ensure_user
+from database.basic.user import ensure_user, get_user_by_telegram_id
 from database.basic.tariff import get_or_create_tarif_by_code
 from database.basic.language import get_user_language
 from database.client.orders import create_connection_order
@@ -296,11 +296,27 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         data = await state.get_data()
         lang = data.get("lang", "uz")
 
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
+        # Handle both callback and message
+        if hasattr(message_or_callback, 'message'):
+            # It's a CallbackQuery
+            await message_or_callback.message.edit_reply_markup(reply_markup=None)
+            await message_or_callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
 
         region = (data.get('selected_region') or data.get('region') or 'toshkent shahri')
-        user_row = await ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
+        
+        # Get user from either callback or message
+        if hasattr(message_or_callback, 'message'):
+            # It's a CallbackQuery
+            user_telegram_id = message_or_callback.from_user.id
+            user_full_name = message_or_callback.from_user.full_name
+            user_username = message_or_callback.from_user.username
+        else:
+            # It's a Message
+            user_telegram_id = message_or_callback.from_user.id
+            user_full_name = message_or_callback.from_user.full_name
+            user_username = message_or_callback.from_user.username
+        
+        user_row = await ensure_user(user_telegram_id, user_full_name, user_username)
         user_id = user_row["id"]
         user_phone = user_row.get("phone") if isinstance(user_row, dict) else user_row["phone"]
 
@@ -369,9 +385,10 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
 
         if settings.ZAYAVKA_GROUP_ID:
             try:
+                logger.info(f"Sending group notification for client connection order {app_number}")
                 # Mijoz ma'lumotlarini bazadan olish
-                user_info = await get_user_by_telegram_id(callback.from_user.id)
-                client_name = user_info.get('full_name') if user_info else callback.from_user.full_name or 'Noma\'lum'
+                user_info = await get_user_by_telegram_id(user_telegram_id)
+                client_name = user_info.get('full_name') if user_info else user_full_name or 'Noma\'lum'
                 
                 geo_text = ""
                 if geo_data:
@@ -390,9 +407,11 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                     f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
                     f"{'='*30}"
                 )
+                logger.info(f"Sending message to group {settings.ZAYAVKA_GROUP_ID}")
                 await bot.send_message(chat_id=settings.ZAYAVKA_GROUP_ID, text=group_msg, parse_mode='HTML')
-            except Exception:
-                pass
+                logger.info(f"Group notification sent successfully for client connection order {app_number}")
+            except Exception as e:
+                logger.error(f"Failed to send group notification for client connection order: {e}")
 
         # Yuborish muvaffaqiyatli bo'lsa, foydalanuvchiga xabar bering
         success_msg = (

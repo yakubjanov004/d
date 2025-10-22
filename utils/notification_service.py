@@ -199,6 +199,8 @@ async def send_group_notification_for_staff_order(
     try:
         from config import settings
         
+        logger.info(f"Attempting to send group notification for {order_type} order {order_id}")
+        
         if not settings.ZAYAVKA_GROUP_ID:
             logger.warning("ZAYAVKA_GROUP_ID not configured")
             return False
@@ -279,6 +281,7 @@ async def send_group_notification_for_staff_order(
             )
         
         # Xabarni guruhga yuborish
+        logger.info(f"Sending message to group {settings.ZAYAVKA_GROUP_ID}")
         await bot.send_message(
             chat_id=settings.ZAYAVKA_GROUP_ID,
             text=message,

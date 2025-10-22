@@ -901,11 +901,11 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
         
         # Mode bo'yicha tegishli inbox funksiyasini chaqirish
         if mode == "connection":
-            await render_connection_inbox(cb.message, state, items, 0, lang)
+            await render_tech_item(cb.message, items, 0, lang, state)  # Temporary fix
         elif mode == "tech":
-            await render_tech_inbox(cb.message, state, items, 0, lang)
+            await render_tech_item(cb.message, items, 0, lang, state)
         elif mode == "staff":
-            await render_staff_inbox(cb.message, state, items, 0, lang)
+            await render_staff_item(cb.message, items, 0, lang, state)
     
     await cb.answer()
 
@@ -980,8 +980,7 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
     # Confirmation yuborish
     app_num_short = full_id.split("_")[0] if "_" in full_id else full_id
     
-    # Actual application_number ni olish
-    actual_app_number = app_num_short  # Default fallback
+    actual_app_number = app_num_short  
     if result and result.get("application_number"):
         actual_app_number = result.get("application_number")
     else:
@@ -1016,11 +1015,11 @@ async def assign_to_tech(cb: CallbackQuery, state: FSMContext):
         
         # Mode bo'yicha tegishli inbox funksiyasini chaqirish
         if mode == "connection":
-            await render_connection_inbox(cb.message, state, items, 0, lang)
+            await render_tech_item(cb.message, items, 0, lang, state)  # Temporary fix
         elif mode == "tech":
-            await render_tech_inbox(cb.message, state, items, 0, lang)
+            await render_tech_item(cb.message, items, 0, lang, state)
         elif mode == "staff":
-            await render_staff_inbox(cb.message, state, items, 0, lang)
+            await render_staff_item(cb.message, items, 0, lang, state)
     
     await cb.answer()
 

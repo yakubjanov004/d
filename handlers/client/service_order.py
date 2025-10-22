@@ -64,28 +64,15 @@ async def save_service_media_file(file_id: str, media_type: str, user_id: int, o
             # Fayl hajmini olish
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
 
-            # Media faylini database ga saqlash
-
-
-            import psycopg2
-
-            conn = psycopg2.connect(
-                host=settings.DB_HOST,
-                port=settings.DB_PORT,
-                user=settings.DB_USER,
-                password=settings.DB_PASSWORD,
-                database=settings.DB_NAME or 'alfaconnect_bot'
-            )
-
+            # Media faylini database ga saqlash (asyncpg bilan)
+            conn = await asyncpg.connect(settings.DB_URL)
             try:
-                cursor = conn.cursor()
-
-                cursor.execute("""
+                await conn.execute("""
                     INSERT INTO media_files (
                         file_path, file_type, file_size, original_name, mime_type,
                         category, related_table, related_id, uploaded_by, is_active
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                """, 
                     file_path,
                     media_type,
                     file_size,
@@ -96,14 +83,12 @@ async def save_service_media_file(file_id: str, media_type: str, user_id: int, o
                     order_id,
                     user_id,
                     True
-                ))
+                )
 
-                conn.commit()
                 logger.info(f"Media file saved to database: {file_path}")
 
             finally:
-                cursor.close()
-                conn.close()
+                await conn.close()
 
         except Exception as e:
             logger.error(f"Could not save media file to database: {e}")
@@ -454,7 +439,7 @@ async def handle_service_confirmation(callback: CallbackQuery, state: FSMContext
         if callback.data == "confirm_service_yes":
             data = await state.get_data()
             geo = data.get('geo')
-            await finish_service_order(callback.message, state, lang, geo=geo)
+            await finish_service_order(callback, state, lang, geo=geo)
         else:
             await callback.message.answer("🔄 Ariza qayta boshlanmoqda...\n\nIltimos, hududni tanlang:" if lang == "uz" else "🔄 Заявка начинается заново...\n\nПожалуйста, выберите регион:", reply_markup=get_client_regions_keyboard(lang) if callable(get_client_regions_keyboard) else get_client_regions_keyboard())
             await state.clear()
@@ -464,22 +449,40 @@ async def handle_service_confirmation(callback: CallbackQuery, state: FSMContext
         await callback.answer("❌ Xatolik yuz berdi.", show_alert=True)
 
 # ---------- Yaratish (finish) ----------
-async def finish_service_order(message: Message, state: FSMContext, lang: str, geo=None):
+async def finish_service_order(callback_or_message, state: FSMContext, lang: str, geo=None):
     try:
+        # Prevent bot from creating service orders
+        if callback_or_message.from_user.id == settings.BOT_ID:
+            logger.warning(f"Bot attempted to create service order, ignoring")
+            return
+            
         data = await state.get_data()
         region = data.get('selected_region') or data.get('region')
         region_db_value = (region or '').lower()
 
-        user_record = await get_user_by_telegram_id(message.from_user.id)
+        user_record = await get_user_by_telegram_id(callback_or_message.from_user.id)
         if user_record is None:
             from database.basic.user import ensure_user
             user_record = await ensure_user(
-                telegram_id=message.from_user.id,
-                full_name=message.from_user.full_name,
-                username=message.from_user.username,
+                telegram_id=callback_or_message.from_user.id,
+                full_name=callback_or_message.from_user.full_name,
+                username=callback_or_message.from_user.username,
                 role='client'
             )
-        user = dict(user_record) if user_record is not None else {}
+        
+        if user_record is None or user_record.get('id') == 0:
+            # If user creation failed or returned bot user (id=0), we cannot proceed
+            error_msg = "❌ Foydalanuvchi ma'lumotlari yaratilmadi. Qaytadan urinib ko'ring." if lang == "uz" else "❌ Не удалось создать данные пользователя. Попробуйте еще раз."
+            if hasattr(callback_or_message, 'message'):
+                # It's a CallbackQuery
+                await callback_or_message.message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+            else:
+                # It's a Message
+                await callback_or_message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+            await state.clear()
+            return
+            
+        user = dict(user_record)
 
         if geo:
             geo_str = f"{geo.latitude},{geo.longitude}"
@@ -488,7 +491,6 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
         else:
             geo_str = None
 
-        # Determine business type based on abonent type
         business_type = 'B2B' if data.get('abonent_type') == 'B2B' else 'B2C'
         
         request_id = await create_service_order(
@@ -502,7 +504,6 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
             business_type
         )
         
-        # Application number ni olish va connection record qo'shish
         conn = await asyncpg.connect(settings.DB_URL)
         try:
             app_number_result = await conn.fetchrow(
@@ -511,7 +512,6 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
             )
             application_number = app_number_result['application_number'] if app_number_result else f"TECH-{business_type}-{request_id:04d}"
             
-            # Add connection record for workflow history (client -> manager)
             await conn.execute(
                 """
                 INSERT INTO connections (
@@ -525,13 +525,12 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                 )
                 VALUES ($1, $2, $3, 'client_created', 'in_manager', NOW(), NOW())
                 """,
-                request_id, user.get('id'), user.get('id')  # sender: client, recipient: manager (same user for now)
+                request_id, user.get('id'), user.get('id') 
             )
         finally:
             await conn.close()
 
-        # Media faylini saqlash (agar mavjud bo'lsa)
-        if data.get('media_id') and data.get('media_type'):
+        if data.get('media_id') and data.get('media_type') and user.get('id') != 0:
             media_path = await save_service_media_file(
                 data['media_id'],
                 data['media_type'],
@@ -544,6 +543,7 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                 logger.warning(f"Failed to save media file for order {request_id}")
 
         # Guruhga xabar (hozir UZda; xohlasangiz ru versiyasini ham shunday qo'shamiz)
+        group_notification_sent = False
         if settings.ZAYAVKA_GROUP_ID:
             try:
                 geo_text = ""
@@ -553,8 +553,16 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     geo_text = f"\n📍 <b>Lokatsiya:</b> {data.get('location')}"
 
                 phone_for_msg = data.get('phone') or user.get('phone') or '-'
-                client_name_for_msg = user.get('full_name') or message.from_user.full_name or 'Noma\'lum'
+                client_name_for_msg = user.get('full_name') or callback_or_message.from_user.full_name or 'Noma\'lum'
                 region_name = normalize_region(region) if region else "Tanlanmagan"
+                
+                problem_text = (data.get('reason') or data.get('description') or '')[:50]
+                if len(problem_text) < len(data.get('reason') or data.get('description') or ''):
+                    problem_text += "..."
+                
+                address_text = (data.get('address') or '')[:80]
+                if len(address_text) < len(data.get('address') or ''):
+                    address_text += "..."
                 
                 group_msg = (
                     f"🔧 <b>YANGI TEXNIK XIZMAT ARIZASI</b>\n"
@@ -564,15 +572,14 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                     f"📞 <b>Tel:</b> {phone_for_msg}\n"
                     f"🏢 <b>Region:</b> {region_name}\n"
                     f"🏢 <b>Abonent:</b> {data.get('abonent_type')} - {data.get('abonent_id')}\n"
-                    f"📍 <b>Manzil:</b> {data.get('address')}\n"
-                    f"📝 <b>Muammo:</b> {((data.get('reason') or data.get('description') or '')[:100])}...\n"
+                    f"📍 <b>Manzil:</b> {address_text}\n"
+                    f"📝 <b>Muammo:</b> {problem_text}\n"
                     f"{geo_text}\n"
                     f"📷 <b>Media:</b> {'✅ Mavjud' if data.get('media_id') else "❌ Yo'q"}\n"
                     f"🕐 <b>Vaqt:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
                     f"{'='*30}"
                 )
 
-                # Send media with application details as caption, or just text if no media
                 if data.get('media_id'):
                     if data.get('media_type') == 'photo':
                         await bot.send_photo(
@@ -589,7 +596,6 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                             parse_mode='HTML'
                         )
                 else:
-                    # No media, send text message
                     await bot.send_message(
                         chat_id=settings.ZAYAVKA_GROUP_ID,
                         text=group_msg,
@@ -602,10 +608,12 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
                         latitude=geo.latitude,
                         longitude=geo.longitude
                     )
+                
+                group_notification_sent = True
+                logger.info(f"Group notification sent successfully for service order {application_number}")
 
             except Exception as group_error:
                 logger.error(f"Group notification error: {group_error}")
-                # Guruh topilmagan bo'lsa, admin guruhiga yuborish
                 if hasattr(settings, 'ADMIN_GROUP_ID') and settings.ADMIN_GROUP_ID:
                     try:
                         await bot.send_message(
@@ -623,28 +631,36 @@ async def finish_service_order(message: Message, state: FSMContext, lang: str, g
         abonent_id = data.get('abonent_id') or "Kiritilmagan"
         address = data.get('address') or "Kiritilmagan"
         
+        # Xabar uzunligini cheklash
+        region_name = region_name[:50] if len(region_name) > 50 else region_name
+        abonent_id = abonent_id[:20] if len(abonent_id) > 20 else abonent_id
+        address = address[:100] if len(address) > 100 else address
+        
         success_msg = (
             f"✅ <b>Texnik xizmat arizangiz qabul qilindi!</b>\n\n"
             f"🆔 <b>Ariza raqami:</b> <code>{application_number}</code>\n"
-            f"📍 <b>Hudud:</b> {region_name}\n"
-            f"🏢 <b>Abonent ID:</b> {abonent_id}\n"
-            f"📍 <b>Manzil:</b> {address}\n"
             f"⏰ <b>Texnik mutaxassis tez orada bog'lanadi!</b>"
         ) if lang == "uz" else (
             f"✅ <b>Ваша заявка в техподдержку принята!</b>\n\n"
             f"🆔 <b>Номер:</b> <code>{application_number}</code>\n"
-            f"📍 <b>Регион:</b> {region_name}\n"
-            f"🏢 <b>ID абонента:</b> {abonent_id}\n"
-            f"📍 <b>Адрес:</b> {address}\n"
             f"⏰ <b>Специалист свяжется с вами в ближайшее время!</b>"
         )
 
-        await message.answer(success_msg, parse_mode='HTML', reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+        if hasattr(callback_or_message, 'message'):
+            await callback_or_message.message.answer(success_msg, parse_mode='HTML', reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+        else:
+            await callback_or_message.answer(success_msg, parse_mode='HTML', reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
         await state.clear()
 
     except Exception as e:
         logger.error(f"Error in finish_service_order: {e}")
-        await message.answer("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Попробуйте еще раз.", reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+        error_msg = "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Попробуйте еще раз."
+        if hasattr(callback_or_message, 'message'):
+            # It's a CallbackQuery
+            await callback_or_message.message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+        else:
+            # It's a Message
+            await callback_or_message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
         await state.clear()
 
 # ---------- Bekor qilish ----------
