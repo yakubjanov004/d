@@ -470,7 +470,7 @@ async def finish_service_order(callback_or_message, state: FSMContext, lang: str
                 role='client'
             )
         
-        if user_record is None or user_record.get('id') == 0:
+        if user_record is None or user_record.get('id') == 0 or user_record.get('id') is None:
             # If user creation failed or returned bot user (id=0), we cannot proceed
             error_msg = "❌ Foydalanuvchi ma'lumotlari yaratilmadi. Qaytadan urinib ko'ring." if lang == "uz" else "❌ Не удалось создать данные пользователя. Попробуйте еще раз."
             if hasattr(callback_or_message, 'message'):
@@ -483,6 +483,16 @@ async def finish_service_order(callback_or_message, state: FSMContext, lang: str
             return
             
         user = dict(user_record)
+        
+        # Double check that user_id is valid
+        if not user.get('id') or user.get('id') == 0:
+            error_msg = "❌ Foydalanuvchi ID noto'g'ri. Qaytadan urinib ko'ring." if lang == "uz" else "❌ Неверный ID пользователя. Попробуйте еще раз."
+            if hasattr(callback_or_message, 'message'):
+                await callback_or_message.message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+            else:
+                await callback_or_message.answer(error_msg, reply_markup=get_client_main_menu(lang) if callable(get_client_main_menu) else get_client_main_menu())
+            await state.clear()
+            return
 
         if geo:
             geo_str = f"{geo.latitude},{geo.longitude}"

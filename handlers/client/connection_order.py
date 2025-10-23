@@ -296,25 +296,16 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         data = await state.get_data()
         lang = data.get("lang", "uz")
 
-        # Handle both callback and message
-        if hasattr(message_or_callback, 'message'):
-            # It's a CallbackQuery
-            await message_or_callback.message.edit_reply_markup(reply_markup=None)
-            await message_or_callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
+        # Handle callback query
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
 
         region = (data.get('selected_region') or data.get('region') or 'toshkent shahri')
         
-        # Get user from either callback or message
-        if hasattr(message_or_callback, 'message'):
-            # It's a CallbackQuery
-            user_telegram_id = message_or_callback.from_user.id
-            user_full_name = message_or_callback.from_user.full_name
-            user_username = message_or_callback.from_user.username
-        else:
-            # It's a Message
-            user_telegram_id = message_or_callback.from_user.id
-            user_full_name = message_or_callback.from_user.full_name
-            user_username = message_or_callback.from_user.username
+        # Get user from callback
+        user_telegram_id = callback.from_user.id
+        user_full_name = callback.from_user.full_name
+        user_username = callback.from_user.username
         
         user_row = await ensure_user(user_telegram_id, user_full_name, user_username)
         user_id = user_row["id"]

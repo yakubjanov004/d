@@ -527,7 +527,7 @@ async def handle_address_input(message: Message, state: FSMContext):
         user_lang = data.get('user_lang') or await get_user_language(message.from_user.id) or "uz"
 
         # Validate that text exists and is non-empty
-        if not getattr(message, 'text', None):
+        if not getattr(message, 'text', None) or not message.text:
             prompt_text = (
                 "❌ Iltimos, manzilni matn ko'rinishida yuboring." if user_lang == "uz"
                 else "❌ Пожалуйста, отправьте адрес текстом."
@@ -566,7 +566,6 @@ async def handle_address_input(message: Message, state: FSMContext):
         
     except Exception as e:
         logger.error(f"Error in handle_address_input: {e}")
-        user_lang = "uz"  
         try:
             data = await state.get_data()
             user_lang = data.get('user_lang')

@@ -928,10 +928,12 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
         elif file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
             return 'photo'
         else:
-            return media_type  # Fallback to database value
+            # If we can't determine from file ID, return None to use original media_type
+            return None
     
     # Use detected media type instead of database value
-    actual_media_type = detect_media_type_from_file_id(media_file_id) if media_file_id else media_type
+    detected_type = detect_media_type_from_file_id(media_file_id) if media_file_id else None
+    actual_media_type = detected_type if detected_type else media_type
     
     try:
         # Eski xabarni o'chirish (inline tugmalar qolmasligi uchun)
@@ -976,16 +978,22 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                     )
                 except Exception as e:
                     logger.error(f"Photo send failed, retrying as video: {e}")
-                    try:
-                        sent_msg = await bot.send_video(
-                            chat_id=message.chat.id,
-                            video=media_file_id,
-                            caption=text,
-                            parse_mode='HTML',
-                            reply_markup=kb
-                        )
-                    except Exception as e2:
-                        logger.error(f"Video send also failed: {e2}")
+                    # Check if the error is specifically about wrong file type
+                    if "can't use file of type Video as Photo" in str(e):
+                        logger.info("File is actually a video, sending as video")
+                        try:
+                            sent_msg = await bot.send_video(
+                                chat_id=message.chat.id,
+                                video=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=kb
+                            )
+                        except Exception as e2:
+                            logger.error(f"Video send also failed: {e2}")
+                            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                    else:
+                        # For other errors, try as document
                         try:
                             sent_msg = await bot.send_document(
                                 chat_id=message.chat.id,
@@ -1009,17 +1017,22 @@ async def render_item(message, item: dict, idx: int, total: int, lang: str, mode
                     )
                 except Exception as e:
                     logger.error(f"Photo send failed, retrying as video: {e}")
-                    try:
-                        sent_msg = await bot.send_video(
-                            chat_id=message.chat.id,
-                            video=media_file_id,
-                            caption=text,
-                            parse_mode='HTML',
-                            reply_markup=kb
-                        )
-                    except Exception as e2:
-                        logger.error(f"Video send also failed: {e2}")
-                        # Try as document if both photo and video fail
+                    # Check if the error is specifically about wrong file type
+                    if "can't use file of type Video as Photo" in str(e):
+                        logger.info("File is actually a video, sending as video")
+                        try:
+                            sent_msg = await bot.send_video(
+                                chat_id=message.chat.id,
+                                video=media_file_id,
+                                caption=text,
+                                parse_mode='HTML',
+                                reply_markup=kb
+                            )
+                        except Exception as e2:
+                            logger.error(f"Video send also failed: {e2}")
+                            sent_msg = await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=kb)
+                    else:
+                        # For other errors, try as document
                         try:
                             sent_msg = await bot.send_document(
                                 chat_id=message.chat.id,
