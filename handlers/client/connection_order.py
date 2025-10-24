@@ -296,7 +296,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
         data = await state.get_data()
         lang = data.get("lang", "uz")
 
-        # Handle callback
+        # Handle callback query
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.answer("⏳ Zayavka yaratilmoaqda..." if lang == "uz" else "⏳ Заявка создаётся...")
 
