@@ -222,13 +222,28 @@ async def get_rating_for_akt(request_id: int, request_type: str) -> Optional[Dic
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            return None
+        
+        application_number = app_number_result['application_number']
+        
         rating = await conn.fetchrow(
             """
             SELECT rating, comment, created_at
             FROM akt_ratings
-            WHERE request_id = $1 AND request_type = $2
+            WHERE application_number = $1
             """,
-            request_id, request_type
+            application_number
         )
         return dict(rating) if rating else None
     finally:
@@ -250,13 +265,29 @@ async def create_akt_document(request_id: int, request_type: str, akt_number: st
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            print(f"Error: No application_number found for request_id {request_id}")
+            return False
+        
+        application_number = app_number_result['application_number']
+        
         # First check if document already exists
         existing = await conn.fetchrow(
             """
             SELECT id FROM akt_documents 
-            WHERE request_id = $1 AND request_type = $2
+            WHERE application_number = $1
             """,
-            request_id, request_type
+            application_number
         )
         
         if existing:
@@ -273,10 +304,10 @@ async def create_akt_document(request_id: int, request_type: str, akt_number: st
             # Insert new document
             await conn.execute(
                 """
-                INSERT INTO akt_documents (request_id, request_type, akt_number, file_path, file_hash, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO akt_documents (application_number, akt_number, file_path, file_hash, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
                 """,
-                request_id, request_type, akt_number, file_path, file_hash
+                application_number, akt_number, file_path, file_hash
             )
         return True
     except Exception as e:
@@ -299,13 +330,29 @@ async def mark_akt_sent(request_id: int, request_type: str, sent_at: datetime) -
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            print(f"Error: No application_number found for request_id {request_id}")
+            return False
+        
+        application_number = app_number_result['application_number']
+        
         await conn.execute(
             """
             UPDATE akt_documents 
-            SET sent_to_client_at = $3, updated_at = NOW()
-            WHERE request_id = $1 AND request_type = $2
+            SET sent_to_client_at = $2, updated_at = NOW()
+            WHERE application_number = $1
             """,
-            request_id, request_type, sent_at
+            application_number, sent_at
         )
         return True
     except Exception as e:
@@ -327,14 +374,29 @@ async def check_akt_exists(request_id: int, request_type: str) -> bool:
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            return False
+        
+        application_number = app_number_result['application_number']
+        
         result = await conn.fetchval(
             """
             SELECT EXISTS(
                 SELECT 1 FROM akt_documents 
-                WHERE request_id = $1 AND request_type = $2
+                WHERE application_number = $1
             )
             """,
-            request_id, request_type
+            application_number
         )
         return bool(result)
     finally:

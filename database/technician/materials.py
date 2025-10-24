@@ -190,13 +190,11 @@ async def _insert_material_issued(
     price: float, 
     total_price: float, 
     issued_by: int, 
-    applications_id: int, 
+    application_number: str, 
     request_type: str, 
     material_name: str
 ) -> None:
     """Material_issued jadvaliga yozish - soddalashtirilgan versiya"""
-    # Application number ni olish
-    application_number = await _get_application_number_for_material_issued(conn, applications_id, request_type)
 
     await conn.execute(
         """
@@ -211,14 +209,14 @@ async def _insert_material_issued(
 
 async def upsert_material_selection(
     user_id: int,
-    applications_id: int,
+    application_id: int,  
     material_id: int,
     qty: int,
     request_type: str = "connection",
     source_type: str = "warehouse"
 ) -> None:
     """
-    Material tanlash funksiyasi.
+    Material tanlash funksiyasi - REFACTORED for application_number schema.
     
     source_type='technician_stock': Texnikda mavjud material - darhol kamaytiriladi va material_requests ga yoziladi
     source_type='warehouse': Ombordan so'ralgan material - material_requests ga yoziladi
@@ -228,7 +226,7 @@ async def upsert_material_selection(
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info(f"upsert_material_selection called: user_id={user_id}, applications_id={applications_id}, material_id={material_id}, qty={qty}, source_type={source_type}")
+    logger.info(f"upsert_material_selection called: user_id={user_id}, application_id={application_id}, material_id={material_id}, qty={qty}, source_type={source_type}")
     
     if qty <= 0:
         raise ValueError("Miqdor 0 dan katta bo'lishi kerak")
@@ -268,51 +266,22 @@ async def upsert_material_selection(
                         f"Mavjud: {current_qty}, Kerak: {qty}"
                     )
 
-            # Order IDlarni aniqlash - faqat tegishli tur uchun
-            # applications_id - bu material request ID, order IDlarni alohida olish kerak
-            connection_order_id = None
-            technician_order_id = None
-            staff_order_id = None
+            # Get application_number from the order tables
+            application_number = await _get_application_number_for_material_issued(conn, application_id, request_type)
             
-            # Order IDlarni database'dan olish
-            if request_type == "connection":
-                # Connection order ID ni olish
-                order_id = await conn.fetchval(
-                    "SELECT id FROM connection_orders WHERE id = $1",
-                    applications_id
-                )
-                if order_id:
-                    connection_order_id = order_id
-            elif request_type == "technician":
-                # Technician order ID ni olish
-                order_id = await conn.fetchval(
-                    "SELECT id FROM technician_orders WHERE id = $1",
-                    applications_id
-                )
-                if order_id:
-                    technician_order_id = order_id
-            elif request_type == "staff":
-                # Staff order ID ni olish
-                order_id = await conn.fetchval(
-                    "SELECT id FROM staff_orders WHERE id = $1",
-                    applications_id
-                )
-                if order_id:
-                    staff_order_id = order_id
-            
-            # Application number ni olish
-            application_number = await _get_application_number_for_material_issued(conn, applications_id, request_type)
+            if not application_number:
+                raise ValueError(f"Application number not found for {request_type} order {application_id}")
             
             # Barcha material tanlovlari uchun material_requests ga DARHOL yozish
-            logger.info(f"Writing to material_requests: user_id={user_id}, applications_id={applications_id}, material_id={material_id}, qty={qty}, price={price}, total={total}, source_type={source_type}, connection_order_id={connection_order_id}, technician_order_id={technician_order_id}, staff_order_id={staff_order_id}")
+            logger.info(f"Writing to material_requests: user_id={user_id}, application_id={application_id}, material_id={material_id}, qty={qty}, price={price}, total={total}, source_type={source_type}, application_number={application_number}")
             
             has_updated_at = await _has_column(conn, "material_requests", "updated_at")
             logger.info(f"has_updated_at column: {has_updated_at}")
 
-            # Check if record exists first
+            # Check if record exists first - using application_number instead of applications_id
             existing_record = await conn.fetchrow(
-                "SELECT id FROM material_requests WHERE user_id = $1 AND applications_id = $2 AND material_id = $3",
-                user_id, applications_id, material_id
+                "SELECT id FROM material_requests WHERE user_id = $1 AND application_number = $2 AND material_id = $3",
+                user_id, application_number, material_id
             )
             logger.info(f"Existing record: {existing_record}")
 
@@ -333,20 +302,20 @@ async def upsert_material_selection(
                         """
                         UPDATE material_requests 
                         SET quantity = $1, price = $2, total_price = $3, source_type = $4, 
-                            connection_order_id = $5, technician_order_id = $6, staff_order_id = $7, application_number = $8, updated_at = NOW()
-                        WHERE id = $9
+                            application_number = $5, updated_at = NOW()
+                        WHERE id = $6
                         """,
-                        new_quantity, price, new_total, source_type, connection_order_id, technician_order_id, staff_order_id, application_number, existing_record['id']
+                        new_quantity, price, new_total, source_type, application_number, existing_record['id']
                     )
                 else:
                     await conn.execute(
                         """
                         UPDATE material_requests 
                         SET quantity = $1, price = $2, total_price = $3, source_type = $4,
-                            connection_order_id = $5, technician_order_id = $6, staff_order_id = $7, application_number = $8
-                        WHERE id = $9
+                            application_number = $5
+                        WHERE id = $6
                         """,
-                        new_quantity, price, new_total, source_type, connection_order_id, technician_order_id, staff_order_id, application_number, existing_record['id']
+                        new_quantity, price, new_total, source_type, application_number, existing_record['id']
                     )
                 logger.info("Record updated successfully - quantity added")
             else:
@@ -355,22 +324,20 @@ async def upsert_material_selection(
                 if has_updated_at:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type, 
-                            connection_order_id, technician_order_id, staff_order_id, application_number, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+                        INSERT INTO material_requests (user_id, material_id, quantity, price, total_price, source_type, 
+                            application_number, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
                         """,
-                        user_id, applications_id, material_id, qty, price, total, source_type, 
-                        connection_order_id, technician_order_id, staff_order_id, application_number
+                        user_id, material_id, qty, price, total, source_type, application_number
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO material_requests (user_id, applications_id, material_id, quantity, price, total_price, source_type,
-                            connection_order_id, technician_order_id, staff_order_id, application_number)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        INSERT INTO material_requests (user_id, material_id, quantity, price, total_price, source_type,
+                            application_number)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                         """,
-                        user_id, applications_id, material_id, qty, price, total, source_type,
-                        connection_order_id, technician_order_id, staff_order_id, application_number
+                        user_id, material_id, qty, price, total, source_type, application_number
                     )
                 logger.info("Record inserted successfully")
 
@@ -428,7 +395,7 @@ async def upsert_material_selection(
 
 async def create_material_issued_from_review(
     user_id: int,
-    applications_id: int,
+    application_number: str,
     request_type: str
 ) -> None:
     """
@@ -444,9 +411,9 @@ async def create_material_issued_from_review(
                    m.name as material_name
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            WHERE mr.user_id = $1 AND mr.applications_id = $2
+            WHERE mr.user_id = $1 AND mr.application_number = $2
             """,
-            user_id, applications_id
+            user_id, application_number
         )
         
         # Insert into material_issued for each material
@@ -454,14 +421,14 @@ async def create_material_issued_from_review(
             await _insert_material_issued(
                 conn, mat['material_id'], mat['quantity'],
                 mat['price'], mat['quantity'] * mat['price'],
-                user_id, applications_id, request_type,
+                user_id, application_number, request_type,
                 mat['material_name']
             )
     finally:
         await conn.close()
 
 
-async def restore_technician_materials_on_cancel(user_id: int, applications_id: int) -> None:
+async def restore_technician_materials_on_cancel(user_id: int, application_number: str) -> None:
     """
     Ariza bekor qilinganda material tanlovlarini o'chirish.
     - Barcha material tanlovlarini o'chiradi (warehouse va technician_stock)
@@ -475,9 +442,9 @@ async def restore_technician_materials_on_cancel(user_id: int, applications_id: 
                 """
                 SELECT material_id, quantity, source_type
                 FROM material_requests 
-                WHERE user_id = $1 AND applications_id = $2
+                WHERE user_id = $1 AND application_number = $2
                 """,
-                user_id, applications_id
+                user_id, application_number
             )
             
             # Texnikda mavjud materiallarni qaytarish
@@ -496,9 +463,9 @@ async def restore_technician_materials_on_cancel(user_id: int, applications_id: 
             await conn.execute(
                 """
                 DELETE FROM material_requests 
-                WHERE user_id = $1 AND applications_id = $2
+                WHERE user_id = $1 AND application_number = $2
                 """,
-                user_id, applications_id
+                user_id, application_number
             )
     finally:
         await conn.close()
@@ -507,76 +474,22 @@ async def restore_technician_materials_on_cancel(user_id: int, applications_id: 
 # Orqa-ward compat: eski nomli funksiya ham shu mantiqqa yo'naltiriladi
 async def recover_technician_materials_after_crash() -> None:
     """
-    Server qayta ishga tushganda ishlatiladi.
-    material_requests da qolgan technician_stock materiallarni qaytaradi.
-    MUHIM: material_requests o'chirilmaydi - u saqlanadi!
+    Server qayta ishga tushganda ishlatilmaydi - DISABLED!
+    Material_requests qo'yilganda darhol material_and_technician kamayadi.
+    Recovery kerak emas!
     """
-    conn = await _conn()
-    try:
-        async with conn.transaction():
-            # Barcha technician_stock materiallarni topish
-            orphaned_materials = await conn.fetch(
-                """
-                SELECT user_id, material_id, quantity
-                FROM material_requests 
-                WHERE source_type = 'technician_stock'
-                """
-            )
-            
-            # Texnikda mavjud materiallarni qaytarish
-            for material in orphaned_materials:
-                await conn.execute(
-                    """
-                    UPDATE material_and_technician 
-                    SET quantity = quantity + $1
-                    WHERE user_id = $2 AND material_id = $3
-                    """,
-                    material['quantity'], material['user_id'], material['material_id']
-                )
-            
-            # MUHIM: material_requests o'chirilmaydi! U saqlanadi.
-            # Faqat material_and_technician qaytariladi.
-            
-            print(f"Recovered {len(orphaned_materials)} technician materials after crash")
-    finally:
-        await conn.close()
+    # DISABLED - Recovery kerak emas, chunki material_requests yozilganda
+    # darhol material_and_technician kamayadi
+    pass
 
 
 async def recover_warehouse_materials_after_crash() -> None:
     """
-    Server qayta ishga tushganda ishlatiladi.
-    material_requests da qolgan warehouse materiallarni qaytaradi.
-    MUHIM: material_requests o'chirilmaydi - u saqlanadi!
+    Server qayta ishga tushganda ishlatilmaydi - DISABLED!
+    Warehouse materials uchun recovery kerak emas.
     """
-    conn = await _conn()
-    try:
-        async with conn.transaction():
-            # Barcha warehouse materiallarni topish
-            orphaned_materials = await conn.fetch(
-                """
-                SELECT user_id, material_id, quantity
-                FROM material_requests 
-                WHERE source_type = 'warehouse'
-                """
-            )
-            
-            # Ombordagi materiallarni qaytarish
-            for material in orphaned_materials:
-                await conn.execute(
-                    """
-                    UPDATE materials 
-                    SET quantity = quantity + $1
-                    WHERE id = $2
-                    """,
-                    material['quantity'], material['material_id']
-                )
-            
-            # MUHIM: material_requests o'chirilmaydi! U saqlanadi.
-            # Faqat materials qaytariladi.
-            
-            print(f"Recovered {len(orphaned_materials)} warehouse materials after crash")
-    finally:
-        await conn.close()
+    # DISABLED - Recovery kerak emas
+    pass
 
 
 async def upsert_material_request_and_decrease_stock(
@@ -591,7 +504,7 @@ async def upsert_material_request_and_decrease_stock(
 
 async def fetch_selected_materials_for_request(
     user_id: int,
-    applications_id: int
+    application_number: str
 ) -> list[dict]:
     """
     Tanlangan materiallar ro'yxati.
@@ -610,10 +523,10 @@ async def fetch_selected_materials_for_request(
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
             WHERE mr.user_id = $1
-              AND mr.applications_id = $2
+              AND mr.application_number = $2
             ORDER BY m.name
             """,
-            user_id, applications_id
+            user_id, application_number
         )
         return [dict(r) for r in rows]
     finally:
@@ -622,7 +535,7 @@ async def fetch_selected_materials_for_request(
 
 async def return_materials_to_technician_stock(
     user_id: int,
-    applications_id: int
+    application_number: str
 ) -> None:
     """
     Ariza bekor qilinganda materiallarni texnik stock'ga qaytarish.
@@ -636,9 +549,9 @@ async def return_materials_to_technician_stock(
                 """
                 SELECT material_id, quantity
                 FROM material_requests 
-                WHERE user_id = $1 AND applications_id = $2 AND source_type = 'technician_stock'
+                WHERE user_id = $1 AND application_number = $2 AND source_type = 'technician_stock'
                 """,
-                user_id, applications_id
+                user_id, application_number
             )
             
             # Har bir materialni qaytarish
@@ -657,9 +570,9 @@ async def return_materials_to_technician_stock(
                 """
                 SELECT material_id, quantity
                 FROM material_requests 
-                WHERE user_id = $1 AND applications_id = $2 AND source_type = 'warehouse'
+                WHERE user_id = $1 AND application_number = $2 AND source_type = 'warehouse'
                 """,
-                user_id, applications_id
+                user_id, application_number
             )
             
             for material in warehouse_materials:
@@ -684,7 +597,7 @@ async def return_materials_to_technician_stock(
                         material['quantity'], user_id, material['material_id']
                     )
             
-            logger.info(f"Returned materials to technician stock for user_id={user_id}, applications_id={applications_id}")
+            logger.info(f"Returned materials to technician stock for user_id={user_id}, application_number={application_number}")
             
     finally:
         await conn.close()

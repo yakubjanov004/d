@@ -230,8 +230,19 @@ def _fmt_history(lang: str, title_name: str, application_number: str, steps: lis
             from_name = html.escape(st['from_name'], quote=False)
             to_name = html.escape(st['to_name'], quote=False)
             duration_str = html.escape(st['duration_str'], quote=False)
+            
+            # Step description in the current language
+            step_desc = st.get('description', {})
+            if isinstance(step_desc, dict):
+                description = step_desc.get(lang, step_desc.get('uz', ''))
+            else:
+                description = str(step_desc)
+            
+            description = html.escape(description, quote=False)
+            
             lines.append(
                 f"\n<b>{i}.</b> {from_name} → {to_name}\n"
+                f"   📝 {description}\n"
                 f"   🗓 {start_s} → {end_s}\n"
                 f"   ⏱ {duration_str}"
             )

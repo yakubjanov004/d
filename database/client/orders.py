@@ -156,7 +156,7 @@ async def create_connection_order(user_id: int, region: str, address: str, tarif
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
             """,
-            application_number, user_id, region_normalized, address, tarif_id, business_type, latitude, longitude, 'in_manager'
+            application_number, user_id, region_normalized, address, tarif_id, business_type, latitude, longitude, 'in_controller'
         )
         return row["id"]
     finally:

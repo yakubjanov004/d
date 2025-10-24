@@ -49,7 +49,7 @@ async def staff_orders_create(
                     description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7,
-                        '', $8, 'connection', 'in_manager'::staff_order_status, TRUE, NOW(), NOW())
+                        '', $8, 'connection', 'in_controller'::staff_order_status, TRUE, NOW(), NOW())
                 RETURNING id, application_number
                 """,
                 application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type
@@ -69,7 +69,7 @@ async def staff_orders_create(
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, 'new', 'in_manager', NOW(), NOW())
+                VALUES ($1, $2, $3, 'new', 'in_controller', NOW(), NOW())
                 """,
                 staff_order_id, user_id, user_id  # sender: controller, recipient: manager (hozircha bir xil)
             )

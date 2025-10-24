@@ -223,6 +223,10 @@ async def show_connection_orders(callback: CallbackQuery, state: FSMContext):
     """Show connection orders"""
     await state.update_data(current_order_type="connection", current_index=0)
     
+    # Get user language
+    user = await find_user_by_telegram_id(callback.from_user.id)
+    lang = user.get("lang", "uz") if user else "uz"
+    
     # Faqat material_requests mavjud bo'lgan connection arizalarini ko'rsatamiz
     orders = await fetch_warehouse_connection_orders_with_materials(limit=1, offset=0)
     total_count = await count_warehouse_connection_orders_with_materials()
@@ -298,6 +302,10 @@ async def navigate_prev(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(current_index=new_index)
     
+    # Get user language
+    user = await find_user_by_telegram_id(callback.from_user.id)
+    lang = user.get("lang", "uz") if user else "uz"
+    
     # Get current order type from state
     data = await state.get_data()
     current_order_type = data.get('current_order_type', 'connection')
@@ -307,9 +315,9 @@ async def navigate_prev(callback: CallbackQuery, state: FSMContext):
         total_count = await count_warehouse_connection_orders_with_materials()
         if orders:
             mats = await fetch_materials_for_connection_order(orders[0].get('id'))
-            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
-            text = format_connection_order(orders[0], new_index, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
-            keyboard = get_technician_inbox_controls(new_index, total_count, orders[0].get('id'))
+            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m, lang)}" for m in mats]) if mats else "—"
+            text = format_connection_order(orders[0], new_index, total_count, lang) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
+            keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "technician":
         orders = await fetch_warehouse_technician_orders(limit=1, offset=new_index)
         total_count = await count_warehouse_technician_orders()
@@ -336,6 +344,10 @@ async def navigate_next(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(current_index=new_index)
 
+    # Get user language
+    user = await find_user_by_telegram_id(callback.from_user.id)
+    lang = user.get("lang", "uz") if user else "uz"
+
     # Determine current order type from state
     data = await state.get_data()
     current_order_type = data.get('current_order_type', 'connection')
@@ -345,8 +357,8 @@ async def navigate_next(callback: CallbackQuery, state: FSMContext):
         total_count = await count_warehouse_connection_orders_with_materials()
         if orders:
             mats = await fetch_materials_for_connection_order(orders[0].get('id'))
-            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
-            text = format_connection_order(orders[0], new_index, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
+            mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m, lang)}" for m in mats]) if mats else "—"
+            text = format_connection_order(orders[0], new_index, total_count, lang) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
             keyboard = get_connection_inbox_controls(new_index, total_count, orders[0].get('id'))
     elif current_order_type == "technician":
         orders = await fetch_warehouse_technician_orders(limit=1, offset=new_index)
@@ -402,9 +414,75 @@ async def confirm_connection_materials(callback: CallbackQuery, state: FSMContex
         return await callback.answer("❌ Foydalanuvchi topilmadi", show_alert=True)
     
     try:
+        # Get order details before confirming
+        from database.connections import _conn
+        conn = await _conn()
+        order_info = await conn.fetchrow(
+            """
+            SELECT co.id, co.application_number, c.recipient_id, u.telegram_id, u.language
+            FROM connection_orders co
+            JOIN connections c ON c.connection_order_id = co.id
+            JOIN users u ON u.id = c.recipient_id
+            WHERE co.id = $1 AND c.recipient_id IS NOT NULL
+            ORDER BY c.id DESC LIMIT 1
+            """,
+            order_id
+        )
+        await conn.close()
+        
         ok = await confirm_materials_and_update_status_for_connection(order_id, user['id'])
         if not ok:
             return await callback.answer("❌ Tasdiqlashda xato", show_alert=True)
+        
+        # Send notification to technician
+        if order_info:
+            try:
+                from loader import bot
+                
+                tech_telegram_id = order_info['telegram_id']
+                tech_lang = order_info['language'] or 'uz'
+                app_number = order_info['application_number']
+                
+                # Get approved materials
+                conn = await _conn()
+                materials = await conn.fetch(
+                    """
+                    SELECT mr.material_name, mr.quantity
+                    FROM material_requests mr
+                    WHERE mr.application_number = $1 AND mr.warehouse_approved = TRUE
+                    ORDER BY mr.material_name
+                    """,
+                    app_number
+                )
+                await conn.close()
+                
+                # Build materials list
+                mats_list = "\n".join([f"• {m['material_name']} — {m['quantity']} dona" for m in materials]) if materials else "—"
+                
+                if tech_lang == 'ru':
+                    notification = (
+                        f"✅ <b>Материалы одобрены складом</b>\n\n"
+                        f"🆔 <b>Заявка:</b> {app_number}\n"
+                        f"📦 <b>Тип:</b> Подключение\n\n"
+                        f"📋 <b>Одобренные материалы:</b>\n{mats_list}\n\n"
+                        f"Вы можете забрать материалы со склада."
+                    )
+                else:
+                    notification = (
+                        f"✅ <b>Materiallar ombor tomonidan tasdiqlandi</b>\n\n"
+                        f"🆔 <b>Ariza:</b> {app_number}\n"
+                        f"📦 <b>Turi:</b> Ulanish\n\n"
+                        f"📋 <b>Tasdiqlangan materiallar:</b>\n{mats_list}\n\n"
+                        f"Materiallarni ombordan olishingiz mumkin."
+                    )
+                
+                await bot.send_message(
+                    chat_id=tech_telegram_id,
+                    text=notification,
+                    parse_mode="HTML"
+                )
+            except Exception as notif_error:
+                print(f"Failed to send technician notification: {notif_error}")
             
         await callback.answer("✅ Tasdiqlandi")
     except ValueError as e:
@@ -414,6 +492,10 @@ async def confirm_connection_materials(callback: CallbackQuery, state: FSMContex
     # After confirming, go back to list starting at current index
     data = await state.get_data()
     idx = int(data.get('current_index', 0))
+    
+    # Get user language
+    user_lang = user.get("lang", "uz") if user else "uz"
+    
     # Reload current selection
     orders = await fetch_warehouse_connection_orders_with_materials(limit=1, offset=idx)
     total_count = await count_warehouse_connection_orders_with_materials()
@@ -423,9 +505,9 @@ async def confirm_connection_materials(callback: CallbackQuery, state: FSMContex
 
     order = orders[0]
     mats = await fetch_materials_for_connection_order(order.get('id'))
-    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m)}" for m in mats]) if mats else "—"
-    text = format_connection_order(order, idx, total_count) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
-    keyboard = get_staff_inbox_controls(idx, total_count, order.get('id'))
+    mats_text = "\n".join([f"• {esc(m['material_name'])} — {esc(m['quantity'])} dona {_get_source_indicator(m, user_lang)}" for m in mats]) if mats else "—"
+    text = format_connection_order(order, idx, total_count, user_lang) + f"\n\n🧾 <b>Materiallar:</b>\n{mats_text}"
+    keyboard = get_connection_inbox_controls(idx, total_count, order.get('id'))
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     except TelegramBadRequest:
@@ -445,9 +527,75 @@ async def confirm_technician_materials(callback: CallbackQuery, state: FSMContex
         return await callback.answer("❌ Foydalanuvchi topilmadi", show_alert=True)
     
     try:
+        # Get order details before confirming
+        from database.connections import _conn
+        conn = await _conn()
+        order_info = await conn.fetchrow(
+            """
+            SELECT to2.id, to2.application_number, c.recipient_id, u.telegram_id, u.language
+            FROM technician_orders to2
+            JOIN connections c ON c.technician_order_id = to2.id
+            JOIN users u ON u.id = c.recipient_id
+            WHERE to2.id = $1 AND c.recipient_id IS NOT NULL
+            ORDER BY c.id DESC LIMIT 1
+            """,
+            order_id
+        )
+        await conn.close()
+        
         ok = await confirm_materials_and_update_status_for_technician(order_id, user['id'])
         if not ok:
             return await callback.answer("❌ Tasdiqlashda xato", show_alert=True)
+        
+        # Send notification to technician
+        if order_info:
+            try:
+                from loader import bot
+                
+                tech_telegram_id = order_info['telegram_id']
+                tech_lang = order_info['language'] or 'uz'
+                app_number = order_info['application_number']
+                
+                # Get approved materials
+                conn = await _conn()
+                materials = await conn.fetch(
+                    """
+                    SELECT mr.material_name, mr.quantity
+                    FROM material_requests mr
+                    WHERE mr.application_number = $1 AND mr.warehouse_approved = TRUE
+                    ORDER BY mr.material_name
+                    """,
+                    app_number
+                )
+                await conn.close()
+                
+                # Build materials list
+                mats_list = "\n".join([f"• {m['material_name']} — {m['quantity']} dona" for m in materials]) if materials else "—"
+                
+                if tech_lang == 'ru':
+                    notification = (
+                        f"✅ <b>Материалы одобрены складом</b>\n\n"
+                        f"🆔 <b>Заявка:</b> {app_number}\n"
+                        f"📦 <b>Тип:</b> Техническое обслуживание\n\n"
+                        f"📋 <b>Одобренные материалы:</b>\n{mats_list}\n\n"
+                        f"Вы можете забрать материалы со склада."
+                    )
+                else:
+                    notification = (
+                        f"✅ <b>Materiallar ombor tomonidan tasdiqlandi</b>\n\n"
+                        f"🆔 <b>Ariza:</b> {app_number}\n"
+                        f"📦 <b>Turi:</b> Texnik xizmat\n\n"
+                        f"📋 <b>Tasdiqlangan materiallar:</b>\n{mats_list}\n\n"
+                        f"Materiallarni ombordan olishingiz mumkin."
+                    )
+                
+                await bot.send_message(
+                    chat_id=tech_telegram_id,
+                    text=notification,
+                    parse_mode="HTML"
+                )
+            except Exception as notif_error:
+                print(f"Failed to send technician notification: {notif_error}")
             
         await callback.answer("✅ Tasdiqlandi")
     except ValueError as e:
@@ -490,9 +638,75 @@ async def confirm_staff_materials(callback: CallbackQuery, state: FSMContext):
         return await callback.answer("❌ Foydalanuvchi topilmadi", show_alert=True)
     
     try:
+        # Get order details before confirming
+        from database.connections import _conn
+        conn = await _conn()
+        order_info = await conn.fetchrow(
+            """
+            SELECT so.id, so.application_number, c.recipient_id, u.telegram_id, u.language
+            FROM staff_orders so
+            JOIN connections c ON c.staff_order_id = so.id
+            JOIN users u ON u.id = c.recipient_id
+            WHERE so.id = $1 AND c.recipient_id IS NOT NULL
+            ORDER BY c.id DESC LIMIT 1
+            """,
+            order_id
+        )
+        await conn.close()
+        
         ok = await confirm_materials_and_update_status_for_staff(order_id, user['id'])
         if not ok:
             return await callback.answer("❌ Tasdiqlashda xato", show_alert=True)
+        
+        # Send notification to technician
+        if order_info:
+            try:
+                from loader import bot
+                
+                tech_telegram_id = order_info['telegram_id']
+                tech_lang = order_info['language'] or 'uz'
+                app_number = order_info['application_number']
+                
+                # Get approved materials
+                conn = await _conn()
+                materials = await conn.fetch(
+                    """
+                    SELECT mr.material_name, mr.quantity
+                    FROM material_requests mr
+                    WHERE mr.application_number = $1 AND mr.warehouse_approved = TRUE
+                    ORDER BY mr.material_name
+                    """,
+                    app_number
+                )
+                await conn.close()
+                
+                # Build materials list
+                mats_list = "\n".join([f"• {m['material_name']} — {m['quantity']} dona" for m in materials]) if materials else "—"
+                
+                if tech_lang == 'ru':
+                    notification = (
+                        f"✅ <b>Материалы одобрены складом</b>\n\n"
+                        f"🆔 <b>Заявка:</b> {app_number}\n"
+                        f"📦 <b>Тип:</b> Заявка сотрудника\n\n"
+                        f"📋 <b>Одобренные материалы:</b>\n{mats_list}\n\n"
+                        f"Вы можете забрать материалы со склада."
+                    )
+                else:
+                    notification = (
+                        f"✅ <b>Materiallar ombor tomonidan tasdiqlandi</b>\n\n"
+                        f"🆔 <b>Ariza:</b> {app_number}\n"
+                        f"📦 <b>Turi:</b> Xodim arizasi\n\n"
+                        f"📋 <b>Tasdiqlangan materiallar:</b>\n{mats_list}\n\n"
+                        f"Materiallarni ombordan olishingiz mumkin."
+                    )
+                
+                await bot.send_message(
+                    chat_id=tech_telegram_id,
+                    text=notification,
+                    parse_mode="HTML"
+                )
+            except Exception as notif_error:
+                print(f"Failed to send technician notification: {notif_error}")
             
         await callback.answer("✅ Tasdiqlandi")
     except ValueError as e:

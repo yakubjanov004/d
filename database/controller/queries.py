@@ -1018,12 +1018,278 @@ async def assign_to_ccs_staff(request_id: int, ccs_id: int, actor_id: int) -> Di
         await conn.close()
 
 # =========================================================
+#  Staff Activity functions
+# =========================================================
+
+async def fetch_controller_staff_activity() -> List[Dict[str, Any]]:
+    """Controller uchun xodimlar faoliyati - barcha xodimlar va ularning arizalari."""
+    return await fetch_controller_staff_activity_with_time_filter("total")
+
+async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "total") -> List[Dict[str, Any]]:
+    """
+    Controller uchun xodimlar faoliyati - vaqt filtri bilan.
+    time_filter: 'today', '3days', '7days', 'month', 'total'
+    """
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        # Vaqt filtri uchun WHERE sharti
+        if time_filter == "total":
+            # Barcha vaqt uchun hech qanday shart qo'shmaslik
+            staff_time_condition = "TRUE"
+            conn_time_condition = "TRUE"
+            tech_time_condition = "TRUE"
+        else:
+            if time_filter == "today":
+                time_condition = "created_at >= CURRENT_DATE"
+            elif time_filter == "7days":
+                time_condition = "created_at >= CURRENT_DATE - INTERVAL '7 days'"
+            elif time_filter == "month":
+                time_condition = "created_at >= CURRENT_DATE - INTERVAL '30 days'"
+            else:
+                time_condition = "TRUE"
+            staff_time_condition = f"so.{time_condition}"
+            conn_time_condition = f"co.{time_condition}"
+            tech_time_condition = f"tech_orders.{time_condition}"
+        
+        # SQL query'ni alohida qilib yozamiz
+        if time_filter == "total":
+            query = """
+            WITH controller_connection_stats AS (
+                SELECT
+                    u.id,
+                    u.full_name,
+                    u.phone,
+                    u.role,
+                    u.created_at,
+                    -- Orders they created (as user_id) - Connection orders
+                    COUNT(CASE WHEN co.user_id = u.id THEN co.id END) as created_conn_orders,
+                    COUNT(CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as created_conn_active,
+                    -- Orders assigned to them through workflow (as recipient) - Connection orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN co.id END) as assigned_conn_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
+                FROM users u
+                LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
+                LEFT JOIN connections c ON c.connection_id = co.id
+                WHERE u.role IN ('controller')
+                GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
+            ),
+            controller_technician_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they created (as user_id) - Technician orders
+                    COUNT(CASE WHEN tech_orders.user_id = u.id THEN tech_orders.id END) as created_tech_orders,
+                    COUNT(CASE WHEN tech_orders.user_id = u.id AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as created_tech_active,
+                    -- Orders assigned to them through workflow (as recipient) - Technician orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN tech_orders.id END) as assigned_tech_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as assigned_tech_active
+                FROM users u
+                LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
+                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            ),
+            controller_staff_orders_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they created (as user_id) - Staff orders
+                    COUNT(CASE WHEN so.user_id = u.id THEN so.id END) as created_staff_orders,
+                    COUNT(CASE WHEN so.user_id = u.id AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as created_staff_active,
+                    -- Orders assigned to them through workflow (as recipient) - Staff orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN so.id END) as assigned_staff_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as assigned_staff_active
+                FROM users u
+                LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
+                LEFT JOIN connections c ON c.staff_id = so.id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            ),
+            controller_sent_orders_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they sent (as sender_id) - Through connections table
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                FROM users u
+                LEFT JOIN connections c ON c.sender_id = u.id
+                LEFT JOIN connection_orders co ON co.id = c.connection_id
+                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
+                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            )
+            SELECT
+                ccs.id,
+                ccs.full_name,
+                ccs.phone,
+                ccs.role,
+                ccs.created_at,
+                (COALESCE(ccs.created_conn_orders, 0) + COALESCE(ccs.assigned_conn_orders, 0) + 
+                 COALESCE(cts.created_tech_orders, 0) + COALESCE(cts.assigned_tech_orders, 0) +
+                 COALESCE(csos.created_staff_orders, 0) + COALESCE(csos.assigned_staff_orders, 0) +
+                 COALESCE(csent.sent_conn_orders, 0) + COALESCE(csent.sent_tech_orders, 0) + COALESCE(csent.sent_staff_orders, 0)) as total_orders,
+                (COALESCE(ccs.created_conn_orders, 0) + COALESCE(ccs.assigned_conn_orders, 0) + 
+                 COALESCE(csent.sent_conn_orders, 0)) as conn_count,
+                (COALESCE(cts.created_tech_orders, 0) + COALESCE(cts.assigned_tech_orders, 0) + 
+                 COALESCE(csent.sent_tech_orders, 0)) as tech_count,
+                (COALESCE(ccs.created_conn_active, 0) + COALESCE(ccs.assigned_conn_active, 0) + 
+                 COALESCE(cts.created_tech_active, 0) + COALESCE(cts.assigned_tech_active, 0) +
+                 COALESCE(csos.created_staff_active, 0) + COALESCE(csos.assigned_staff_active, 0) +
+                 COALESCE(csent.sent_conn_active, 0) + COALESCE(csent.sent_tech_active, 0) + COALESCE(csent.sent_staff_active, 0)) as active_count,
+                -- New detailed counts
+                COALESCE(ccs.assigned_conn_orders, 0) as assigned_conn_count,
+                COALESCE(ccs.created_conn_orders, 0) as created_conn_count,
+                COALESCE(cts.created_tech_orders, 0) as created_tech_count,
+                COALESCE(cts.assigned_tech_orders, 0) as assigned_tech_count,
+                -- Staff orders they created and assigned
+                COALESCE(csos.created_staff_orders, 0) as created_staff_count,
+                COALESCE(csos.assigned_staff_orders, 0) as assigned_staff_count,
+                -- Orders they sent
+                COALESCE(csent.sent_conn_orders, 0) as sent_conn_count,
+                COALESCE(csent.sent_tech_orders, 0) as sent_tech_count,
+                COALESCE(csent.sent_staff_orders, 0) as sent_staff_count
+            FROM controller_connection_stats ccs
+            LEFT JOIN controller_technician_stats cts ON cts.id = ccs.id
+            LEFT JOIN controller_staff_orders_stats csos ON csos.id = ccs.id
+            LEFT JOIN controller_sent_orders_stats csent ON csent.id = ccs.id
+            ORDER BY total_orders DESC, ccs.full_name
+            """
+        else:
+            # Vaqt filtri bilan query
+            if time_filter == "today":
+                time_condition = "created_at >= CURRENT_DATE"
+            elif time_filter == "7days":
+                time_condition = "created_at >= CURRENT_DATE - INTERVAL '7 days'"
+            elif time_filter == "month":
+                time_condition = "created_at >= CURRENT_DATE - INTERVAL '30 days'"
+            else:
+                time_condition = "TRUE"
+            
+            query = f"""
+            WITH controller_connection_stats AS (
+                SELECT
+                    u.id,
+                    u.full_name,
+                    u.phone,
+                    u.role,
+                    u.created_at,
+                    -- Orders they created (as user_id) - Connection orders
+                    COUNT(CASE WHEN co.user_id = u.id THEN co.id END) as created_conn_orders,
+                    COUNT(CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as created_conn_active,
+                    -- Orders assigned to them through workflow (as recipient) - Connection orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN co.id END) as assigned_conn_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
+                FROM users u
+                LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
+                    AND co.{time_condition}
+                LEFT JOIN connections c ON c.connection_id = co.id
+                WHERE u.role IN ('controller')
+                GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
+            ),
+            controller_technician_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they created (as user_id) - Technician orders
+                    COUNT(CASE WHEN tech_orders.user_id = u.id THEN tech_orders.id END) as created_tech_orders,
+                    COUNT(CASE WHEN tech_orders.user_id = u.id AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as created_tech_active,
+                    -- Orders assigned to them through workflow (as recipient) - Technician orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN tech_orders.id END) as assigned_tech_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as assigned_tech_active
+                FROM users u
+                LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
+                    AND tech_orders.{time_condition}
+                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            ),
+            controller_staff_orders_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they created (as user_id) - Staff orders
+                    COUNT(CASE WHEN so.user_id = u.id THEN so.id END) as created_staff_orders,
+                    COUNT(CASE WHEN so.user_id = u.id AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as created_staff_active,
+                    -- Orders assigned to them through workflow (as recipient) - Staff orders
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') THEN so.id END) as assigned_staff_orders,
+                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as assigned_staff_active
+                FROM users u
+                LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
+                    AND so.{time_condition}
+                LEFT JOIN connections c ON c.staff_id = so.id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            ),
+            controller_sent_orders_stats AS (
+                SELECT
+                    u.id,
+                    -- Orders they sent (as sender_id) - Through connections table
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                FROM users u
+                LEFT JOIN connections c ON c.sender_id = u.id
+                    AND c.{time_condition}
+                LEFT JOIN connection_orders co ON co.id = c.connection_id
+                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
+                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                WHERE u.role = 'controller'
+                GROUP BY u.id
+            )
+            SELECT
+                ccs.id,
+                ccs.full_name,
+                ccs.phone,
+                ccs.role,
+                ccs.created_at,
+                (COALESCE(ccs.created_conn_orders, 0) + COALESCE(ccs.assigned_conn_orders, 0) + 
+                 COALESCE(cts.created_tech_orders, 0) + COALESCE(cts.assigned_tech_orders, 0) +
+                 COALESCE(csos.created_staff_orders, 0) + COALESCE(csos.assigned_staff_orders, 0) +
+                 COALESCE(csent.sent_conn_orders, 0) + COALESCE(csent.sent_tech_orders, 0) + COALESCE(csent.sent_staff_orders, 0)) as total_orders,
+                (COALESCE(ccs.created_conn_orders, 0) + COALESCE(ccs.assigned_conn_orders, 0) + 
+                 COALESCE(csent.sent_conn_orders, 0)) as conn_count,
+                (COALESCE(cts.created_tech_orders, 0) + COALESCE(cts.assigned_tech_orders, 0) + 
+                 COALESCE(csent.sent_tech_orders, 0)) as tech_count,
+                (COALESCE(ccs.created_conn_active, 0) + COALESCE(ccs.assigned_conn_active, 0) + 
+                 COALESCE(cts.created_tech_active, 0) + COALESCE(cts.assigned_tech_active, 0) +
+                 COALESCE(csos.created_staff_active, 0) + COALESCE(csos.assigned_staff_active, 0) +
+                 COALESCE(csent.sent_conn_active, 0) + COALESCE(csent.sent_tech_active, 0) + COALESCE(csent.sent_staff_active, 0)) as active_count,
+                -- New detailed counts
+                COALESCE(ccs.assigned_conn_orders, 0) as assigned_conn_count,
+                COALESCE(ccs.created_conn_orders, 0) as created_conn_count,
+                COALESCE(cts.created_tech_orders, 0) as created_tech_count,
+                COALESCE(cts.assigned_tech_orders, 0) as assigned_tech_count,
+                -- Staff orders they created and assigned
+                COALESCE(csos.created_staff_orders, 0) as created_staff_count,
+                COALESCE(csos.assigned_staff_orders, 0) as assigned_staff_count,
+                -- Orders they sent
+                COALESCE(csent.sent_conn_orders, 0) as sent_conn_count,
+                COALESCE(csent.sent_tech_orders, 0) as sent_tech_count,
+                COALESCE(csent.sent_staff_orders, 0) as sent_staff_count
+            FROM controller_connection_stats ccs
+            LEFT JOIN controller_technician_stats cts ON cts.id = ccs.id
+            LEFT JOIN controller_staff_orders_stats csos ON csos.id = ccs.id
+            LEFT JOIN controller_sent_orders_stats csent ON csent.id = ccs.id
+            ORDER BY total_orders DESC, ccs.full_name
+            """
+        
+        rows = await conn.fetch(query)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+# =========================================================
 #  Load calculation functions
 # =========================================================
 
 async def get_ccs_supervisors_with_load() -> List[Dict[str, Any]]:
     """
     CCS Supervisorlar ro'yxatini yuklama bilan olish.
+    Yangi.sql ma'lumotlari bilan moslashtirilgan.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -1040,7 +1306,7 @@ async def get_ccs_supervisors_with_load() -> List[Dict[str, Any]]:
                      WHERE c.recipient_id = u.id
                        AND c.recipient_status = 'in_call_center_supervisor'
                        AND (
-                           EXISTS (SELECT 1 FROM connection_orders co WHERE co.id = c.connection_id AND co.status = 'in_call_center_supervisor' AND co.is_active = TRUE)
+                           EXISTS (SELECT 1 FROM connection_orders co WHERE co.id = c.connection_id AND co.status = 'in_junior_manager' AND COALESCE(co.is_active, TRUE) = TRUE)
                            OR
                            EXISTS (SELECT 1 FROM technician_orders tech_ord WHERE tech_ord.id = c.technician_id AND tech_ord.status = 'in_call_center_supervisor' AND COALESCE(tech_ord.is_active, TRUE) = TRUE)
                            OR

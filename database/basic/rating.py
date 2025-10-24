@@ -35,13 +35,29 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
         if comment is not None and not isinstance(comment, str):
             raise ValueError(f"comment must be str or None, got {type(comment)}")
         
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            print(f"DEBUG: No application_number found for request_id {request_id}")
+            return False
+        
+        application_number = app_number_result['application_number']
+        
         # Check if rating already exists
         existing = await conn.fetchrow(
             """
             SELECT id FROM akt_ratings 
-            WHERE request_id = $1 AND request_type = $2
+            WHERE application_number = $1
             """,
-            request_id, request_type
+            application_number
         )
         
         if existing:
@@ -60,10 +76,10 @@ async def save_rating(request_id: int, request_type: str, rating: int, comment: 
             print(f"DEBUG: Inserting new rating")
             await conn.execute(
                 """
-                INSERT INTO akt_ratings (request_id, request_type, rating, comment)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO akt_ratings (application_number, rating, comment)
+                VALUES ($1, $2, $3)
                 """,
-                request_id, request_type, rating, comment
+                application_number, rating, comment
             )
         print(f"DEBUG: Rating saved successfully")
         return True
@@ -117,13 +133,28 @@ async def get_rating(request_id: int, request_type: str) -> Optional[Dict[str, A
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Get application_number from the order tables
+        app_number_query = """
+            SELECT application_number FROM technician_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM connection_orders WHERE id = $1
+            UNION ALL
+            SELECT application_number FROM staff_orders WHERE id = $1
+            LIMIT 1
+        """
+        app_number_result = await conn.fetchrow(app_number_query, request_id)
+        if not app_number_result:
+            return None
+        
+        application_number = app_number_result['application_number']
+        
         rating = await conn.fetchrow(
             """
             SELECT rating, comment, created_at
             FROM akt_ratings
-            WHERE request_id = $1 AND request_type = $2
+            WHERE application_number = $1
             """,
-            request_id, request_type
+            application_number
         )
         return dict(rating) if rating else None
     except Exception as e:

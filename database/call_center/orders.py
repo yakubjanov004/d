@@ -121,7 +121,7 @@ async def staff_orders_create(
                 application_number, user_id, phone, abonent_id, region, address, tarif_id,
                 description, business_type, type_of_zayavka, status, is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, 'connection', 'in_call_center_supervisor', TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, 'connection', 'in_controller', TRUE)
             RETURNING id, application_number
             """,
             application_number, user_id, phone, abonent_id, region_name, address, tarif_id, business_type

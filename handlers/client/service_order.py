@@ -523,7 +523,7 @@ async def finish_service_order(callback_or_message, state: FSMContext, lang: str
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, 'client_created', 'in_manager', NOW(), NOW())
+                VALUES ($1, $2, $3, 'client_created', 'in_controller', NOW(), NOW())
                 """,
                 request_id, user.get('id'), user.get('id') 
             )

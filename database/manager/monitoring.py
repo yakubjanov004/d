@@ -143,25 +143,40 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
         rows = await conn.fetch(sql_all_connections, order_id)
 
         steps: List[Dict[str, Any]] = []
+        processed_statuses = set()  
+        
         for i, r in enumerate(rows):
             start_at = r["created_at"]
             end_at = rows[i + 1]["created_at"] if i + 1 < len(rows) else None
             duration_str = _fmt_duration(end_at - start_at) if end_at else "—"
 
-            # Client-created orders uchun maxsus nomlar
+            status_key = f"{r['sender_status']}_{r['recipient_status']}"
+            if status_key in processed_statuses:
+                continue
+            processed_statuses.add(status_key)
+
             if r["sender_status"] == "client_created":
                 from_name = "Mijoz"  # Client
             else:
                 from_name = r["sender_name"] or (r["sender_status"] or "—")
             
-            # Manager uchun maxsus nom
             if r["recipient_status"] == "in_manager":
                 to_name = "Manager"
+            elif r["recipient_status"] == "in_junior_manager":
+                to_name = "Junior Manager"
+            elif r["recipient_status"] == "in_controller":
+                to_name = "Controller"
+            elif r["recipient_status"] == "in_technician":
+                to_name = "Technician"
+            elif r["recipient_status"] == "in_warehouse":
+                to_name = "Warehouse"
             else:
                 to_name = r["recipient_name"] or (r["recipient_status"] or "—")
 
+            step_description = _get_step_description(r["sender_status"], r["recipient_status"], r["order_type"])
+
             steps.append({
-                "idx": i + 1,
+                "idx": len(steps) + 1,
                 "from_name": from_name,
                 "to_name": to_name,
                 "from_status": r["sender_status"],
@@ -169,12 +184,77 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
                 "start_at": start_at,
                 "end_at": end_at,
                 "duration_str": duration_str,
-                "order_type": r["order_type"]
+                "order_type": r["order_type"],
+                "description": step_description
             })
 
         return {"steps": steps}
     finally:
         await conn.close()
+
+def _get_step_description(sender_status: str, recipient_status: str, order_type: str) -> Dict[str, str]:
+    """
+    Har bir workflow qadami uchun batafsil tavsif (UZ va RU tillarida)
+    """
+    descriptions = {
+        ("client_created", "in_manager"): {
+            "uz": "Mijoz tomonidan ariza yaratildi va menejerga yuborildi",
+            "ru": "Заявка создана клиентом и отправлена менеджеру"
+        },
+        ("in_manager", "in_junior_manager"): {
+            "uz": "Menejer arizani kichik menejerga topshirdi",
+            "ru": "Менеджер передал заявку младшему менеджеру"
+        },
+        ("in_junior_manager", "in_controller"): {
+            "uz": "Kichik menejer arizani kontrollerga yubordi",
+            "ru": "Младший менеджер отправил заявку контроллеру"
+        },
+        ("in_controller", "in_technician"): {
+            "uz": "Kontroller arizani texnik xizmatga topshirdi",
+            "ru": "Контроллер передал заявку техническому обслуживанию"
+        },
+        ("in_technician", "in_warehouse"): {
+            "uz": "Texnik xizmat materiallar uchun omborga murojaat qildi",
+            "ru": "Техническое обслуживание обратилось на склад за материалами"
+        },
+        ("in_warehouse", "in_technician"): {
+            "uz": "Ombor materiallarni texnik xizmatga yetkazdi",
+            "ru": "Склад доставил материалы техническому обслуживанию"
+        },
+        ("in_technician", "in_controller"): {
+            "uz": "Texnik xizmat ishni tugatib kontrollerga qaytardi",
+            "ru": "Техническое обслуживание завершило работу и вернуло контроллеру"
+        },
+        # Controller to Manager
+        ("in_controller", "in_manager"): {
+            "uz": "Kontroller ishni tugatib menejerga qaytardi",
+            "ru": "Контроллер завершил работу и вернул менеджеру"
+        },
+        # Manager to Client
+        ("in_manager", "completed"): {
+            "uz": "Menejer ishni tugatdi va mijozga xabar berdi",
+            "ru": "Менеджер завершил работу и уведомил клиента"
+        },
+        # Self-assignment cases
+        ("in_manager", "in_manager"): {
+            "uz": "Menejer arizani o'ziga qayta tayinladi",
+            "ru": "Менеджер переназначил заявку себе"
+        },
+        ("in_controller", "in_controller"): {
+            "uz": "Kontroller arizani o'ziga qayta tayinladi",
+            "ru": "Контроллер переназначил заявку себе"
+        },
+        ("in_technician", "in_technician"): {
+            "uz": "Texnik xizmat arizani o'ziga qayta tayinladi",
+            "ru": "Техническое обслуживание переназначило заявку себе"
+        }
+    }
+    
+    key = (sender_status, recipient_status)
+    return descriptions.get(key, {
+        "uz": f"Ariza {sender_status} dan {recipient_status} ga o'tkazildi",
+        "ru": f"Заявка передана с {sender_status} на {recipient_status}"
+    })
 
 # =========================================================
 #  Smart Service Orders Monitoring

@@ -171,7 +171,7 @@ async def fetch_technician_inbox_tech(
                 to2.status,
                 to2.created_at,
                 to2.description,
-                COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                to2.description_ish AS diagnostics,
                 to2.media AS media_file_id,
                 CASE 
                     WHEN to2.media IS NOT NULL THEN 'photo'

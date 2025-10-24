@@ -48,6 +48,7 @@ def _fmt(n) -> str:
 def _normalize_stats(raw: dict) -> dict:
     keys = {
         "completed",
+        "cancelled",
         "in_warehouse",
         "in_technician_work",
         "in_technician",
@@ -69,6 +70,7 @@ def _block(title: str, stats: dict, lang: str) -> str:
         f"• 🟢 {tr('Ish jarayonida','В работе',lang)}: <b>{_fmt(stats.get('in_technician_work', 0))}</b>",
         f"• 📦 {tr('Omborda','На складе',lang)}: <b>{_fmt(stats.get('in_warehouse', 0))}</b>",
         f"• ✅ {tr('Yopilgan','Закрыто',lang)}: <b>{_fmt(stats.get('completed', 0))}</b>",
+        f"• ❌ {tr('Bekor qilingan','Отменено',lang)}: <b>{_fmt(stats.get('cancelled', 0))}</b>",
         "— — —",
         f"📊 {tr('Jami','Итого',lang)}: <b>{_fmt(stats.get('total', 0))}</b>",
     ]
@@ -79,7 +81,7 @@ ASIA_TASHKENT = _get_tashkent_tz()
 
 def _make_period(key: str):
     """
-    key ∈ {'today','7','30','all'}
+    key ∈ {'today','3','7','30','all'}
     Qaytaradi: (date_from_utc_or_none, date_to_utc_or_none, label_local)
     """
     now_local = datetime.now(ASIA_TASHKENT)
@@ -91,8 +93,8 @@ def _make_period(key: str):
         end_utc   = end_local.astimezone(timezone.utc)
         return start_utc, end_utc, label
 
-    if key in {"7","30"}:
-        days = 7 if key == "7" else 30
+    if key in {"3","7","30"}:
+        days = int(key)
         end_local = (now_local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         start_local = end_local - timedelta(days=days)
         label = f"{start_local:%d.%m.%Y} — {(end_local - timedelta(seconds=1)):%d.%m.%Y}"
@@ -100,21 +102,26 @@ def _make_period(key: str):
         end_utc   = end_local.astimezone(timezone.utc)
         return start_utc, end_utc, label
 
-    # 'all' — sana filtri yo‘q: None yuboramiz (SQLda $2/$3 NULL bo‘lsa filter ishlamaydi)
     return None, None, "Jami davr"
 
 def _range_kb(selected_key: str, lang: str) -> InlineKeyboardMarkup:
     keys = [
-        ("today", tr("Bugun", "Сегодня", lang)),
-        ("7",    tr("7 kun", "7 дней", lang)),
-        ("30",   tr("30 kun", "30 дней", lang)),
-        ("all",  tr("Jami", "Все", lang)),
+        ("today", tr("📅 Bugun", "📅 Сегодня", lang)),
+        ("3",     tr("📅 3 kun", "📅 3 дня", lang)),
+        ("7",     tr("📅 7 kun", "📅 7 дней", lang)),
+        ("30",    tr("📅 Oy", "📅 Месяц", lang)),
+        ("all",   tr("📅 Jami", "📅 Всего", lang)),
     ]
-    row = []
-    for k, title in keys:
-        mark = "• " if k == selected_key else ""
-        row.append(InlineKeyboardButton(text=mark + title, callback_data=f"rep_range_{k}"))
-    return InlineKeyboardMarkup(inline_keyboard=[row])
+    
+    rows = []
+    for i in range(0, len(keys), 3):  
+        row = []
+        for k, title in keys[i:i+3]:
+            mark = "✅ " if k == selected_key else ""
+            row.append(InlineKeyboardButton(text=mark + title, callback_data=f"rep_range_{k}"))
+        rows.append(row)
+    
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def _build_and_send_report(message_or_cb, lang: str, user_id: int, range_key: str):
     # 1) Davr
@@ -123,9 +130,9 @@ async def _build_and_send_report(message_or_cb, lang: str, user_id: int, range_k
         label_local = tr("Jami davr", "Весь период", lang)
 
     # 2) DB so‘rovlar — faqat connections
-    conn_raw = await count_connection_status(user_id, df_utc, dt_utc)   # connection_orders oqimi
-    tech_raw = await count_technician_status(user_id, df_utc, dt_utc)   # technician_orders oqimi (connections orqali)
-    staff_raw = await count_staff_status(user_id, df_utc, dt_utc)         # staff_orders oqimi (connections orqali)
+    conn_raw = await count_connection_status(user_id, df_utc, dt_utc)   
+    tech_raw = await count_technician_status(user_id, df_utc, dt_utc)   
+    staff_raw = await count_staff_status(user_id, df_utc, dt_utc)         
 
     conn = _normalize_stats(conn_raw or {})
     tch  = _normalize_stats(tech_raw or {})
@@ -181,7 +188,7 @@ async def reports_range_callback(cb: CallbackQuery):
         return await cb.answer(tr("❌ Ruxsat yo‘q", "❌ Нет доступа", lang), show_alert=True)
 
     key = cb.data.replace("rep_range_", "")
-    if key not in {"today", "7", "30", "all"}:
+    if key not in {"today", "3", "7", "30", "all"}:
         key = "30"
 
     await _build_and_send_report(cb, lang, user_id=user["id"], range_key=key)

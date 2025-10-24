@@ -40,7 +40,7 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
                 controller_user.full_name as controller_name
             FROM technician_orders t
             LEFT JOIN users u ON u.id = t.user_id
-            LEFT JOIN akt_documents a ON a.request_id = t.id AND a.request_type = 'technician'
+            LEFT JOIN akt_documents a ON a.application_number = t.application_number
             LEFT JOIN connections c ON c.technician_id = t.id 
                 AND c.sender_id IN (SELECT id FROM users WHERE role = 'controller')
                 AND c.recipient_id IN (SELECT id FROM users WHERE role = 'technician')
@@ -74,7 +74,7 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
                 controller_user.full_name as controller_name
             FROM staff_orders s
             LEFT JOIN users u ON u.id = s.user_id
-            LEFT JOIN akt_documents a ON a.request_id = s.id AND a.request_type = 'staff'
+            LEFT JOIN akt_documents a ON a.application_number = s.application_number
             LEFT JOIN connections c ON c.staff_id = s.id 
                 AND c.sender_id IN (SELECT id FROM users WHERE role = 'controller')
                 AND c.recipient_id IN (SELECT id FROM users WHERE role = 'technician')

@@ -73,7 +73,7 @@ async def fetch_warehouse_connection_orders_with_materials(
                 t.name AS tariff_name,
                 COUNT(mr.id) as material_count
             FROM material_requests mr
-            JOIN connection_orders co ON co.id = mr.applications_id
+            JOIN connection_orders co ON co.application_number = mr.application_number
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
             WHERE mr.source_type = 'warehouse'
@@ -101,7 +101,7 @@ async def count_warehouse_connection_orders_with_materials() -> int:
             """
             SELECT COUNT(DISTINCT co.id)
             FROM material_requests mr
-            JOIN connection_orders co ON co.id = mr.applications_id
+            JOIN connection_orders co ON co.application_number = mr.application_number
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
               AND co.is_active = TRUE
@@ -122,7 +122,7 @@ async def count_warehouse_technician_orders() -> int:
             """
             SELECT COUNT(DISTINCT t_orders.id)
             FROM material_requests mr
-            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            JOIN technician_orders t_orders ON t_orders.application_number = mr.application_number
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
               AND t_orders.is_active = TRUE
@@ -143,7 +143,7 @@ async def count_warehouse_staff_orders() -> int:
             """
             SELECT COUNT(DISTINCT so.id)
             FROM material_requests mr
-            JOIN staff_orders so ON so.id = mr.applications_id
+            JOIN staff_orders so ON so.application_number = mr.application_number
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
               AND so.is_active = TRUE
@@ -160,6 +160,14 @@ async def fetch_materials_for_connection_order(connection_order_id: int) -> List
     """
     conn = await _conn()
     try:
+        app_number = await conn.fetchval(
+            "SELECT application_number FROM connection_orders WHERE id = $1",
+            connection_order_id
+        )
+        
+        if not app_number:
+            return []
+            
         rows = await conn.fetch(
             """
             SELECT
@@ -172,11 +180,11 @@ async def fetch_materials_for_connection_order(connection_order_id: int) -> List
                 COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            WHERE mr.applications_id = $1
+            WHERE mr.application_number = $1
               AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
-            connection_order_id
+            app_number
         )
         return [dict(r) for r in rows]
     finally:
@@ -210,7 +218,7 @@ async def fetch_warehouse_technician_orders(
                 u.phone AS client_phone,
                 u.telegram_id AS client_telegram_id
             FROM material_requests mr
-            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            JOIN technician_orders t_orders ON t_orders.application_number = mr.application_number
             LEFT JOIN users u ON u.id = t_orders.user_id
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
@@ -253,7 +261,7 @@ async def fetch_warehouse_technician_orders_with_materials(
                 COUNT(mr.id) as material_count
             FROM technician_orders t_orders
             LEFT JOIN users u ON u.id = t_orders.user_id
-            LEFT JOIN material_requests mr ON mr.applications_id = t_orders.id
+            LEFT JOIN material_requests mr ON mr.application_number = t_orders.application_number
             WHERE t_orders.status = 'in_warehouse'
               AND t_orders.is_active = TRUE
             GROUP BY t_orders.id, t_orders.address, t_orders.region, t_orders.status, t_orders.created_at, t_orders.updated_at, 
@@ -278,7 +286,7 @@ async def count_warehouse_technician_orders_with_materials() -> int:
             """
             SELECT COUNT(DISTINCT t_orders.id)
             FROM material_requests mr
-            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            JOIN technician_orders t_orders ON t_orders.application_number = mr.application_number
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
               AND t_orders.is_active = TRUE
@@ -295,6 +303,15 @@ async def fetch_materials_for_technician_order(technician_order_id: int) -> List
     """
     conn = await _conn()
     try:
+        # Get application_number from technician_orders
+        app_number = await conn.fetchval(
+            "SELECT application_number FROM technician_orders WHERE id = $1",
+            technician_order_id
+        )
+        
+        if not app_number:
+            return []
+            
         rows = await conn.fetch(
             """
             SELECT
@@ -307,11 +324,11 @@ async def fetch_materials_for_technician_order(technician_order_id: int) -> List
                 COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            WHERE mr.applications_id = $1
+            WHERE mr.application_number = $1
               AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
-            technician_order_id
+            app_number
         )
         return [dict(r) for r in rows]
     finally:
@@ -345,7 +362,7 @@ async def fetch_warehouse_staff_orders(
                 u.phone AS client_phone,
                 u.telegram_id AS client_telegram_id
             FROM material_requests mr
-            JOIN staff_orders so ON so.id = mr.applications_id
+            JOIN staff_orders so ON so.application_number = mr.application_number
             LEFT JOIN users u ON u.id = so.user_id
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
@@ -390,7 +407,7 @@ async def fetch_warehouse_staff_orders_with_materials(
                 COUNT(mr.id) as material_count
             FROM staff_orders so
             LEFT JOIN users u ON u.id = so.user_id
-            LEFT JOIN material_requests mr ON mr.applications_id = so.id
+            LEFT JOIN material_requests mr ON mr.application_number = so.application_number
             WHERE so.status = 'in_warehouse'
               AND so.is_active = TRUE
             GROUP BY so.id, so.application_number, so.address, so.region, so.status, so.created_at, so.updated_at, 
@@ -415,7 +432,7 @@ async def count_warehouse_staff_orders_with_materials() -> int:
             """
             SELECT COUNT(DISTINCT so.id)
             FROM material_requests mr
-            JOIN staff_orders so ON so.id = mr.applications_id
+            JOIN staff_orders so ON so.application_number = mr.application_number
             WHERE mr.source_type = 'warehouse'
               AND COALESCE(mr.warehouse_approved, false) = false
               AND so.is_active = TRUE
@@ -432,6 +449,15 @@ async def fetch_materials_for_staff_order(staff_order_id: int) -> List[Dict[str,
     """
     conn = await _conn()
     try:
+        # Get application_number from staff_orders
+        app_number = await conn.fetchval(
+            "SELECT application_number FROM staff_orders WHERE id = $1",
+            staff_order_id
+        )
+        
+        if not app_number:
+            return []
+            
         rows = await conn.fetch(
             """
             SELECT
@@ -444,11 +470,11 @@ async def fetch_materials_for_staff_order(staff_order_id: int) -> List[Dict[str,
                 COALESCE(mr.warehouse_approved, false) as warehouse_approved
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            WHERE mr.applications_id = $1
+            WHERE mr.application_number = $1
               AND mr.source_type = 'warehouse'
             ORDER BY m.name
             """,
-            staff_order_id
+            app_number
         )
         return [dict(r) for r in rows]
     finally:
@@ -469,7 +495,7 @@ async def fetch_material_requests_by_connection_orders(
             """
             SELECT
                 mr.id,
-                mr.applications_id,
+                mr.application_number,
                 mr.material_id,
                 mr.quantity,
                 mr.price,
@@ -481,7 +507,7 @@ async def fetch_material_requests_by_connection_orders(
                 u.full_name as client_name
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            JOIN connection_orders co ON co.id = mr.applications_id
+            JOIN connection_orders co ON co.application_number = mr.application_number
             LEFT JOIN users u ON u.id = co.user_id
             WHERE co.status = 'in_warehouse'
               AND co.is_active = TRUE
@@ -507,7 +533,7 @@ async def fetch_material_requests_by_technician_orders(
             """
             SELECT
                 mr.id,
-                mr.applications_id,
+                mr.application_number,
                 mr.material_id,
                 mr.quantity,
                 mr.price,
@@ -519,7 +545,7 @@ async def fetch_material_requests_by_technician_orders(
                 u.full_name as client_name
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            JOIN technician_orders t_orders ON t_orders.application_number = mr.application_number
             LEFT JOIN users u ON u.id = t_orders.user_id
             WHERE t_orders.status = 'in_warehouse'
               AND t_orders.is_active = TRUE
@@ -545,7 +571,7 @@ async def fetch_material_requests_by_staff_orders(
             """
             SELECT
                 mr.id,
-                mr.applications_id,
+                mr.application_number,
                 mr.material_id,
                 mr.quantity,
                 mr.price,
@@ -557,7 +583,7 @@ async def fetch_material_requests_by_staff_orders(
                 u.full_name as client_name
             FROM material_requests mr
             JOIN materials m ON m.id = mr.material_id
-            JOIN staff_orders so ON so.id = mr.applications_id
+            JOIN staff_orders so ON so.application_number = mr.application_number
             LEFT JOIN users u ON u.id = so.user_id
             WHERE so.status = 'in_warehouse'
               AND so.is_active = TRUE
@@ -580,7 +606,7 @@ async def count_material_requests_by_connection_orders() -> int:
             """
             SELECT COUNT(*)
             FROM material_requests mr
-            JOIN connection_orders co ON co.id = mr.applications_id
+            JOIN connection_orders co ON co.application_number = mr.application_number
             WHERE co.status = 'in_warehouse'
               AND co.is_active = TRUE
             """
@@ -599,7 +625,7 @@ async def count_material_requests_by_technician_orders() -> int:
             """
             SELECT COUNT(*)
             FROM material_requests mr
-            JOIN technician_orders t_orders ON t_orders.id = mr.applications_id
+            JOIN technician_orders t_orders ON t_orders.application_number = mr.application_number
             WHERE t_orders.status = 'in_warehouse'
               AND t_orders.is_active = TRUE
             """
@@ -618,7 +644,7 @@ async def count_material_requests_by_staff_orders() -> int:
             """
             SELECT COUNT(*)
             FROM material_requests mr
-            JOIN staff_orders so ON so.id = mr.applications_id
+            JOIN staff_orders so ON so.application_number = mr.application_number
             WHERE so.status = 'in_warehouse'
               AND so.is_active = TRUE
             """
@@ -681,52 +707,91 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
         else:
             return False
         
-        # Texnik ID ni olish
-        technician_id = await conn.fetchval(
+        # Get application_number and technician_id from the order table
+        order_info = await conn.fetchrow(
             f"""
-            SELECT user_id 
+            SELECT user_id, application_number 
             FROM {table_name} 
             WHERE id = $1
             """,
             order_id
         )
         
-        if not technician_id:
-            print(f"No technician_id found for {order_type} order {order_id}")
+        if not order_info:
+            print(f"No order found for {order_type} order {order_id}")
+            return False
+            
+        technician_id = order_info['user_id']
+        application_number = order_info['application_number']
+        
+        if not application_number:
+            print(f"No application_number found for {order_type} order {order_id}")
             return False
         
         # Material requests dan materiallarni olish
         material_requests = await conn.fetch(
             """
-            SELECT mr.material_id, mr.quantity, mr.applications_id, mr.source_type
+            SELECT mr.material_id, mr.quantity, mr.application_number, mr.source_type
             FROM material_requests mr
-            WHERE mr.applications_id = $1
+            WHERE mr.application_number = $1
             """,
-            order_id
+            application_number
         )
         
         if not material_requests:
             print(f"No material requests found for {order_type} order {order_id}")
-            return True  # Material yo'q bo'lsa ham tasdiqlash muvaffaqiyatli
+            return True  
         
-        # Har bir material uchun material_and_technician ga yozish
         for mr in material_requests:
             material_id = mr['material_id']
             quantity = mr['quantity']
             source_type = mr.get('source_type', 'warehouse')
             
-            # Faqat ombordan so'ralgan materiallarni texnikka qo'shish va ombor zaxirasini kamaytirish
             if source_type == 'warehouse':
-                # UPSERT - agar mavjud bo'lsa quantity ni qo'shish, yo'q bo'lsa yangi yaratish
-                await conn.execute(
-                    """
-                    INSERT INTO material_and_technician (user_id, material_id, quantity)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (user_id, material_id) 
-                    DO UPDATE SET quantity = material_and_technician.quantity + $3
-                    """,
-                    technician_id, material_id, quantity
+                # Get material details for the new columns
+                material_info = await conn.fetchrow(
+                    "SELECT name, price FROM materials WHERE id = $1",
+                    material_id
                 )
+                
+                if material_info:
+                    material_name = material_info['name']
+                    price = material_info['price'] or 0
+                    total_price = price * quantity
+                    
+                    # Check if entry exists
+                    existing = await conn.fetchrow(
+                        "SELECT id, quantity, total_price FROM material_and_technician WHERE user_id = $1 AND material_id = $2",
+                        technician_id, material_id
+                    )
+                    
+                    if existing:
+                        # Update existing entry - add quantity
+                        await conn.execute(
+                            """
+                            UPDATE material_and_technician 
+                            SET quantity = quantity + $1,
+                                application_number = $2,
+                                material_name = $3,
+                                price = $4,
+                                total_price = total_price + $5
+                            WHERE user_id = $6 AND material_id = $7
+                            """,
+                            quantity, application_number, material_name, price, total_price,
+                            technician_id, material_id
+                        )
+                    else:
+                        # Insert new entry
+                        await conn.execute(
+                            """
+                            INSERT INTO material_and_technician 
+                            (user_id, material_id, quantity, application_number, material_name, 
+                             material_unit, price, total_price, is_approved, request_type)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            """,
+                            technician_id, material_id, quantity, application_number, 
+                            material_name, 'dona', price, total_price, True, order_type
+                        )
                 
                 # Ombor zaxirasini kamaytirish
                 await conn.execute(
@@ -743,9 +808,9 @@ async def create_material_and_technician_entry(order_id: int, order_type: str) -
                 """
                 UPDATE material_requests 
                 SET warehouse_approved = TRUE
-                WHERE applications_id = $1 AND material_id = $2
+                WHERE application_number = $1 AND material_id = $2
                 """,
-                order_id, material_id
+                application_number, material_id
             )
         
         return True

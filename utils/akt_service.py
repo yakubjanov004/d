@@ -241,14 +241,30 @@ class AKTService:
             
             conn = await asyncpg.connect(get_connection_url())
             try:
+                # Get application_number from the order tables
+                app_number_query = """
+                    SELECT application_number FROM technician_orders WHERE id = $1
+                    UNION ALL
+                    SELECT application_number FROM connection_orders WHERE id = $1
+                    UNION ALL
+                    SELECT application_number FROM staff_orders WHERE id = $1
+                    LIMIT 1
+                """
+                app_number_result = await conn.fetchrow(app_number_query, request_id)
+                if not app_number_result:
+                    print(f"Error: No application_number found for request_id {request_id}")
+                    return
+                
+                application_number = app_number_result['application_number']
+                
                 # Mavjud akt_documents jadvaliga media_file_path ni yangilash
                 await conn.execute(
                     """
                     UPDATE akt_documents 
-                    SET file_path = $3, sent_to_client_at = NOW()
-                    WHERE request_id = $1 AND request_type = $2
+                    SET file_path = $2, sent_to_client_at = NOW()
+                    WHERE application_number = $1
                     """,
-                    request_id, request_type, media_file_path
+                    application_number, media_file_path
                 )
             finally:
                 await conn.close()

@@ -50,16 +50,9 @@ def format_material_request(material_request, index, total_count):
     address = esc(material_request.get('address', 'N/A'))
     created_at = fmt_dt(material_request.get('order_created_at'))
     
-    # Determine order type based on available fields
-    if material_request.get('connection_order_id'):
-        order_type = 'connection'
-        order_id = material_request.get('connection_order_id', 'N/A')
-    elif material_request.get('technician_order_id'):
-        order_type = 'technician'
-        order_id = material_request.get('technician_order_id', 'N/A')
-    elif material_request.get('staff_order_id'):
-        order_type = 'staff'
-        order_id = material_request.get('staff_order_id', 'N/A')
+    application_number = material_request.get('application_number', 'N/A')
+    if application_number != 'N/A':
+        order_id = application_number
     
     order_type_text = {
         'connection': '🔗 Ulanish arizasi',
@@ -138,7 +131,7 @@ async def show_material_requests_connection(callback: CallbackQuery, state: FSMC
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_connection", material_requests[0].get('applications_id', 0))
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_connection", material_requests[0].get('application_number', ''))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -162,7 +155,7 @@ async def show_material_requests_technician(callback: CallbackQuery, state: FSMC
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_technician", material_requests[0].get('applications_id', 0))
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_technician", material_requests[0].get('application_number', ''))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -186,7 +179,7 @@ async def show_material_requests_staff(callback: CallbackQuery, state: FSMContex
         return
     
     text = format_material_request(material_requests[0], 0, total_count)
-    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_staff", material_requests[0].get('applications_id', 0))
+    keyboard = get_warehouse_material_requests_navigation_keyboard(0, total_count, "material_requests_staff", material_requests[0].get('application_number', ''))
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -217,7 +210,7 @@ async def navigate_material_requests_prev(callback: CallbackQuery, state: FSMCon
     
     if material_requests:
         text = format_material_request(material_requests[0], new_index, total_count)
-        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('applications_id', 0))
+        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('application_number', ''))
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     
     await callback.answer()
@@ -247,7 +240,7 @@ async def navigate_material_requests_next(callback: CallbackQuery, state: FSMCon
     
     if material_requests:
         text = format_material_request(material_requests[0], new_index, total_count)
-        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('applications_id', 0))
+        keyboard = get_warehouse_material_requests_navigation_keyboard(new_index, total_count, request_type, material_requests[0].get('application_number', ''))
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     
     await callback.answer()

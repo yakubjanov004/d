@@ -168,7 +168,7 @@ async def get_controller_order_types_statistics() -> Dict[str, Any]:
 async def ctrl_total_tech_orders_count() -> int:
     """
     Controller uchun jami aktiv buyurtmalar soni.
-    technician_orders + staff_orders(technician) + connection_orders('in_controller').
+    Barcha 3 xil order type: connection_orders, technician_orders, va staff_orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -187,7 +187,7 @@ async def ctrl_total_tech_orders_count() -> int:
 async def ctrl_new_in_controller_count() -> int:
     """
     Controller uchun yangi kelgan buyurtmalar soni.
-    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Barcha 3 xil order type: connection_orders, technician_orders, va staff_orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -206,7 +206,7 @@ async def ctrl_new_in_controller_count() -> int:
 async def ctrl_in_progress_count() -> int:
     """
     Controller uchun jarayondagi buyurtmalar soni.
-    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Barcha 3 xil order type: connection_orders, technician_orders, va staff_orders.
     Excludes completed and cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
@@ -226,7 +226,7 @@ async def ctrl_in_progress_count() -> int:
 async def ctrl_completed_today_count() -> int:
     """
     Controller uchun bugun bajarilgan buyurtmalar soni.
-    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Barcha 3 xil order type: connection_orders, technician_orders, va staff_orders.
     Only orders completed today, excludes cancelled orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
@@ -258,7 +258,7 @@ async def ctrl_cancelled_count() -> int:
 async def ctrl_get_new_orders(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Controller uchun yangi kelgan buyurtmalar ro'yxati.
-    Both technician_orders (client-created) and staff_orders with type_of_zayavka='technician' (staff-created).
+    Barcha 3 xil order type: connection_orders, technician_orders, va staff_orders.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:

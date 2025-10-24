@@ -1,4 +1,3 @@
-# handlers/technician/inbox.py (refactored with i18n uz/ru)
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -13,11 +12,6 @@ import asyncpg
 from config import settings
 
 logger = logging.getLogger(__name__)
-
-def _strip_id(full_id: str) -> str:
-    # "123_..." -> "123"
-    return full_id.split("_", 1)[0]
-
 
 async def get_current_status(application_id: int, mode: str = "connection") -> str:
     """Get current status of an application"""
@@ -456,10 +450,10 @@ def short_view_text(item: dict, idx: int, total: int, lang: str = "uz", mode: st
         base += "\n" + t("pager", lang, i=idx + 1, n=total)
         return base
 
-async def get_selected_materials_summary(user_id: int, req_id: int, lang: str) -> str:
+async def get_selected_materials_summary(user_id: int, application_number: str, lang: str) -> str:
     """Get summary of selected materials for display in inbox"""
     try:
-        selected = await fetch_selected_materials_for_request(user_id, req_id)
+        selected = await fetch_selected_materials_for_request(user_id, application_number)
         if not selected:
             return ""
         
@@ -477,10 +471,10 @@ async def short_view_text_with_materials(item: dict, idx: int, total: int, user_
     """Build ariza text with selected materials included"""
     base_text = short_view_text(item, idx, total, lang, mode)
     
-    # Add selected materials if any
     req_id = item.get("id")
     if req_id:
-        materials_summary = await get_selected_materials_summary(user_id, req_id, lang)
+        app_number = await get_application_number(req_id, mode)
+        materials_summary = await get_selected_materials_summary(user_id, app_number, lang)
         if materials_summary:
             # Insert materials before pager
             pager_start = base_text.rfind(t("pager", lang, i=idx + 1, n=total))
@@ -654,43 +648,34 @@ async def get_used_materials_info(request_id: int, request_type: str, client_lan
         
         conn = await asyncpg.connect(get_connection_url())
         try:
-            if request_type == "connection":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
-            elif request_type == "technician":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
-            elif request_type == "staff":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
-            else:
-                return ""
+            # Get application_number from the order tables
+            app_number_query = """
+                SELECT application_number FROM technician_orders WHERE id = $1
+                UNION ALL
+                SELECT application_number FROM connection_orders WHERE id = $1
+                UNION ALL
+                SELECT application_number FROM staff_orders WHERE id = $1
+                LIMIT 1
+            """
+            app_number_result = await conn.fetchrow(app_number_query, request_id)
+            if not app_number_result:
+                return "• Hech qanday material ishlatilmagan" if client_lang == "uz" else "• Материалы не использовались"
+            
+            application_number = app_number_result['application_number']
+            
+            # Now get materials using application_number
+            query = """
+                SELECT 
+                    m.name as material_name,
+                    mr.quantity,
+                    mr.price
+                FROM material_requests mr
+                JOIN materials m ON m.id = mr.material_id
+                WHERE mr.application_number = $1
+                ORDER BY mr.created_at
+            """
                 
-            materials = await conn.fetch(query, request_id)
+            materials = await conn.fetch(query, application_number)
             
             if not materials:
                 return "• Hech qanday material ishlatilmagan" if client_lang == "uz" else "• Материалы не использовались"
@@ -1786,7 +1771,7 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
         mode = st.get("tech_mode", "connection")
         await upsert_material_selection(
             user_id=user["id"],
-            applications_id=req_id,
+            application_id=req_id,
             material_id=material_id,
             qty=qty,
             request_type=mode,
@@ -1797,21 +1782,19 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
 
-    # Purge tracked messages and delete user's text input
     await purge_tracked_messages(state, msg.chat.id)
     try:
         await msg.delete()
     except Exception:
         pass
 
-    # 🟢 YANGI YONDASHUV: To'g'ridan-to'g'ri DB'dan olish
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         if mode == "technician":
             query = """
                 SELECT 
                     to2.*,
-                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    to2.description_ish AS diagnostics,
                     COALESCE(client_user.full_name, user_user.full_name) AS client_name,
                     COALESCE(client_user.phone, user_user.phone) AS client_phone
                 FROM technician_orders to2
@@ -1864,7 +1847,9 @@ async def tech_qty_entered(msg: Message, state: FSMContext):
     
     original_text = short_view_text(item, current_idx, total_items, lang, mode)
     
-    selected = await fetch_selected_materials_for_request(user["id"], req_id)
+    # Application number ni olish va materiallarni olish
+    app_number = await get_application_number(req_id, mode)
+    selected = await fetch_selected_materials_for_request(user["id"], app_number)
     materials_text = "\n\n📦 <b>Ishlatilayotgan mahsulotlar:</b>\n"
     
     if selected:
@@ -1917,7 +1902,7 @@ async def tech_back_to_order(cb: CallbackQuery, state: FSMContext):
             query = """
                 SELECT 
                     to2.*,
-                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    to2.description_ish AS diagnostics,
                     COALESCE(client_user.full_name, user_user.full_name) AS client_name,
                     COALESCE(client_user.phone, user_user.phone) AS client_phone
                 FROM technician_orders to2
@@ -2058,7 +2043,9 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
         return await cb.answer(t("no_perm", lang), show_alert=True)
 
     mode = st.get("tech_mode", "connection")
-    selected = await fetch_selected_materials_for_request(user["id"], req_id)
+    # Application number ni olish va materiallarni olish
+    app_number = await get_application_number(req_id, mode)
+    selected = await fetch_selected_materials_for_request(user["id"], app_number)
 
     # Request type ni avval aniqlash
     if mode == "technician":
@@ -2075,7 +2062,7 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
             from database.technician.materials import create_material_issued_from_review
             await create_material_issued_from_review(
                 user_id=user["id"],
-                applications_id=req_id,
+                application_number=app_number,
                 request_type=request_type
             )
         except Exception as e:
@@ -2102,8 +2089,6 @@ async def tech_finish(cb: CallbackQuery, state: FSMContext):
     except Exception:
         pass
 
-    # Application number ni olish
-    app_number = await get_application_number(req_id, mode)
     lines = [t("work_finished", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("used_materials", lang)]
     if selected:
         for it in selected:
@@ -2151,7 +2136,7 @@ async def tech_add_more(cb: CallbackQuery, state: FSMContext):
             query = """
                 SELECT 
                     to2.*,
-                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    to2.description_ish AS diagnostics,
                     COALESCE(client_user.full_name, user_user.full_name) AS client_name,
                     COALESCE(client_user.phone, user_user.phone) AS client_phone
                 FROM technician_orders to2
@@ -2240,7 +2225,7 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
             query = """
                 SELECT 
                     to2.*,
-                    COALESCE(to2.diagnostics, to2.description_ish) AS diagnostics,
+                    to2.description_ish AS diagnostics,
                     COALESCE(client_user.full_name, user_user.full_name) AS client_name,
                     COALESCE(client_user.phone, user_user.phone) AS client_phone
                 FROM technician_orders to2
@@ -2289,7 +2274,9 @@ async def tech_review(cb: CallbackQuery, state: FSMContext):
     # Build text with order details + materials list
     original_text = short_view_text(item, 0, 1, lang, mode)
     
-    selected = await fetch_selected_materials_for_request(user["id"], req_id)
+    # Application number ni olish va materiallarni olish
+    app_number = await get_application_number(req_id, mode)
+    selected = await fetch_selected_materials_for_request(user["id"], app_number)
     materials_text = "\n\n📦 <b>Ishlatilgan mahsulotlar:</b>\n"
     
     if selected:
@@ -2360,11 +2347,12 @@ async def tech_confirm_warehouse(cb: CallbackQuery, state: FSMContext):
         )
         
         if success:
-            # Warehouse'ga notification yuborish
             try:
                 from loader import bot
+                from database.connections import _conn
                 
                 # Warehouse user'ni topish
+                conn = await _conn()
                 warehouse_user = await conn.fetchrow("""
                     SELECT telegram_id, language FROM users 
                     WHERE role = 'warehouse' 
@@ -2437,7 +2425,9 @@ async def tech_confirm_warehouse(cb: CallbackQuery, state: FSMContext):
             # Build text with order details + materials list
             original_text = short_view_text(item, 0, 1, lang, mode)
             
-            selected = await fetch_selected_materials_for_request(user["id"], req_id)
+            # Application number ni olish va materiallarni olish
+            app_number = await get_application_number(req_id, mode)
+            selected = await fetch_selected_materials_for_request(user["id"], app_number)
             materials_text = "\n\n📦 <b>Ishlatilgan mahsulotlar:</b>\n"
             
             if selected:
@@ -2533,10 +2523,13 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
     
     mode = st.get("tech_mode", "connection")
     
+    # Application number ni olish
+    app_number = await get_application_number(req_id, mode)
+    
     # Materiallarni qaytarish va ma'lumotlarni tozalash
     try:
         from database.technician.materials import restore_technician_materials_on_cancel
-        await restore_technician_materials_on_cancel(user["id"], req_id)
+        await restore_technician_materials_on_cancel(user["id"], app_number)
     except Exception as e:
         logger.error(f"Error restoring materials on cancel: {e}")
     
@@ -2549,9 +2542,10 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
                 req_id, note
             )
         elif mode == "staff":
+            # staff_orders da cancellation_note yo'q, faqat statusni o'zgartiramiz
             await conn.execute(
-                "UPDATE staff_orders SET status='cancelled', cancellation_note=$2, updated_at=NOW() WHERE id=$1",
-                req_id, note
+                "UPDATE staff_orders SET status='cancelled', updated_at=NOW() WHERE id=$1",
+                req_id
             )
         else:
             await conn.execute(
@@ -2561,13 +2555,9 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
     finally:
         await conn.close()
     
-    # Materiallarni texnik stock'ga qaytarish
-    try:
-        from database.technician.materials import return_materials_to_technician_stock
-        await return_materials_to_technician_stock(user["id"], req_id)
-        logger.info(f"Materials returned to technician stock for cancelled application {req_id}")
-    except Exception as e:
-        logger.error(f"Failed to return materials to technician stock: {e}")
+    # Inbox'dan o'chirish va keyingi arizani ko'rsatish (state tozalashdan oldin!)
+    items = _dedup_by_id(st.get("tech_inbox", []))
+    items = [it for it in items if it.get("id") != req_id]
     
     # Purge tracked messages and delete user's text input
     await purge_tracked_messages(state, msg.chat.id)
@@ -2576,30 +2566,20 @@ async def tech_cancellation_note(msg: Message, state: FSMContext):
     except Exception:
         pass
     
-    # Clear all contexts including inbox (user starts fresh)
-    await clear_temp_contexts(state)
+    # Clear state (including cancellation state)
+    await state.clear()
     
     # Send confirmation message (no inline buttons) - don't track this message
     await msg.answer(t("cancel_success", lang))
     
-    # Inbox'dan o'chirish va keyingi arizani ko'rsatish
-    items = _dedup_by_id(st.get("tech_inbox", []))
-    items = [it for it in items if it.get("id") != req_id]
-    await state.update_data(tech_inbox=items, tech_idx=0)
-    
+    # Keyingi arizani ko'rsatish
     if items:
+        await state.update_data(tech_inbox=items, tech_idx=0, tech_mode=mode, lang=lang)
         item = items[0]
-        if mode == "technician":
-            # Rasmlar bo'lishi mumkin
-            text = await short_view_text_with_materials(item, 0, len(items), user["id"], lang, mode)
-            kb = await action_keyboard(item.get("id"), 0, len(items), item.get("status", ""), mode=mode, lang=lang, item=item)
-            sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
-            await track_message(state, sent_msg.message_id)
-        else:
-            text = await short_view_text_with_materials(item, 0, len(items), user["id"], lang, mode)
-            kb = await action_keyboard(item.get("id"), 0, len(items), item.get("status", ""), mode=mode, lang=lang, item=item)
-            sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
-            await track_message(state, sent_msg.message_id)
+        text = await short_view_text_with_materials(item, 0, len(items), user["id"], lang, mode)
+        kb = await action_keyboard(item.get("id"), 0, len(items), item.get("status", ""), mode=mode, lang=lang, item=item)
+        sent_msg = await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+        await track_message(state, sent_msg.message_id)
     else:
         await msg.answer("📭 Inbox bo'sh" if lang == "uz" else "📭 Входящие пусты")
 
@@ -2749,8 +2729,7 @@ async def tech_custom_select(cb: CallbackQuery, state: FSMContext):
     
     text = (
         f"📦 <b>{t('product', lang)}:</b> {esc(mat['name'])}\n"
-        f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n"
-        f"🆔 <b>{t('order', lang)}:</b> {esc(app_number)}\n\n"
+        f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n\n"
         f"{'Bu materialni tanlamoqchimisiz?' if lang=='uz' else 'Хотите выбрать этот материал?'}"
     )
     
@@ -2815,7 +2794,7 @@ async def tech_confirm_unassigned(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("tech_confirm_custom_"))
 async def tech_confirm_custom(cb: CallbackQuery, state: FSMContext):
-    """Materialni tasdiqlagandan so'ng miqdor kiritish"""
+    """Materialni tasdiqlagandan so'ng source_type so'rash"""
     await cb.answer()
     st = await state.get_data(); lang = st.get("lang") or await resolve_lang(cb.from_user.id)
     
@@ -2837,20 +2816,79 @@ async def tech_confirm_custom(cb: CallbackQuery, state: FSMContext):
         "lang": lang,
     })
 
+    # Application number ni olish
+    mode = st.get("tech_mode", "connection")
+    app_number = await get_application_number(req_id, mode)
+    
+    # Source type tanlash tugmalari
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🧑‍🔧 O'zimda" if lang=='uz' else "🧑‍🔧 У меня", callback_data=f"tech_source_technician_{material_id}_{req_id}"),
+            InlineKeyboardButton(text="🏢 Ombordan" if lang=='uz' else "🏢 Со склада", callback_data=f"tech_source_warehouse_{material_id}_{req_id}")
+        ],
         [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_back_to_materials_{req_id}")]
     ])
+    
+    await cb.message.answer(
+        f"📦 <b>{t('product', lang)}:</b> {esc(mat['name'])}\n"
+        f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n"
+        f"🆔 <b>{t('order', lang)}:</b> {esc(app_number)}\n\n"
+        f"{'Material qayerdan olinadi?' if lang=='uz' else 'Откуда взять материал?'}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+    await state.set_state(CustomQtyStates.waiting_qty)
+
+@router.callback_query(F.data.startswith("tech_source_"))
+async def tech_source_type_selected(cb: CallbackQuery, state: FSMContext):
+    """Source type tanlangandan so'ng miqdor kiritish"""
+    await cb.answer()
+    st = await state.get_data(); lang = st.get("lang") or await resolve_lang(cb.from_user.id)
+    
+    try:
+        payload = cb.data[len("tech_source_"):]
+        parts = payload.split("_")
+        if len(parts) != 3:
+            raise ValueError("Invalid format")
+        source_type, material_id, req_id = parts[0], int(parts[1]), int(parts[2])
+    except Exception:
+        return
+
+    mat = await fetch_material_by_id(material_id)
+    if not mat:
+        return await cb.answer(t("not_found_mat", lang), show_alert=True)
+
+    # Source type ni context ga qo'shish
+    custom_ctx = st.get("custom_ctx", {})
+    custom_ctx.update({
+        "applications_id": req_id,
+        "material_id": material_id,
+        "material_name": mat["name"],
+        "price": mat.get("price", 0),
+        "source_type": source_type,
+        "lang": lang,
+    })
+    await state.update_data(custom_ctx=custom_ctx)
 
     # Application number ni olish
     mode = st.get("tech_mode", "connection")
     app_number = await get_application_number(req_id, mode)
     
+    # Miqdor kiritish uchun keyboard
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("btn_cancel", lang), callback_data=f"tech_back_to_materials_{req_id}")]
+    ])
+    
+    source_text = "🧑‍🔧 O'zimda" if source_type == "technician" else "🏢 Ombordan"
+    if lang != "uz":
+        source_text = "🧑‍🔧 У меня" if source_type == "technician" else "🏢 Со склада"
+    
     await cb.message.answer(
-        f"{t('qty_title', lang)}\n\n"
-        f"{t('order', lang)} {esc(app_number)}\n"
-        f"{t('product', lang)} {esc(mat['name'])}\n"
-        f"{t('price_line', lang)} {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n\n"
-        f"{t('only_int', lang)}",
+        f"📦 <b>{t('product', lang)}:</b> {esc(mat['name'])}\n"
+        f"💰 <b>{t('price_line', lang)}:</b> {_fmt_price_uzs(mat.get('price',0))} {'so\'m' if lang=='uz' else 'сум'}\n"
+        f"🆔 <b>{t('order', lang)}:</b> {esc(app_number)}\n"
+        f"📍 <b>Manba:</b> {source_text}\n\n"
+        f"{'Miqdorini kiriting:' if lang=='uz' else 'Введите количество:'}",
         reply_markup=kb,
         parse_mode="HTML"
     )
@@ -2882,7 +2920,7 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
             mode = st.get("tech_mode", "connection")
             await upsert_material_selection(
                 user_id=user["id"],
-                applications_id=req_id,
+                application_id=req_id,
                 material_id=material_id,
                 qty=qty,
                 request_type=mode,
@@ -2909,7 +2947,6 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
         await _preserve_mode_clear(state)
         return
 
-    # Oddiy custom materiallar uchun eski mantiq
     ctx  = st.get("custom_ctx") or {}
     req_id      = int(ctx.get("applications_id", 0))
     material_id = int(ctx.get("material_id", 0))
@@ -2929,13 +2966,14 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
 
     try:
         mode = st.get("tech_mode", "connection")
+        source_type = ctx.get("source_type", "warehouse") 
         await upsert_material_selection(
             user_id=user["id"],
             applications_id=req_id,
             material_id=material_id,
             qty=qty,
             request_type=mode,
-            source_type="warehouse"  
+            source_type=source_type
         )
     except Exception as e:
         return await msg.answer(f"{t('x_error', lang)} {e}")
@@ -2943,7 +2981,7 @@ async def custom_qty_entered(msg: Message, state: FSMContext):
     mode = st.get("tech_mode", "connection")
     app_number = await get_application_number(req_id, mode)
     
-    selected = await fetch_selected_materials_for_request(user["id"], req_id)
+    selected = await fetch_selected_materials_for_request(user["id"], app_number)
     lines = [t("saved_selection", lang) + "\n", f"{t('order_id', lang)} {esc(app_number)}", t("selected_products", lang)]
     for it in selected:
         qty_txt = f"{_qty_of(it)} {'dona' if lang=='uz' else 'шт'}"

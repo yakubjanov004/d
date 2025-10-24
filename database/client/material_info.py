@@ -85,7 +85,17 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     END as media_file_id,
                     CASE 
                         WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
-                        WHEN tech_orders.media IS NOT NULL AND tech_orders.media != '' THEN 'photo'
+                        WHEN tech_orders.media IS NOT NULL AND tech_orders.media != '' THEN 
+                            CASE 
+                                WHEN tech_orders.media LIKE 'BAACAgI%' THEN 'video'
+                                WHEN tech_orders.media LIKE 'BAADBAAD%' THEN 'video'
+                                WHEN tech_orders.media LIKE 'BAAgAgI%' THEN 'video'
+                                WHEN tech_orders.media LIKE 'AgACAgI%' THEN 'photo'
+                                WHEN tech_orders.media LIKE 'CAAQAgI%' THEN 'photo'
+                                WHEN tech_orders.media LIKE '%.mp4' OR tech_orders.media LIKE '%.avi' OR tech_orders.media LIKE '%.mov' THEN 'video'
+                                WHEN tech_orders.media LIKE '%.jpg' OR tech_orders.media LIKE '%.jpeg' OR tech_orders.media LIKE '%.png' THEN 'photo'
+                                ELSE 'photo'  -- Default to photo if can't determine
+                            END
                         ELSE NULL
                     END as media_type,
                     CASE 
@@ -153,12 +163,22 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     -- Staff orders can have media too
                     CASE 
                         WHEN mf.file_path IS NOT NULL AND mf.file_path != '' THEN mf.file_path
-                        WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN tech_ord.media
+                        WHEN so.media IS NOT NULL AND so.media != '' THEN so.media
                         ELSE NULL
                     END as media_file_id,
                     CASE 
                         WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
-                        WHEN tech_ord.media IS NOT NULL AND tech_ord.media != '' THEN 'photo'
+                        WHEN so.media IS NOT NULL AND so.media != '' THEN 
+                            CASE 
+                                WHEN so.media LIKE 'BAACAgI%' THEN 'video'
+                                WHEN so.media LIKE 'BAADBAAD%' THEN 'video'
+                                WHEN so.media LIKE 'BAAgAgI%' THEN 'video'
+                                WHEN so.media LIKE 'AgACAgI%' THEN 'photo'
+                                WHEN so.media LIKE 'CAAQAgI%' THEN 'photo'
+                                WHEN so.media LIKE '%.mp4' OR so.media LIKE '%.avi' OR so.media LIKE '%.mov' THEN 'video'
+                                WHEN so.media LIKE '%.jpg' OR so.media LIKE '%.jpeg' OR so.media LIKE '%.png' THEN 'photo'
+                                ELSE 'photo'  -- Default to photo if can't determine
+                            END
                         ELSE NULL
                     END as media_type,
                     CASE 
@@ -182,9 +202,8 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                         AND mi.request_type = 'staff'
                     ) as materials_total_cost
                 FROM staff_orders so 
-                LEFT JOIN technician_orders tech_ord ON tech_ord.id = so.id AND so.type_of_zayavka = 'technician'
-                LEFT JOIN media_files mf ON mf.related_table = 'technician_orders' 
-                                        AND mf.related_id = tech_ord.id 
+                LEFT JOIN media_files mf ON mf.related_table = 'staff_orders' 
+                                        AND mf.related_id = so.id 
                                         AND mf.is_active = TRUE
                 WHERE so.user_id = $1 AND COALESCE(so.is_active, TRUE) = TRUE
             )

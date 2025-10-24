@@ -190,49 +190,43 @@ async def get_used_materials_info(request_id: int, request_type: str, client_lan
         
         conn = await asyncpg.connect(get_connection_url())
         try:
+            # Application number ni olish
             if request_type == "connection":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price,
-                        mr.source_type,
-                        mr.warehouse_approved
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM connection_orders WHERE id = $1",
+                    request_id
+                )
             elif request_type == "technician":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price,
-                        mr.source_type,
-                        mr.warehouse_approved
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM technician_orders WHERE id = $1",
+                    request_id
+                )
             elif request_type == "staff":
-                query = """
-                    SELECT 
-                        m.name as material_name,
-                        mr.quantity,
-                        mr.price,
-                        mr.source_type,
-                        mr.warehouse_approved
-                    FROM material_requests mr
-                    JOIN materials m ON m.id = mr.material_id
-                    WHERE mr.applications_id = $1
-                    ORDER BY mr.created_at
-                """
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM staff_orders WHERE id = $1",
+                    request_id
+                )
             else:
                 return ""
+            
+            if not app_number:
+                return "• Hech qanday material ishlatilmagan" if client_lang == "uz" else "• Материалы не использовались"
+            
+            # Material ma'lumotlarini olish
+            query = """
+                SELECT 
+                    m.name as material_name,
+                    mr.quantity,
+                    mr.price,
+                    mr.source_type,
+                    mr.warehouse_approved
+                FROM material_requests mr
+                JOIN materials m ON m.id = mr.material_id
+                WHERE mr.application_number = $1
+                ORDER BY mr.created_at
+            """
                 
-            materials = await conn.fetch(query, request_id)
+            materials = await conn.fetch(query, app_number)
             
             if not materials:
                 return "• Hech qanday material ishlatilmagan" if client_lang == "uz" else "• Материалы не использовались"
@@ -316,13 +310,35 @@ async def get_total_materials_cost(request_id: int, request_type: str, client_la
         
         conn = await asyncpg.connect(get_connection_url())
         try:
+            # Application number ni olish
+            if request_type == "connection":
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM connection_orders WHERE id = $1",
+                    request_id
+                )
+            elif request_type == "technician":
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM technician_orders WHERE id = $1",
+                    request_id
+                )
+            elif request_type == "staff":
+                app_number = await conn.fetchval(
+                    "SELECT application_number FROM staff_orders WHERE id = $1",
+                    request_id
+                )
+            else:
+                return "N/A"
+            
+            if not app_number:
+                return "0 so'm" if client_lang == "uz" else "0 сум"
+            
             query = """
                 SELECT SUM(total_price) as total_cost
                 FROM material_requests
-                WHERE applications_id = $1
+                WHERE application_number = $1
             """
             
-            total_cost = await conn.fetchval(query, request_id)
+            total_cost = await conn.fetchval(query, app_number)
             
             if not total_cost or total_cost == 0:
                 return "0 so'm" if client_lang == "uz" else "0 сум"

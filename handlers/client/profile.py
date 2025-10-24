@@ -111,6 +111,10 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
     # Media faylini tekshirish
     media_file_id = order.get('media_file_id')
     media_type = order.get('media_type')
+    
+    # Debug uchun media ma'lumotlarini console'da ko'rsatish (faqat media mavjud bo'lsa)
+    if media_file_id:
+        pass
 
     # Order type text based on order_type
     if user_lang == "ru":
@@ -224,6 +228,61 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
     
+    # Helper function to send media with text
+    async def send_media_with_text(target, text: str, reply_markup, media_file_id: str, media_type: str):
+        """Send media with text caption"""
+        import os
+        
+        # Convert relative path to absolute path
+        if not os.path.isabs(media_file_id):
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            absolute_path = os.path.join(project_root, media_file_id)
+        else:
+            absolute_path = media_file_id
+        
+        
+        # Check if file exists
+        if not os.path.exists(absolute_path):
+            media_info = f"\n📎 <i>Media fayl mavjud emas: {media_file_id.split('/')[-1] if '/' in media_file_id else media_file_id.split('\\')[-1]}</i>"
+            text_with_media = text + media_info
+            await target.answer(text_with_media, parse_mode='HTML', reply_markup=reply_markup)
+            return
+        
+        try:
+            from aiogram.types import FSInputFile
+            
+            # Try to send as photo first
+            if media_file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                photo_input = FSInputFile(absolute_path)
+                await target.answer_photo(
+                    photo=photo_input,
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
+            # Try to send as video
+            elif media_file_id.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                video_input = FSInputFile(absolute_path)
+                await target.answer_video(
+                    video=video_input,
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
+            else:
+                # If file type is unknown, try as document
+                doc_input = FSInputFile(absolute_path)
+                await target.answer_document(
+                    document=doc_input,
+                    caption=text,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            media_info = f"\n📎 <i>Media fayl: {media_file_id.split('/')[-1] if '/' in media_file_id else media_file_id.split('\\')[-1]}</i>"
+            text_with_media = text + media_info
+            await target.answer(text_with_media, parse_mode='HTML', reply_markup=reply_markup)
+
     # Helper function to detect media type from Telegram file ID
     def detect_media_type_from_file_id(file_id: str) -> str:
         """Detect media type from Telegram file ID prefix"""
@@ -237,41 +296,99 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
             return 'video'
         elif file_id.startswith('BAAgAgI'):  # Video
             return 'video'
+        elif file_id.startswith('BAAgAgI'):  # Video
+            return 'video'
         elif file_id.startswith('AgACAgI'):  # Photo
             return 'photo'
         elif file_id.startswith('CAAQAgI'):  # Photo
             return 'photo'
+        elif file_id.startswith('BAAgAgI'):  # Video
+            return 'video'
         # Check for file extensions in local files
         elif file_id.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
             return 'video'
         elif file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
             return 'photo'
         else:
-            return None
+            # Default to video if we can't determine
+            return 'video'
 
     # Media faylini yuborish
-    if isinstance(target, CallbackQuery) or edit_message:
-        # Callback query uchun yoki edit_message=True bo'lsa - faqat matn yuborish
-        if isinstance(target, CallbackQuery):
-            await target.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    
+    if isinstance(target, CallbackQuery):
+        # Callback query uchun - faqat matn yuborish
+        await target.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    elif edit_message:
+        # Edit message uchun - media bilan yoki mediasiz
+        if media_file_id:
+            # Media bilan edit qilish - yangi xabar yuborish kerak
+            try:
+                await target.delete()
+                # Media bilan yangi xabar yuborish
+                await send_media_with_text(target, text, reply_markup, media_file_id, media_type)
+            except Exception as e:
+                await target.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
         else:
             await target.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
     else:
-        # Message uchun - media bilan yuborish
         if media_file_id:
-            # Check if media_file_id is a local file path or Telegram file ID
-            is_local_path = media_file_id.startswith(('media/', './', '/', 'C:', 'D:')) or '\\' in media_file_id
+            # Improved local path detection - only detect actual file system paths
+            is_local_path = (media_file_id.startswith(('media/', './', '/', 'C:', 'D:')) or 
+                           '\\' in media_file_id or 
+                           media_file_id.endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.avi', '.mov', '.mkv', '.webm')))
             
-            if is_local_path:
-                # Local file path - can't send directly, just show text
-                print(f"Local file path detected, skipping media send: {media_file_id}")
-                await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+            
+            if is_local_path and not media_file_id.startswith(('BAACAgI', 'BAADBAAD', 'BAAgAgI', 'AgACAgI', 'CAAQAgI')):
+                try:
+                    import os
+                    # Convert relative path to absolute path
+                    if not os.path.isabs(media_file_id):
+                        # If it's a relative path, make it absolute from the project root
+                        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        absolute_path = os.path.join(project_root, media_file_id)
+                    else:
+                        absolute_path = media_file_id
+                    
+                    
+                    # Check if file exists
+                    if not os.path.exists(absolute_path):
+                        media_info = f"\n📎 <i>Media fayl mavjud emas: {media_file_id.split('/')[-1] if '/' in media_file_id else media_file_id.split('\\')[-1]}</i>"
+                        text_with_media = text + media_info
+                        await target.answer(text_with_media, parse_mode='HTML', reply_markup=reply_markup)
+                        return
+                    
+                    # Try to send as photo first
+                    if media_file_id.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                        await target.answer_photo(
+                            photo=absolute_path,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                    # Try to send as video
+                    elif media_file_id.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                        await target.answer_video(
+                            video=absolute_path,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        # If file type is unknown, try as document
+                        await target.answer_document(
+                            document=absolute_path,
+                            caption=text,
+                            parse_mode='HTML',
+                            reply_markup=reply_markup
+                        )
+                except Exception as e:
+                    media_info = f"\n📎 <i>Media fayl: {media_file_id.split('/')[-1] if '/' in media_file_id else media_file_id.split('\\')[-1]}</i>"
+                    text_with_media = text + media_info
+                    await target.answer(text_with_media, parse_mode='HTML', reply_markup=reply_markup)
             else:
-                # Telegram file ID - try to send media
                 actual_media_type = detect_media_type_from_file_id(media_file_id)
                 effective_media_type = actual_media_type or media_type
 
-                print(f"Media file_id: {media_file_id}, db_type: {media_type}, detected_type: {actual_media_type}, effective_type: {effective_media_type}")
 
                 try:
                     if effective_media_type == 'video':
@@ -292,7 +409,6 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
                                     reply_markup=reply_markup
                                 )
                             except Exception as e2:
-                                print(f"Photo send also failed: {e2}")
                                 await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
                     elif effective_media_type == 'photo':
                         try:
@@ -303,10 +419,19 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
                                 reply_markup=reply_markup
                             )
                         except Exception as e:
-                            print(f"Photo send failed: {e}")
-                            await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
+                            print(f"Photo send failed, retrying as video: {e}")
+                            try:
+                                await target.answer_video(
+                                    video=media_file_id,
+                                    caption=text,
+                                    parse_mode='HTML',
+                                    reply_markup=reply_markup
+                                )
+                            except Exception as e2:
+                                print(f"Video send also failed: {e2}")
+                                await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
                     else:
-                        # Aniq turi noma'lum bo'lsa, video sifatida sinab ko'ramiz
+                        # Aniq turi noma'lum bo'lsa, avval video sifatida sinab ko'ramiz
                         try:
                             await target.answer_video(
                                 video=media_file_id,
@@ -324,10 +449,8 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
                                     reply_markup=reply_markup
                                 )
                             except Exception as e2:
-                                print(f"Photo send also failed: {e2}")
                                 await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
                 except Exception as e:
-                    print(f"All media attempts failed: {e}")
                     await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)
         else:
             await target.answer(text, parse_mode='HTML', reply_markup=reply_markup)

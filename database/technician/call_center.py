@@ -94,7 +94,7 @@ async def staff_orders_create(
                 address, description, business_type, status, type_of_zayavka, is_active
             )
             VALUES ($1, $2, $3, $4, $5,
-                    $6, $7, $8, 'in_call_center_supervisor', 'technician', TRUE)
+                    $6, $7, $8, 'in_controller', 'technician', TRUE)
             RETURNING id, application_number
             """,
             application_number,
@@ -128,7 +128,7 @@ async def staff_orders_technician_create(
                 address, description, status, type_of_zayavka, is_active
             )
             VALUES ($1, $2, $3, $4,
-                    $5, $6, 'in_call_center_supervisor', 'technician', TRUE)
+                    $5, $6, 'in_controller', 'technician', TRUE)
             RETURNING id
             """,
             user_id,

@@ -76,6 +76,17 @@ async def _count_from_connections_by_status(
     """
     order_id_col, date_col = await _detect_columns_for_kind(kind)
 
+    # Order table nomini aniqlash
+    if kind == "connection":
+        order_table = "connection_orders"
+        order_status_col = "status"
+    elif kind == "technician":
+        order_table = "technician_orders"
+        order_status_col = "status"
+    elif kind == "staff":
+        order_table = "staff_orders"
+        order_status_col = "status"
+    
     q = f"""
     WITH involvement AS (
         SELECT
@@ -125,8 +136,10 @@ async def _count_from_connections_by_status(
                     END
                 ELSE NULL
             END AS tech_status,
-            c.id
+            c.id,
+            o.{order_status_col} AS order_status
         FROM connections c
+        LEFT JOIN {order_table} o ON o.id = c.{order_id_col}
         WHERE c.{order_id_col} IS NOT NULL
           AND ($2::timestamptz IS NULL OR c.{date_col} >= $2)
           AND ($3::timestamptz IS NULL OR c.{date_col} <  $3)
@@ -134,18 +147,22 @@ async def _count_from_connections_by_status(
     ),
     last_per_order AS (
         SELECT DISTINCT ON (order_id)
-            order_id, tech_status, ts, id
+            order_id, tech_status, order_status, ts, id
         FROM involvement
         WHERE order_id IS NOT NULL AND tech_status IS NOT NULL
         ORDER BY order_id, ts DESC, id DESC
     )
     SELECT
         CASE
+            -- Arizaning o'z statusi completed bo'lsa
+            WHEN order_status = 'completed' THEN 'completed'
+            -- Arizaning o'z statusi cancelled bo'lsa
+            WHEN order_status = 'cancelled' THEN 'cancelled'
+            -- Arizaning o'z statusi boshqa bo'lsa, connection statusini ishlat
             WHEN tech_status IN ('between_controller_technician','in_between_controller_technician') THEN 'between_controller_technician'
             WHEN tech_status = 'in_technician'       THEN 'in_technician'
             WHEN tech_status = 'in_technician_work'  THEN 'in_technician_work'
             WHEN tech_status = 'in_warehouse'        THEN 'in_warehouse'
-            WHEN tech_status = 'completed'           THEN 'completed'
             ELSE 'other'
         END AS status,
         COUNT(*)::int AS cnt
