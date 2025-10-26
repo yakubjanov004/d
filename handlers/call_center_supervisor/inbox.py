@@ -191,70 +191,22 @@ def fmt_dt(dt) -> str:
 # =========================================================
 @router.message(F.text.in_(["📥 Inbox", "📥 Входящие"]))
 async def ccs_inbox(message: Message):
-    """CCS inbox main handler - shows category selection"""
-    await _ccs_inbox_content(message)
-
-async def _ccs_inbox_content(target, user_id: int = None):
-    """CCS inbox content - can be used for both new messages and edits"""
-    if user_id is None:
-        user_id = target.from_user.id if hasattr(target, 'from_user') else target.message.from_user.id
-    
-    lang = await get_user_language(user_id) or "uz"
-    
-    # Get counts for each category
-    tech_count = await ccs_count_technician_orders()
-    staff_count = await ccs_count_staff_orders()
-    total_count = tech_count + staff_count
-    
-    texts = {
-        "uz": {
-            "title": "📥 <b>Call Center Supervisor - Inbox</b>",
-            "subtitle": "Kategoriyalarni tanlang:",
-            "tech_orders": "🔧 Texnik arizalar (Controllerdan)",
-            "staff_orders": "👥 Xodimlar arizalari",
-            "total": "📊 Jami:"
-        },
-        "ru": {
-            "title": "📥 <b>Супервайзер Call Center - Входящие</b>",
-            "subtitle": "Выберите категорию:",
-            "tech_orders": "🔧 Технические заявки (от Controller)",
-            "staff_orders": "👥 Заявки сотрудников",
-            "total": "📊 Всего:"
-        }
-    }
-    t = texts[lang]
-    
-    text = (
-        f"{t['title']}\n\n"
-        f"{t['subtitle']}\n\n"
-        f"{t['tech_orders']}: <b>{tech_count}</b>\n"
-        f"{t['staff_orders']}: <b>{staff_count}</b>\n\n"
-        f"{t['total']} <b>{total_count}</b>"
-    )
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"🔧 {t['tech_orders']} ({tech_count})",
-            callback_data="ccs_tech_orders"
-        )],
-        [InlineKeyboardButton(
-            text=f"👥 {t['staff_orders']} ({staff_count})",
-            callback_data="ccs_staff_orders"
-        )]
-    ])
-    
-    if hasattr(target, 'message'):  # CallbackQuery
-        await target.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    else:  # Message
-        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    """CCS inbox main handler - directly shows technician orders from controller"""
+    # To'g'ridan-to'g'ri tech orders ko'rsatish
+    await show_technician_orders(message)
 
 # =========================================================
 # Technician Orders Handlers
 # =========================================================
 @router.callback_query(F.data == "ccs_tech_orders")
-async def show_technician_orders(callback: CallbackQuery):
-    """Show technician orders from controller"""
+async def show_technician_orders_cb(callback: CallbackQuery):
+    """Show technician orders from controller (callback)"""
     await _show_technician_item_with_media(callback, idx=0, user_id=callback.from_user.id)
+
+async def show_technician_orders(target):
+    """Show technician orders from controller (both Message and CallbackQuery)"""
+    user_id = target.from_user.id if hasattr(target, 'from_user') else target.message.from_user.id
+    await _show_technician_item_with_media(target, idx=0, user_id=user_id)
 
 async def _show_technician_item_with_media(target, idx: int, user_id: int):
     """Show technician order item with media support"""
@@ -510,20 +462,17 @@ def _tech_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKey
     prev_cb = f"ccs_tech_prev:{idx}"
     next_cb = f"ccs_tech_next:{idx}"
     send_to_operator_cb = f"ccs_tech_send_operator:{order_id}:{idx}"
-    back_cb = "ccs_back_to_categories"
 
     texts = {
         "uz": {
             "back": "◀️ Orqaga",
             "next": "▶️ Oldinga",
-            "send_to_operator": "📤 Operatorga jo'natish",
-            "categories": "🔙 Kategoriyalar"
+            "send_to_operator": "📤 Operatorga jo'natish"
         },
         "ru": {
             "back": "◀️ Назад",
             "next": "▶️ Далее",
-            "send_to_operator": "📤 Отправить оператору",
-            "categories": "🔙 Категории"
+            "send_to_operator": "📤 Отправить оператору"
         }
     }
     t = texts[lang]
@@ -547,9 +496,6 @@ def _tech_kb(idx: int, total: int, order_id: int, lang: str = "uz") -> InlineKey
     
     keyboard.append([
         InlineKeyboardButton(text=t["send_to_operator"], callback_data=send_to_operator_cb)
-    ])
-    keyboard.append([
-        InlineKeyboardButton(text=t["categories"], callback_data=back_cb)
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -807,13 +753,13 @@ async def ccs_tech_select_operator(cb: CallbackQuery):
         await cb.message.delete()
         await cb.message.answer(success_text, parse_mode="HTML")
         
-        # Asosiy menyuga qaytish
+        # Asosiy menyuga qaytish - to'g'ridan-to'g'ri tech orders ko'rsatish
         await cb.message.answer(
             ("🏠 Asosiy menyu:" if lang == "uz" else "🏠 Главное меню:"),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=("📥 Inbox" if lang == "uz" else "📥 Входящие"),
-                    callback_data="ccs_back_to_categories"
+                    callback_data="ccs_tech_orders"
                 )]
             ])
         )
@@ -832,7 +778,7 @@ async def ccs_tech_back_to_item(cb: CallbackQuery):
     order_id = int(order_id)
     cur = int(cur)
     
-    await _show_technician_item(cb, idx=cur, user_id=cb.from_user.id)
+    await _show_technician_item_with_media(cb, idx=cur, user_id=cb.from_user.id)
     await cb.answer()
 
 

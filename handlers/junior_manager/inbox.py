@@ -70,9 +70,9 @@ TR = {
         "uz": "Keyingi ➡️",
         "ru": "Следующий ➡️",
     },
-    "btn_contact": {
-        "uz": "📞 Mijoz bilan bog'lanish",
-        "ru": "📞 Связаться с клиентом",
+    "btn_add_comment": {
+        "uz": "✍️ Izoh qo'shish",
+        "ru": "✍️ Добавить комментарий",
     },
     "btn_send_to_controller": {
         "uz": "📤 Controller'ga yuborish",
@@ -123,8 +123,24 @@ TR = {
         "ru": "📄 <i>Заявка #{idx} / {total}</i>",
     },
     "send_ok": {
-        "uz": "✅ Controller’ga yuborildi.",
+        "uz": "✅ Controller'ga yuborildi.",
         "ru": "✅ Отправлено контроллёру.",
+    },
+    "order_sent_title": {
+        "uz": "📤 Ariza Controller'ga yuborildi",
+        "ru": "📤 Заявка отправлена контроллёру",
+    },
+    "order_sent_id": {
+        "uz": "🆔 Ariza ID:",
+        "ru": "🆔 ID заявки:",
+    },
+    "order_sent_date": {
+        "uz": "📅 Yuborilgan sana:",
+        "ru": "📅 Дата отправки:",
+    },
+    "order_sent_comment": {
+        "uz": "📝 Izoh:",
+        "ru": "📝 Комментарий:",
     },
     "send_fail": {
         "uz": "❌ Yuborishning iloji yo‘q (status mos emas).",
@@ -312,8 +328,8 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         region_raw = it.get("order_region")
         address_raw = it.get("order_address")
     
-    # Get notes
-    jm_notes_raw = it.get("jm_notes")
+    # Get notes - check both connection and staff orders
+    jm_notes_raw = it.get("order_jm_notes") or it.get("staff_jm_notes") or it.get("jm_notes")
     
     # Get tariff information
     tariff_name = it.get("tariff_name")
@@ -363,7 +379,6 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         f"🆔 <b>{_t(lang,'abonent_id_label')}:</b> {order_id_txt}\n"
         f"📋 <b>{_t(lang,'order_type_label')}:</b> {service_type}\n"
         f"🏢 <b>{_t(lang,'business_type_label')}:</b> B2C\n"
-        f"📝 <b>{_t(lang,'description_label')}:</b> {_esc(it.get('description', '-'))}\n"
         f"🕒 <b>{_t(lang,'created_label')}:</b> {order_created}\n"
         f"{tariff_label} {tariff_or_problem}\n"
         f"{notes_block}\n\n"
@@ -405,7 +420,7 @@ def _kb(idx: int, total: int, conn_id: int | None, lang: str) -> InlineKeyboardM
             rows.append(nav)
 
     rows.append([
-        InlineKeyboardButton(text=_t(lang, "btn_contact"), callback_data=f"jm_contact_client:{conn_id}"),
+        InlineKeyboardButton(text=_t(lang, "btn_add_comment"), callback_data=f"jm_add_comment:{conn_id}"),
         InlineKeyboardButton(text=_t(lang, "btn_send_to_controller"), callback_data=f"jm_send_to_controller:{conn_id}"),
     ])
 
@@ -439,8 +454,8 @@ async def jm_conn_next(cb: CallbackQuery, state: FSMContext):
 # =========================
 # Contact client (submenu)
 # =========================
-@router.callback_query(F.data.startswith("jm_contact_client:"))
-async def jm_contact_client(cb: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("jm_add_comment:"))
+async def jm_add_comment(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     order_id = int(cb.data.split(":")[1])
     
@@ -460,7 +475,7 @@ async def jm_contact_client(cb: CallbackQuery, state: FSMContext):
 
 @router.message(JMContactStates.waiting_message)
 async def jm_contact_message_handler(msg: Message, state: FSMContext):
-    """Handle the note added by junior manager"""
+    """Handle the comment added by junior manager"""
     data = await state.get_data()
     order_id = data.get("contact_order_id")
     lang = data.get("lang", "uz")
@@ -506,6 +521,7 @@ async def jm_contact_message_handler(msg: Message, state: FSMContext):
     await state.update_data(items=items, idx=idx, lang=lang)
     await state.set_state(None)  # Clear the contact state
     
+    # Show the inbox again to continue browsing
     await _render_card(target=msg, items=items, idx=idx, lang=lang)
 
 # =========================
@@ -558,21 +574,110 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
     data  = await state.get_data()
     items = data.get("items", [])
     idx   = data.get("idx", 0)
+    
+    # Get current order information before removing it
+    current_order = None
+    if items and 0 <= idx < len(items):
+        current_order = items[idx]
+    
+    # Get order information for display
+    order_info = ""
+    if current_order:
+        app_number = current_order.get("application_number") or current_order.get("staff_application_number")
+        jm_notes = current_order.get("jm_notes") or current_order.get("order_jm_notes") or current_order.get("staff_jm_notes")
+        
+        order_info = (
+            f"\n{_t(lang, 'order_sent_title')}\n"
+            f"{_t(lang, 'order_sent_id')} {app_number or order_id}\n"
+            f"{_t(lang, 'order_sent_date')} {_fmt_dt(datetime.now())}\n"
+        )
+        
+        if jm_notes:
+            order_info += f"\n{_t(lang, 'order_sent_comment')}\n{_esc(jm_notes)}\n"
 
+    # Remove the sent order from the list
     items = [x for x in items if (x.get("connection_id") != order_id and x.get("staff_id") != order_id)]
 
     if not items:
         await state.clear()
-        return await cb.message.edit_text(f"{_t(lang,'send_ok')}\n\n{_t(lang,'inbox_empty')}")
+        await cb.message.edit_reply_markup(reply_markup=None)
+        return await cb.message.answer(f"{_t(lang,'send_ok')}{order_info}\n\n{_t(lang,'inbox_empty')}", parse_mode="HTML")
 
     if idx >= len(items):
         idx = len(items) - 1
 
     await state.update_data(items=items, idx=idx, lang=lang)
-    # Remove inline keyboard and show success message
+    # Remove inline keyboard and show success message with order info
     await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.message.answer(_t(lang, "send_ok"))
-    await _render_card(target=cb, items=items, idx=idx, lang=lang)
+    await cb.message.answer(f"{_t(lang, 'send_ok')}{order_info}", parse_mode="HTML")
+    
+    # Show the next item in inbox as new message
+    # Render the card directly with answer (not edit)
+    order = items[idx]
+    order_id = order.get("order_id") or order.get("staff_order_id")
+    
+    # Use _render_card by creating a Message-like object
+    # We'll manually call answer method
+    kb = _kb(idx, len(items), conn_id=order_id, lang=lang)
+    
+    # Get all the data we need for rendering
+    application_number = order.get("application_number") or order.get("staff_application_number")
+    order_created = _fmt_dt(order.get("created_at"))
+    
+    # Get client information
+    if order.get("staff_order_id"):
+        client_name_raw = (order.get("client_name") or order.get("staff_client_full_name"))
+        client_phone_raw = order.get("client_phone_number") or order.get("staff_client_phone") or order.get("staff_phone") or order.get("phone")
+    else:
+        client_name_raw = order.get("client_full_name") or order.get("user_name")
+        client_phone_raw = order.get("client_phone")
+    
+    # Get location information
+    if order.get("staff_order_id"):
+        region_raw = order.get("staff_region")
+        address_raw = order.get("staff_address")
+    else:
+        region_raw = order.get("order_region")
+        address_raw = order.get("order_address")
+    
+    # Get notes - check both connection and staff orders
+    jm_notes_raw = order.get("order_jm_notes") or order.get("staff_jm_notes") or order.get("jm_notes")
+    
+    # Get tariff
+    tariff_name = order.get("tariff_name")
+    
+    # Escape values
+    order_id_txt = _esc(application_number) if application_number else _esc(order_id)
+    client_name = _esc(client_name_raw)
+    client_phone = _esc(client_phone_raw)
+    region = _get_region_display_name(region_raw, lang)
+    address = _esc(address_raw)
+    
+    # Build notes block
+    notes_block = ""
+    if jm_notes_raw:
+        notes_block = f"\n\n{_t(lang,'card_notes_title')}\n" + _esc(jm_notes_raw)
+    
+    # Build text
+    text = (
+        f"{_t(lang, 'card_title')}\n\n"
+        f"{_t(lang,'card_id')} {order_id_txt}\n"
+        f"{_t(lang,'card_date')} {order_created}\n"
+        f"{_t(lang,'card_client')} {client_name}\n"
+        f"{_t(lang,'card_phone')} {client_phone}\n"
+        f"{_t(lang,'card_region')} {region}\n"
+        f"{_t(lang,'card_address')} {address}\n"
+        f"🆔 <b>{_t(lang,'abonent_id_label')}:</b> {order_id_txt}\n"
+        f"📋 <b>{_t(lang,'order_type_label')}:</b> connection\n"
+        f"🏢 <b>{_t(lang,'business_type_label')}:</b> B2C\n"
+        f"🕒 <b>{_t(lang,'created_label')}:</b> {order_created}\n"
+        f"💳 <b>Tarif:</b> {_esc(tariff_name) if tariff_name else '-'}\n"
+        f"{notes_block}\n\n"
+        f"{_t(lang,'card_pager').format(idx=idx+1, total=len(items))}"
+    )
+    
+    # Send as new message
+    await cb.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 # =========================
 # Notes flow
