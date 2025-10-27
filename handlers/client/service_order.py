@@ -525,7 +525,7 @@ async def finish_service_order(callback_or_message, state: FSMContext, lang: str
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    technician_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -533,9 +533,9 @@ async def finish_service_order(callback_or_message, state: FSMContext, lang: str
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, 'client_created', 'in_controller', NOW(), NOW())
+                VALUES ($1, $2, $2, 'client_created', 'in_controller', NOW(), NOW())
                 """,
-                request_id, user.get('id'), user.get('id') 
+                application_number, user.get('id') 
             )
         finally:
             await conn.close()

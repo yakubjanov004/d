@@ -80,6 +80,9 @@ T = {
     "hist_steps": {"uz": "📋 <b>Qadamlar:</b>", "ru": "📋 <b>Шаги:</b>"},
     "hist_no_steps": {"uz": "Hech qanday harakat topilmadi.", "ru": "Действия не найдены."},
     "hist_not_finished": {"uz": "hali tugamagan", "ru": "ещё не завершено"},
+    "hist_time_spent": {"uz": "⏱️ <b>Vaqt sarf:</b>", "ru": "⏱️ <b>Затрачено времени:</b>"},
+    "hist_by_person": {"uz": "👥 <b>Har bir shaxs uchun:</b>", "ru": "👥 <b>По каждому человеку:</b>"},
+    "hist_no_user_times": {"uz": "Ma'lumot yo'q", "ru": "Данных нет"},
 }
 
 def normalize_lang(v: str | None) -> str:
@@ -217,7 +220,7 @@ def _fmt_card(lang: str, rec: dict) -> str:
         f"{t(lang,'sum_total_time')} {total_dur}\n"
     )
 
-def _fmt_history(lang: str, title_name: str, application_number: str, steps: list, created_at) -> str:
+def _fmt_history(lang: str, title_name: str, application_number: str, steps: list, created_at, user_times: list = None) -> str:
     header = f"{t(lang,'hist_title', id=application_number)}\n\n" \
              f"{t(lang,'hist_client')} {html.escape(title_name, quote=False)}\n"
     lines = [header, t(lang, "hist_steps")]
@@ -246,6 +249,18 @@ def _fmt_history(lang: str, title_name: str, application_number: str, steps: lis
                 f"   🗓 {start_s} → {end_s}\n"
                 f"   ⏱ {duration_str}"
             )
+    
+    # Add user times section
+    if user_times:
+        lines.append(f"\n{t(lang,'hist_by_person')}")
+        for i, ut in enumerate(user_times[:5], 1):  # Show top 5
+            name = html.escape(ut.get('name', '—'), quote=False)
+            duration_str = html.escape(ut.get('duration_str', '—'), quote=False)
+            lines.append(f"{i}. <b>{name}</b> - {duration_str}")
+    else:
+        # No need to show if no data
+        pass
+    
     now_local = datetime.now(TZ)
     total_dur = _human_duration(now_local - _to_tz(created_at), lang) if created_at else "—"
     lines.append(f"\n{t(lang,'sum_total_time')} {total_dur}")
@@ -357,7 +372,7 @@ async def rtm_show_history(cb: CallbackQuery, state: FSMContext):
         await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
     await state.update_data(view="history")
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
@@ -372,7 +387,7 @@ async def rtm_prev_hist(cb: CallbackQuery, state: FSMContext):
     await state.update_data(idx=idx, view="history")
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_next_hist")
@@ -386,7 +401,7 @@ async def rtm_next_hist(cb: CallbackQuery, state: FSMContext):
     await state.update_data(idx=idx, view="history")
     order = items[idx]
     history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"))
+    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_back_card")

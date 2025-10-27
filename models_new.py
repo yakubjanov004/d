@@ -377,9 +377,7 @@ class Connections(BaseModel):
     """
     sender_id: Optional[int] = None             # Yuboruvchi foydalanuvchi IDsi (FK users.id)
     recipient_id: Optional[int] = None          # Qabul qiluvchi foydalanuvchi IDsi (FK users.id)
-    connection_id: Optional[int] = None          # Ulanish buyurtmasi IDsi (FK connection_orders.id)
-    technician_id: Optional[int] = None         # Texnik buyurtmasi IDsi (FK technician_orders.id)
-    staff_id: Optional[int] = None               # staff buyurtmasi IDsi (FK staff_orders.id)
+    application_number: Optional[str] = None    # Arizalar uchun asosiy identifikator (CONN-, TECH-, STAFF-)
     sender_status: Optional[str] = None         # Yuboruvchi statusi
     recipient_status: Optional[str] = None      # Qabul qiluvchi statusi
 

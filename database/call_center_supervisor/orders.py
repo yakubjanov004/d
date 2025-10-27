@@ -147,10 +147,31 @@ def _code_to_name(tariff_code: Optional[str]) -> Optional[str]:
     if not tariff_code:
         return None
     mapping = {
-        "tariff_xammasi_birga_4": "Hammasi birga 4",
-        "tariff_xammasi_birga_3_plus": "Hammasi birga 3+",
-        "tariff_xammasi_birga_3": "Hammasi birga 3",
-        "tariff_xammasi_birga_2": "Hammasi birga 2",
+        # B2C Plans
+        "tariff_b2c_plan_0": "Oddiy-20",
+        "tariff_b2c_plan_1": "Oddiy-50",
+        "tariff_b2c_plan_2": "Oddiy-100",
+        "tariff_b2c_plan_3": "XIT-200",
+        "tariff_b2c_plan_4": "VIP-500",
+        "tariff_b2c_plan_5": "PREMIUM",
+        # BizNET-Pro Plans
+        "tariff_biznet_plan_0": "BizNET-Pro-1",
+        "tariff_biznet_plan_1": "BizNET-Pro-2",
+        "tariff_biznet_plan_2": "BizNET-Pro-3",
+        "tariff_biznet_plan_3": "BizNET-Pro-4",
+        "tariff_biznet_plan_4": "BizNET-Pro-5",
+        "tariff_biznet_plan_5": "BizNET-Pro-6",
+        "tariff_biznet_plan_6": "BizNET-Pro-7+",
+        # Tijorat Plans
+        "tariff_tijorat_plan_0": "Tijorat-1",
+        "tariff_tijorat_plan_1": "Tijorat-2",
+        "tariff_tijorat_plan_2": "Tijorat-3",
+        "tariff_tijorat_plan_3": "Tijorat-4",
+        "tariff_tijorat_plan_4": "Tijorat-5",
+        "tariff_tijorat_plan_5": "Tijorat-100",
+        "tariff_tijorat_plan_6": "Tijorat-300",
+        "tariff_tijorat_plan_7": "Tijorat-500",
+        "tariff_tijorat_plan_8": "Tijorat-1000",
     }
     return mapping.get(tariff_code)
 

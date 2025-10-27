@@ -90,18 +90,113 @@ def confirmation_keyboard(lang="uz"):
     ])
     return keyboard
 
-def get_client_tariff_selection_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
+# --- New Tariff Plans ---
+B2C_PLANS = [
+    {"name": "Oddiy-20", "price": "110,000", "speed_day": "20", "speed_night": "20", "tasix": "20", "reg": "75,000"},
+    {"name": "Oddiy-50", "price": "130,000", "speed_day": "50", "speed_night": "50", "tasix": "50", "reg": "75,000"},
+    {"name": "Oddiy-100", "price": "160,000", "speed_day": "100", "speed_night": "100", "tasix": "100", "reg": "75,000"},
+    {"name": "XIT-200", "price": "200,000", "speed_day": "200", "speed_night": "200", "tasix": "200", "reg": "75,000"},
+    {"name": "VIP-500", "price": "500,000", "speed_day": "500", "speed_night": "500", "tasix": "500", "reg": "0"},
+    {"name": "PREMIUM", "price": "1,000,000", "speed_day": "1,000", "speed_night": "1,000", "tasix": "1,000", "reg": "0"},
+]
+
+BIZNET_PRO_PLANS = [
+    {"name": "BizNET-Pro-1", "price": "600,000", "speed": "7", "tasix": "100"},
+    {"name": "BizNET-Pro-2", "price": "700,000", "speed": "10", "tasix": "100"},
+    {"name": "BizNET-Pro-3", "price": "1,200,000", "speed": "20", "tasix": "100"},
+    {"name": "BizNET-Pro-4", "price": "1,500,000", "speed": "30", "tasix": "100"},
+    {"name": "BizNET-Pro-5", "price": "1,800,000", "speed": "40", "tasix": "100"},
+    {"name": "BizNET-Pro-6", "price": "2,000,000", "speed": "60", "tasix": "100"},
+    {"name": "BizNET-Pro-7+", "price": "3,000,000", "speed": "100", "tasix": "100"},
+]
+
+TIJORAT_PLANS = [
+    {"name": "Tijorat-1", "price": "320,000", "speed_day": "6", "speed_night": "2", "tasix": "100"},
+    {"name": "Tijorat-2", "price": "360,000", "speed_day": "10", "speed_night": "3", "tasix": "100"},
+    {"name": "Tijorat-3", "price": "480,000", "speed_day": "20", "speed_night": "6", "tasix": "100"},
+    {"name": "Tijorat-4", "price": "800,000", "speed_day": "40", "speed_night": "12", "tasix": "100"},
+    {"name": "Tijorat-5", "price": "1,120,000", "speed_day": "60", "speed_night": "20", "tasix": "100"},
+    {"name": "Tijorat-100", "price": "1,760,000", "speed_day": "100", "speed_night": "50", "tasix": "100"},
+    {"name": "Tijorat-300", "price": "5,280,000", "speed_day": "300", "speed_night": "150", "tasix": "300"},
+    {"name": "Tijorat-500", "price": "8,800,000", "speed_day": "500", "speed_night": "300", "tasix": "500"},
+    {"name": "Tijorat-1000", "price": "14,850,000", "speed_day": "1,000", "speed_night": "700", "tasix": "1,000"},
+]
+
+def get_client_tariff_selection_keyboard(connection_type: str, lang: str = 'uz') -> InlineKeyboardMarkup:
     """Tariff selection keyboard for client"""
-    keyboard = [
-        [
-            InlineKeyboardButton(text="Hammasi birga 4", callback_data="tariff_xammasi_birga_4"),
-            InlineKeyboardButton(text="Hammasi birga 3+", callback_data="tariff_xammasi_birga_3_plus")
-        ],
-        [
-            InlineKeyboardButton(text="Hammasi birga 3", callback_data="tariff_xammasi_birga_3"),
-            InlineKeyboardButton(text="Hammasi birga 2", callback_data="tariff_xammasi_birga_2")
+    
+    back_text = "◀️ Orqaga" if lang == 'uz' else "◀️ Назад"
+    
+    if connection_type == "b2c":
+        # B2C plans - 2 per row
+        keyboard = []
+        for i in range(0, len(B2C_PLANS), 2):
+            row = []
+            row.append(InlineKeyboardButton(
+                text=f"{B2C_PLANS[i]['name']} - {B2C_PLANS[i]['price']} so'm", 
+                callback_data=f"b2c_plan_{i}"
+            ))
+            if i+1 < len(B2C_PLANS):
+                row.append(InlineKeyboardButton(
+                    text=f"{B2C_PLANS[i+1]['name']} - {B2C_PLANS[i+1]['price']} so'm", 
+                    callback_data=f"b2c_plan_{i+1}"
+                ))
+            keyboard.append(row)
+        # Add back button for B2C
+        keyboard.append([InlineKeyboardButton(text=back_text, callback_data="back_to_connection_type")])
+    else:
+        # B2B - show BizNET-Pro and Tijorat options (side by side)
+        keyboard = [
+            [InlineKeyboardButton(text="BizNET-Pro", callback_data="biznet_select")],
+            [InlineKeyboardButton(text="Tijorat", callback_data="tijorat_select")]
         ]
-    ]
+        # Add back button for B2B
+        keyboard.append([InlineKeyboardButton(text=back_text, callback_data="back_to_connection_type")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_biznet_tariff_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
+    """BizNET-Pro tariff selection keyboard"""
+    keyboard = []
+    # 2 buttons per row
+    for i in range(0, len(BIZNET_PRO_PLANS), 2):
+        row = []
+        row.append(InlineKeyboardButton(
+            text=f"{BIZNET_PRO_PLANS[i]['name']} - {BIZNET_PRO_PLANS[i]['price']} so'm", 
+            callback_data=f"biznet_plan_{i}"
+        ))
+        if i+1 < len(BIZNET_PRO_PLANS):
+            row.append(InlineKeyboardButton(
+                text=f"{BIZNET_PRO_PLANS[i+1]['name']} - {BIZNET_PRO_PLANS[i+1]['price']} so'm", 
+                callback_data=f"biznet_plan_{i+1}"
+            ))
+        keyboard.append(row)
+    
+    back_text = "◀️ Orqaga" if lang == 'uz' else "◀️ Назад"
+    keyboard.append([InlineKeyboardButton(text=back_text, callback_data="back_to_tariff_selection")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_tijorat_tariff_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
+    """Tijorat tariff selection keyboard"""
+    keyboard = []
+    # 2 buttons per row
+    for i in range(0, len(TIJORAT_PLANS), 2):
+        row = []
+        row.append(InlineKeyboardButton(
+            text=f"{TIJORAT_PLANS[i]['name']} - {TIJORAT_PLANS[i]['price']} so'm", 
+            callback_data=f"tijorat_plan_{i}"
+        ))
+        if i+1 < len(TIJORAT_PLANS):
+            row.append(InlineKeyboardButton(
+                text=f"{TIJORAT_PLANS[i+1]['name']} - {TIJORAT_PLANS[i+1]['price']} so'm", 
+                callback_data=f"tijorat_plan_{i+1}"
+            ))
+        keyboard.append(row)
+    
+    back_text = "◀️ Orqaga" if lang == 'uz' else "◀️ Назад"
+    keyboard.append([InlineKeyboardButton(text=back_text, callback_data="back_to_tariff_selection")])
+    
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_client_regions_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:

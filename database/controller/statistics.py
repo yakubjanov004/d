@@ -20,13 +20,13 @@ async def get_controller_statistics() -> Dict[str, Any]:
         stats = await conn.fetchrow(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 COUNT(*) as total_orders,
@@ -38,7 +38,7 @@ async def get_controller_statistics() -> Dict[str, Any]:
                 COUNT(CASE WHEN so.type_of_zayavka = 'connection' THEN 1 END) as connection_orders,
                 COUNT(CASE WHEN so.type_of_zayavka = 'technician' THEN 1 END) as technician_orders
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND COALESCE(so.is_active, TRUE) = TRUE
             """
@@ -56,14 +56,14 @@ async def get_controller_daily_statistics(days: int = 7) -> List[Dict[str, Any]]
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 DATE(so.created_at) as date,
@@ -73,7 +73,7 @@ async def get_controller_daily_statistics(days: int = 7) -> List[Dict[str, Any]]
                 COUNT(CASE WHEN so.type_of_zayavka = 'connection' THEN 1 END) as connection_orders,
                 COUNT(CASE WHEN so.type_of_zayavka = 'technician' THEN 1 END) as technician_orders
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND COALESCE(so.is_active, TRUE) = TRUE
               AND so.created_at >= NOW() - INTERVAL '%s days'
@@ -95,13 +95,13 @@ async def get_controller_technician_performance() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 u.id as technician_id,
@@ -116,7 +116,7 @@ async def get_controller_technician_performance() -> List[Dict[str, Any]]:
                 END) as avg_completion_hours
             FROM users u
             LEFT JOIN last_assign la ON la.recipient_id = u.id
-            LEFT JOIN staff_orders so ON so.id = la.staff_id
+            LEFT JOIN staff_orders so ON so.application_number = la.application_number
             WHERE u.role = 'technician'
               AND COALESCE(u.is_blocked, FALSE) = FALSE
             GROUP BY u.id, u.full_name, u.phone
@@ -136,13 +136,13 @@ async def get_controller_order_types_statistics() -> Dict[str, Any]:
         stats = await conn.fetchrow(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 COUNT(CASE WHEN so.type_of_zayavka = 'connection' THEN 1 END) as connection_orders,
@@ -152,7 +152,7 @@ async def get_controller_order_types_statistics() -> Dict[str, Any]:
                 COUNT(CASE WHEN so.status = 'completed' AND so.type_of_zayavka = 'connection' THEN 1 END) as completed_connections,
                 COUNT(CASE WHEN so.status = 'completed' AND so.type_of_zayavka = 'technician' THEN 1 END) as completed_technician
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND COALESCE(so.is_active, TRUE) = TRUE
             """

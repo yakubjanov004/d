@@ -126,7 +126,7 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connection_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -135,16 +135,10 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
                     updated_at
                 )
                 VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4::connection_order_status,
-                    $5::connection_order_status,
-                    NOW(),
-                    NOW()
+                    $1, $2, $3, $4::connection_order_status, $5::connection_order_status, NOW(), NOW()
                 )
                 """,
-                request_id_int,
+                app_number,
                 actor_id,          # manager
                 jm_id,             # junior manager
                 old_status,        # masalan: 'in_manager' yoki 'new'
@@ -155,18 +149,18 @@ async def assign_to_junior_manager(request_id: int | str, jm_id: int, actor_id: 
             current_load = await conn.fetchval(
                 """
                 WITH last_assign AS (
-                    SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
-                           COALESCE(c.connection_id, c.staff_id) AS oid,
+                    SELECT DISTINCT ON (c.application_number)
+                           c.application_number,
                            c.recipient_id,
                            c.recipient_status
                     FROM connections c
-                    WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
-                    ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+                    WHERE c.application_number IS NOT NULL
+                    ORDER BY c.application_number, c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_assign la
-                LEFT JOIN connection_orders co ON co.id = la.oid AND COALESCE(co.is_active, TRUE) AND co.status = 'in_junior_manager'
-                LEFT JOIN staff_orders so ON so.id = la.oid AND COALESCE(so.is_active, TRUE) AND so.status = 'in_junior_manager'
+                LEFT JOIN connection_orders co ON co.application_number = la.application_number AND COALESCE(co.is_active, TRUE) AND co.status = 'in_junior_manager'
+                LEFT JOIN staff_orders so ON so.application_number = la.application_number AND COALESCE(so.is_active, TRUE) AND so.status = 'in_junior_manager'
                 WHERE la.recipient_id = $1
                   AND la.recipient_status = 'in_junior_manager'
                   AND (co.id IS NOT NULL OR so.id IS NOT NULL)
@@ -200,13 +194,14 @@ async def get_juniors_with_load_via_history() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.connection_id)
-                       c.connection_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                ORDER BY c.connection_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             ),
             workloads AS (
                 SELECT
@@ -214,7 +209,7 @@ async def get_juniors_with_load_via_history() -> List[Dict[str, Any]]:
                     COUNT(*) AS cnt
                 FROM last_assign la
                 JOIN connection_orders co
-                  ON co.id = la.connection_id
+                  ON co.application_number = la.application_number
                 WHERE co.is_active = TRUE
                   AND co.status = 'in_junior_manager'
                   AND la.recipient_status = 'in_junior_manager'
@@ -327,10 +322,10 @@ async def assign_to_junior_manager_for_staff(request_id: int | str, jm_id: int, 
             if not jm_exists:
                 raise ValueError("Junior manager topilmadi")
 
-            # 1) Eski statusni lock bilan o'qiymiz
+            # 1) Eski statusni va application_number ni lock bilan o'qiymiz
             row_old = await conn.fetchrow(
                 """
-                SELECT status
+                SELECT status, application_number
                   FROM staff_orders
                  WHERE id = $1
                  FOR UPDATE
@@ -341,6 +336,7 @@ async def assign_to_junior_manager_for_staff(request_id: int | str, jm_id: int, 
                 raise ValueError("Staff order topilmadi")
 
             old_status: str = row_old["status"]
+            app_number: str = row_old["application_number"]
 
             # 2) Yangi statusga o'tkazamiz
             row_new = await conn.fetchrow(
@@ -359,7 +355,7 @@ async def assign_to_junior_manager_for_staff(request_id: int | str, jm_id: int, 
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -368,16 +364,10 @@ async def assign_to_junior_manager_for_staff(request_id: int | str, jm_id: int, 
                     updated_at
                 )
                 VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4,
-                    $5,
-                    NOW(),
-                    NOW()
+                    $1, $2, $3, $4, $5, NOW(), NOW()
                 )
                 """,
-                request_id_int,
+                app_number,
                 actor_id,          # manager
                 jm_id,             # junior manager
                 old_status,        # masalan: 'in_manager'
@@ -449,7 +439,7 @@ async def assign_to_controller_for_staff(request_id: int | str, controller_id: i
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -458,16 +448,10 @@ async def assign_to_controller_for_staff(request_id: int | str, controller_id: i
                     updated_at
                 )
                 VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4,
-                    $5,
-                    NOW(),
-                    NOW()
+                    $1, $2, $3, $4, $5, NOW(), NOW()
                 )
                 """,
-                request_id_int,
+                app_number,
                 actor_id,          # manager
                 controller_id,      # controller
                 old_status,        # masalan: 'in_manager'
@@ -478,18 +462,18 @@ async def assign_to_controller_for_staff(request_id: int | str, controller_id: i
             current_load = await conn.fetchval(
                 """
                 WITH last_assign AS (
-                    SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
-                           COALESCE(c.connection_id, c.staff_id) AS oid,
+                    SELECT DISTINCT ON (c.application_number)
+                           c.application_number,
                            c.recipient_id,
                            c.recipient_status
                     FROM connections c
-                    WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
-                    ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+                    WHERE c.application_number IS NOT NULL
+                    ORDER BY c.application_number, c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_assign la
-                LEFT JOIN connection_orders co ON co.id = la.oid AND COALESCE(co.is_active, TRUE) AND co.status = 'in_controller'
-                LEFT JOIN staff_orders so ON so.id = la.oid AND COALESCE(so.is_active, TRUE) AND so.status = 'in_controller'
+                LEFT JOIN connection_orders co ON co.application_number = la.application_number AND COALESCE(co.is_active, TRUE) AND co.status = 'in_controller'
+                LEFT JOIN staff_orders so ON so.application_number = la.application_number AND COALESCE(so.is_active, TRUE) AND so.status = 'in_controller'
                 WHERE la.recipient_id = $1
                   AND la.recipient_status = 'in_controller'
                   AND (co.id IS NOT NULL OR so.id IS NOT NULL)
@@ -523,14 +507,14 @@ async def get_controllers_with_load_via_history() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             ),
             workloads AS (
                 SELECT
@@ -538,7 +522,7 @@ async def get_controllers_with_load_via_history() -> List[Dict[str, Any]]:
                     COUNT(*) AS cnt
                 FROM last_assign la
                 JOIN staff_orders so
-                  ON so.id = la.staff_id
+                  ON so.application_number = la.application_number
                 WHERE COALESCE(so.is_active, TRUE) = TRUE
                   AND so.status = 'in_controller'
                   AND la.recipient_status = 'in_controller'

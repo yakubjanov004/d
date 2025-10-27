@@ -45,22 +45,20 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
             """
             WITH last_assignments AS (
                 -- Eng oxirgi assignment'ni topish
-                SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
-                       COALESCE(c.connection_id, c.staff_id) AS order_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
-                ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT
                 c.id,
                 c.sender_id,
                 c.recipient_id,
-                c.connection_id,
-                c.technician_id,
-                c.staff_id,
+                c.application_number,
                 c.created_at,
                 c.updated_at,
                 -- Connection orders ma'lumotlari
@@ -98,13 +96,13 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
                 t_co.name AS tariff_name,
                 t_so.name AS staff_tariff_name
             FROM connections c
-            LEFT JOIN connection_orders co ON co.id = c.connection_id
-            LEFT JOIN staff_orders so ON so.id = c.staff_id
+            LEFT JOIN connection_orders co ON co.application_number = c.application_number
+            LEFT JOIN staff_orders so ON so.application_number = c.application_number
             LEFT JOIN users u_co ON u_co.id = co.user_id
             LEFT JOIN users u_so ON u_so.id = so.user_id
             LEFT JOIN tarif t_co ON t_co.id = co.tarif_id
             LEFT JOIN tarif t_so ON t_so.id = so.tarif_id
-            JOIN last_assignments la ON la.order_id = COALESCE(c.connection_id, c.staff_id)
+            JOIN last_assignments la ON la.application_number = c.application_number
             WHERE c.recipient_id = $1
               AND la.recipient_id = $1
               AND la.recipient_status = 'in_junior_manager'
@@ -258,35 +256,34 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
             # Connection yozuvini yaratish
             await conn.execute(
                 """
-                INSERT INTO connections (sender_id, recipient_id, connection_id, staff_id, sender_status, recipient_status, created_at, updated_at)
+                INSERT INTO connections (application_number, sender_id, recipient_id, sender_status, recipient_status, created_at, updated_at)
                 VALUES (
-                  $1, $2,
-                  $3, $4,
+                  $1, $2, $3,
                   'in_junior_manager', 'in_controller',
                   NOW(), NOW()
                 )
                 """,
-                jm_id, controller_id, order_id if order_type == "connection" else None, order_id if order_type == "staff" else None
+                app_number, jm_id, controller_id
             )
             
             # Controller'ning hozirgi yuklamasini hisoblaymiz
             current_load = await conn.fetchval(
                 """
                 WITH last_conn AS (
-                  SELECT DISTINCT ON (COALESCE(c.connection_id, c.staff_id))
-                         COALESCE(c.connection_id, c.staff_id) AS order_id,
+                  SELECT DISTINCT ON (c.application_number)
+                         c.application_number,
                          c.recipient_id,
                          c.recipient_status
                   FROM connections c
-                  WHERE COALESCE(c.connection_id, c.staff_id) IS NOT NULL
-                  ORDER BY COALESCE(c.connection_id, c.staff_id), c.created_at DESC
+                  WHERE c.application_number IS NOT NULL
+                  ORDER BY c.application_number, c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_conn lc
                 LEFT JOIN connection_orders co
-                  ON co.id = lc.order_id AND COALESCE(co.is_active, TRUE) = TRUE AND co.status = 'in_controller'
+                  ON co.application_number = lc.application_number AND COALESCE(co.is_active, TRUE) = TRUE AND co.status = 'in_controller'
                 LEFT JOIN staff_orders so
-                  ON so.id = lc.order_id AND COALESCE(so.is_active, TRUE) = TRUE AND so.status = 'in_controller'
+                  ON so.application_number = lc.application_number AND COALESCE(so.is_active, TRUE) = TRUE AND so.status = 'in_controller'
                 WHERE lc.recipient_id = $1
                   AND lc.recipient_status = 'in_controller'
                   AND (co.id IS NOT NULL OR so.id IS NOT NULL)

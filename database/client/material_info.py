@@ -35,6 +35,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     co.created_at,
                     co.updated_at,
                     co.tarif_id,
+                    t.name as tariff_name,
                     NULL as abonent_id,
                     NULL as description,
                     co.application_number,
@@ -61,6 +62,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                         AND mi.request_type = 'connection'
                     ) as materials_total_cost
                 FROM connection_orders co 
+                LEFT JOIN tarif t ON t.id = co.tarif_id
                 WHERE co.user_id = $1 AND co.is_active = TRUE
             )
             UNION ALL
@@ -74,6 +76,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     tech_orders.created_at,
                     tech_orders.updated_at,
                     NULL as tarif_id,
+                    NULL as tariff_name,
                     tech_orders.abonent_id,
                     tech_orders.description,
                     tech_orders.application_number,
@@ -135,6 +138,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     sso.created_at,
                     sso.updated_at,
                     NULL as tarif_id,
+                    NULL as tariff_name,
                     NULL as abonent_id,
                     CONCAT(sso.category, ' - ', sso.service_type) as description,
                     sso.application_number,
@@ -157,6 +161,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     so.created_at,
                     so.updated_at,
                     so.tarif_id,
+                    t.name as tariff_name,
                     so.abonent_id,
                     so.description,
                     so.application_number,
@@ -202,6 +207,7 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                         AND mi.request_type = 'staff'
                     ) as materials_total_cost
                 FROM staff_orders so 
+                LEFT JOIN tarif t ON t.id = so.tarif_id
                 LEFT JOIN media_files mf ON mf.related_table = 'staff_orders' 
                                         AND mf.related_id = so.id 
                                         AND mf.is_active = TRUE

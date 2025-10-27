@@ -36,12 +36,12 @@ async def fetch_technician_inbox(
                 SELECT
                     c.*,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.connection_id, c.recipient_id
+                        PARTITION BY c.application_number, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.connection_id IS NOT NULL
+                  AND c.application_number IS NOT NULL
             )
             SELECT
                 co.id,
@@ -55,7 +55,7 @@ async def fetch_technician_inbox(
                 COALESCE(u.phone, '-') AS client_phone,
                 t.name AS tariff
             FROM last_conn c
-            JOIN connection_orders co ON co.id = c.connection_id
+            JOIN connection_orders co ON co.application_number = c.application_number
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
             WHERE
@@ -101,16 +101,16 @@ async def count_technician_inbox(
                 SELECT
                     c.*,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.connection_id, c.recipient_id
+                        PARTITION BY c.application_number, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.connection_id IS NOT NULL
+                  AND c.application_number IS NOT NULL
             )
             SELECT COUNT(*)
             FROM last_conn c
-            JOIN connection_orders co ON co.id = c.connection_id
+            JOIN connection_orders co ON co.application_number = c.application_number
             WHERE
                 c.rn = 1
                 AND co.is_active = TRUE
@@ -151,17 +151,16 @@ async def fetch_technician_inbox_tech(
             WITH last_conn AS (
                 SELECT
                     c.id,
+                    c.application_number,
                     c.recipient_id,
-                    /* Eski xatolarni ham ushlash uchun fallback: */
-                    COALESCE(c.technician_id, c.connection_id) AS tech_order_id,
                     c.created_at,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(c.technician_id, c.connection_id), c.recipient_id
+                        PARTITION BY c.application_number, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND (c.technician_id IS NOT NULL OR c.connection_id IS NOT NULL)
+                  AND c.application_number IS NOT NULL
             )
             SELECT
                 to2.id,
@@ -183,7 +182,7 @@ async def fetch_technician_inbox_tech(
                 COALESCE(client_user.phone, user_user.phone, '-') AS client_phone,
                 NULL        AS tariff
             FROM last_conn lc
-            JOIN technician_orders to2 ON to2.id = lc.tech_order_id
+            JOIN technician_orders to2 ON to2.application_number = lc.application_number
             LEFT JOIN users client_user ON client_user.id::text = to2.abonent_id
             LEFT JOIN users user_user ON user_user.id = to2.user_id
             WHERE
@@ -231,14 +230,17 @@ async def fetch_technician_inbox_staff(
             """
             WITH last_conn AS (
                 SELECT
-                    c.*,
+                    c.id,
+                    c.application_number,
+                    c.recipient_id,
+                    c.created_at,
                     ROW_NUMBER() OVER (
-                        PARTITION BY c.staff_id, c.recipient_id
+                        PARTITION BY c.application_number, c.recipient_id
                         ORDER BY c.created_at DESC, c.id DESC
                     ) AS rn
                 FROM connections c
                 WHERE c.recipient_id = $1
-                  AND c.staff_id IS NOT NULL
+                  AND c.application_number IS NOT NULL
             )
             SELECT 
                 so.id,
@@ -273,7 +275,7 @@ async def fetch_technician_inbox_staff(
                 
                 NULL AS tariff
             FROM last_conn c
-            JOIN staff_orders so ON so.id = c.staff_id
+            JOIN staff_orders so ON so.application_number = c.application_number
             LEFT JOIN users creator ON creator.id = so.user_id
             LEFT JOIN users client_user ON client_user.id::text = so.abonent_id
             LEFT JOIN tarif t ON t.id = so.tarif_id

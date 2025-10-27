@@ -37,14 +37,14 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 so.id,
@@ -82,7 +82,7 @@ async def fetch_controller_inbox_staff(limit: int = 50, offset: int = 0) -> List
                     ELSE NULL
                 END as media_type
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             LEFT JOIN tarif t ON t.id = so.tarif_id
             LEFT JOIN users creator ON creator.id = so.user_id
             LEFT JOIN users client ON client.id::text = so.abonent_id
@@ -109,17 +109,17 @@ async def count_controller_inbox_staff() -> int:
         count = await conn.fetchval(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT COUNT(*)
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status = 'in_controller'
               AND so.status = 'in_controller'
               AND COALESCE(so.is_active, TRUE) = TRUE
@@ -196,7 +196,7 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -205,16 +205,11 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
                     updated_at
                 )
                 VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4,
-                    $5,
-                    NOW(),
-                    NOW()
+                    $1, $2, $3, $4, $5, NOW(), NOW()
                 )
                 """,
-                request_id_int,
+                app_number,         # application_number
+                request_id_int,    # staff_id
                 actor_id,          # controller
                 tech_id,           # technician
                 old_status,        # masalan: 'in_controller'
@@ -225,17 +220,17 @@ async def assign_to_technician_for_staff(request_id: int | str, tech_id: int, ac
             current_load = await conn.fetchval(
                 """
                 WITH last_assign AS (
-                    SELECT DISTINCT ON (c.staff_id)
-                           c.staff_id,
+                    SELECT DISTINCT ON (c.application_number)
+                           c.application_number,
                            c.recipient_id,
                            c.recipient_status
                     FROM connections c
-                    WHERE c.staff_id IS NOT NULL
-                    ORDER BY c.staff_id, c.created_at DESC
+                    WHERE c.application_number IS NOT NULL
+                    ORDER BY c.application_number, c.created_at DESC
                 )
                 SELECT COUNT(*)
                 FROM last_assign la
-                JOIN staff_orders so ON so.id = la.staff_id
+                JOIN staff_orders so ON so.application_number = la.application_number
                 WHERE la.recipient_id = $1
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND so.status IN ('between_controller_technician', 'in_technician')
@@ -276,7 +271,7 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS cnt
                 FROM connections c
-                JOIN connection_orders co ON co.id = c.connection_id
+                JOIN connection_orders co ON co.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
@@ -289,7 +284,7 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS cnt
                 FROM connections c
-                JOIN technician_orders to_orders ON to_orders.id = c.technician_id
+                JOIN technician_orders to_orders ON to_orders.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
@@ -302,7 +297,7 @@ async def get_technicians_with_load_via_history() -> List[Dict[str, Any]]:
                     c.recipient_id AS technician_id,
                     COUNT(*) AS cnt
                 FROM connections c
-                JOIN staff_orders so ON so.id = c.staff_id
+                JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE
@@ -519,11 +514,11 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
         await conn.execute(
             """
             INSERT INTO connections (
-                connection_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
-            request_id, actor_id, tech_id
+            app_info["application_number"], actor_id, tech_id
         )
         
         # Get technician info and current load
@@ -546,7 +541,7 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.connection_id = co.id
+                      WHERE c.application_number = co.id
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -558,7 +553,7 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.technician_id = to_orders.id
+                      WHERE EXISTS (SELECT 1 FROM technician_orders WHERE technician_orders.application_number = c.application_number AND technician_orders.id = to_orders.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -570,7 +565,7 @@ async def assign_to_technician_connection(request_id: int, tech_id: int, actor_i
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.staff_id = so.id
+                      WHERE EXISTS (SELECT 1 FROM staff_orders WHERE staff_orders.application_number = c.application_number AND staff_orders.id = so.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -622,11 +617,11 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
         await conn.execute(
             """
             INSERT INTO connections (
-                technician_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
-            request_id, actor_id, tech_id
+            app_info["application_number"], actor_id, tech_id
         )
         
         # Get technician info and current load
@@ -649,7 +644,7 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.connection_id = co.id
+                      WHERE c.application_number = co.id
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -661,7 +656,7 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.technician_id = to_orders.id
+                      WHERE EXISTS (SELECT 1 FROM technician_orders WHERE technician_orders.application_number = c.application_number AND technician_orders.id = to_orders.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -673,7 +668,7 @@ async def assign_to_technician_tech(request_id: int, tech_id: int, actor_id: int
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.staff_id = so.id
+                      WHERE EXISTS (SELECT 1 FROM staff_orders WHERE staff_orders.application_number = c.application_number AND staff_orders.id = so.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -725,11 +720,11 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
         await conn.execute(
             """
             INSERT INTO connections (
-                staff_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'between_controller_technician', NOW())
             """,
-            request_id, actor_id, tech_id
+            app_info["application_number"], actor_id, tech_id
         )
         
         # Get technician info and current load
@@ -752,7 +747,7 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
                   AND co.is_active = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.connection_id = co.id
+                      WHERE c.application_number = co.id
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -764,7 +759,7 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.technician_id = to_orders.id
+                      WHERE EXISTS (SELECT 1 FROM technician_orders WHERE technician_orders.application_number = c.application_number AND technician_orders.id = to_orders.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -776,7 +771,7 @@ async def assign_to_technician_staff(request_id: int, tech_id: int, actor_id: in
                   AND COALESCE(so.is_active, TRUE) = TRUE
                   AND EXISTS (
                       SELECT 1 FROM connections c
-                      WHERE c.staff_id = so.id
+                      WHERE EXISTS (SELECT 1 FROM staff_orders WHERE staff_orders.application_number = c.application_number AND staff_orders.id = so.id)
                         AND c.recipient_id = $1
                         AND c.recipient_status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   )
@@ -828,11 +823,11 @@ async def assign_to_ccs_connection(request_id: int, ccs_id: int, actor_id: int) 
         await conn.execute(
             """
             INSERT INTO connections (
-                connection_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'in_call_center_supervisor', NOW())
             """,
-            request_id, actor_id, ccs_id
+            app_info["application_number"], actor_id, ccs_id
         )
         
         # Get CCS info and current load
@@ -854,7 +849,7 @@ async def assign_to_ccs_connection(request_id: int, ccs_id: int, actor_id: int) 
               AND co.is_active = TRUE
               AND EXISTS (
                   SELECT 1 FROM connections c
-                  WHERE c.connection_id = co.id
+                  WHERE c.application_number = co.id
                     AND c.recipient_id = $1
                     AND c.recipient_status = 'in_call_center_supervisor'
               )
@@ -901,11 +896,11 @@ async def assign_to_ccs_tech(request_id: int, ccs_id: int, actor_id: int) -> Dic
         await conn.execute(
             """
             INSERT INTO connections (
-                technician_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'in_call_center_supervisor', NOW())
             """,
-            request_id, actor_id, ccs_id
+            app_info["application_number"], actor_id, ccs_id
         )
         
         # Get CCS info and current load
@@ -927,7 +922,7 @@ async def assign_to_ccs_tech(request_id: int, ccs_id: int, actor_id: int) -> Dic
               AND COALESCE(tech_ord.is_active, TRUE) = TRUE
               AND EXISTS (
                   SELECT 1 FROM connections c
-                  WHERE c.technician_id = tech_ord.id
+                  WHERE EXISTS (SELECT 1 FROM technician_orders WHERE technician_orders.application_number = c.application_number AND technician_orders.id = tech_ord.id)
                     AND c.recipient_id = $1
                     AND c.recipient_status = 'in_call_center_supervisor'
               )
@@ -974,11 +969,11 @@ async def assign_to_ccs_staff(request_id: int, ccs_id: int, actor_id: int) -> Di
         await conn.execute(
             """
             INSERT INTO connections (
-                staff_id, sender_id, recipient_id,
+                application_number, sender_id, recipient_id,
                 sender_status, recipient_status, created_at
             ) VALUES ($1, $2, $3, 'in_controller', 'in_call_center_supervisor', NOW())
             """,
-            request_id, actor_id, ccs_id
+            app_info["application_number"], actor_id, ccs_id
         )
         
         # Get CCS info and current load
@@ -1000,7 +995,7 @@ async def assign_to_ccs_staff(request_id: int, ccs_id: int, actor_id: int) -> Di
               AND COALESCE(so.is_active, TRUE) = TRUE
               AND EXISTS (
                   SELECT 1 FROM connections c
-                  WHERE c.staff_id = so.id
+                  WHERE EXISTS (SELECT 1 FROM staff_orders WHERE staff_orders.application_number = c.application_number AND staff_orders.id = so.id)
                     AND c.recipient_id = $1
                     AND c.recipient_status = 'in_call_center_supervisor'
               )
@@ -1069,7 +1064,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.connection_id = co.id
+                LEFT JOIN connections c ON c.application_number = co.application_number
                 WHERE u.role IN ('controller')
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ),
@@ -1084,7 +1079,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as assigned_tech_active
                 FROM users u
                 LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                LEFT JOIN connections c ON c.application_number = tech_orders.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             ),
@@ -1099,7 +1094,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_controller') AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as assigned_staff_active
                 FROM users u
                 LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             ),
@@ -1107,17 +1102,17 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                 SELECT
                     u.id,
                     -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.application_number IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND c.application_number IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN connections c ON c.sender_id = u.id
-                LEFT JOIN connection_orders co ON co.id = c.connection_id
-                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
-                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                LEFT JOIN connection_orders co ON co.application_number = c.application_number
+                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
+                LEFT JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             )
@@ -1185,7 +1180,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
                     AND co.{time_condition}
-                LEFT JOIN connections c ON c.connection_id = co.id
+                LEFT JOIN connections c ON c.application_number = co.application_number
                 WHERE u.role IN ('controller')
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ),
@@ -1201,7 +1196,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
                     AND tech_orders.{time_condition}
-                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                LEFT JOIN connections c ON c.application_number = tech_orders.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             ),
@@ -1217,7 +1212,7 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
                     AND so.{time_condition}
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             ),
@@ -1225,18 +1220,18 @@ async def fetch_controller_staff_activity_with_time_filter(time_filter: str = "t
                 SELECT
                     u.id,
                     -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN connections c ON c.sender_id = u.id
                     AND c.{time_condition}
-                LEFT JOIN connection_orders co ON co.id = c.connection_id
-                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
-                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                LEFT JOIN connection_orders co ON co.application_number = c.application_number
+                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
+                LEFT JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE u.role = 'controller'
                 GROUP BY u.id
             )
@@ -1306,11 +1301,11 @@ async def get_ccs_supervisors_with_load() -> List[Dict[str, Any]]:
                      WHERE c.recipient_id = u.id
                        AND c.recipient_status = 'in_call_center_supervisor'
                        AND (
-                           EXISTS (SELECT 1 FROM connection_orders co WHERE co.id = c.connection_id AND co.status = 'in_junior_manager' AND COALESCE(co.is_active, TRUE) = TRUE)
+                           EXISTS (SELECT 1 FROM connection_orders co WHERE co.application_number = c.application_number AND co.status = 'in_junior_manager' AND COALESCE(co.is_active, TRUE) = TRUE)
                            OR
-                           EXISTS (SELECT 1 FROM technician_orders tech_ord WHERE tech_ord.id = c.technician_id AND tech_ord.status = 'in_call_center_supervisor' AND COALESCE(tech_ord.is_active, TRUE) = TRUE)
+                           EXISTS (SELECT 1 FROM technician_orders tech_ord WHERE tech_ord.application_number = c.application_number AND tech_ord.status = 'in_call_center_supervisor' AND COALESCE(tech_ord.is_active, TRUE) = TRUE)
                            OR
-                           EXISTS (SELECT 1 FROM staff_orders so WHERE so.id = c.staff_id AND so.status = 'in_call_center_supervisor' AND COALESCE(so.is_active, TRUE) = TRUE)
+                           EXISTS (SELECT 1 FROM staff_orders so WHERE so.application_number = c.application_number AND so.status = 'in_call_center_supervisor' AND COALESCE(so.is_active, TRUE) = TRUE)
                        )
                     ), 0
                 ) AS load_count
@@ -1333,14 +1328,14 @@ async def list_controller_orders_by_status(status: str, limit: int = 50) -> List
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 so.id,
@@ -1365,7 +1360,7 @@ async def list_controller_orders_by_status(status: str, limit: int = 50) -> List
                 creator.phone as staff_phone,
                 creator.role as staff_role
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
             LEFT JOIN users creator ON creator.id = so.user_id
@@ -1390,13 +1385,13 @@ async def get_controller_statistics() -> Dict[str, Any]:
         stats = await conn.fetchrow(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 COUNT(*) as total_orders,
@@ -1406,7 +1401,7 @@ async def get_controller_statistics() -> Dict[str, Any]:
                 COUNT(CASE WHEN so.status = 'completed' THEN 1 END) as completed,
                 COUNT(CASE WHEN so.status = 'cancelled' THEN 1 END) as cancelled
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND COALESCE(so.is_active, TRUE) = TRUE
             """

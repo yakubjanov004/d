@@ -138,6 +138,10 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
         # Region only for connection and staff orders
         if otype in ('connection', 'staff') and order.get('region'):
             text += f"📍 Регион: {get_region_display_name(order.get('region', '-'))}\n"
+        
+        # Tariff for connection and staff orders
+        if otype in ('connection', 'staff') and order.get('tariff_name'):
+            text += f"💳 Тариф: {order.get('tariff_name', '-')}\n"
             
         text += f"🏠 Адрес: {order.get('address','-')}\n"
         
@@ -180,6 +184,10 @@ async def render_order_card(target, orders: list, idx: int, user_lang: str, edit
         # Region only for connection and staff orders
         if otype in ('connection', 'staff') and order.get('region'):
             text += f"📍 Hudud: {get_region_display_name(order.get('region', '-'))}\n"
+        
+        # Tariff for connection and staff orders
+        if otype in ('connection', 'staff') and order.get('tariff_name'):
+            text += f"💳 Tarif: {order.get('tariff_name', '-')}\n"
             
         text += f"🏠 Manzil: {order.get('address','-')}\n"
         

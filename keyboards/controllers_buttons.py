@@ -115,12 +115,30 @@ def controller_zayavka_type_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
 # callback_data: "op_tariff_*"
 # =========================
 def get_controller_tariff_selection_keyboard() -> InlineKeyboardMarkup:
-    # Hozircha UZ label’lar – callback_data muhim
+    # Hozircha UZ label'lar – callback_data muhim
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Hammasi birga 4",   callback_data="op_tariff_xammasi_birga_4")],
-        [InlineKeyboardButton(text="Hammasi birga 3+",  callback_data="op_tariff_xammasi_birga_3_plus")],
-        [InlineKeyboardButton(text="Hammasi birga 3",   callback_data="op_tariff_xammasi_birga_3")],
-        [InlineKeyboardButton(text="Hammasi birga 2",   callback_data="op_tariff_xammasi_birga_2")],
+        [InlineKeyboardButton(text="Oddiy-20",   callback_data="op_tariff_b2c_plan_0"),
+         InlineKeyboardButton(text="Oddiy-50",  callback_data="op_tariff_b2c_plan_1")],
+        [InlineKeyboardButton(text="Oddiy-100",   callback_data="op_tariff_b2c_plan_2"),
+         InlineKeyboardButton(text="XIT-200",   callback_data="op_tariff_b2c_plan_3")],
+        [InlineKeyboardButton(text="VIP-500",   callback_data="op_tariff_b2c_plan_4"),
+         InlineKeyboardButton(text="PREMIUM",   callback_data="op_tariff_b2c_plan_5")],
+        [InlineKeyboardButton(text="BizNET-Pro-1",   callback_data="op_tariff_biznet_plan_0"),
+         InlineKeyboardButton(text="BizNET-Pro-2",  callback_data="op_tariff_biznet_plan_1")],
+        [InlineKeyboardButton(text="BizNET-Pro-3",   callback_data="op_tariff_biznet_plan_2"),
+         InlineKeyboardButton(text="BizNET-Pro-4",   callback_data="op_tariff_biznet_plan_3")],
+        [InlineKeyboardButton(text="BizNET-Pro-5",   callback_data="op_tariff_biznet_plan_4"),
+         InlineKeyboardButton(text="BizNET-Pro-6",   callback_data="op_tariff_biznet_plan_5")],
+        [InlineKeyboardButton(text="BizNET-Pro-7+",   callback_data="op_tariff_biznet_plan_6"),
+         InlineKeyboardButton(text="Tijorat-1",   callback_data="op_tariff_tijorat_plan_0")],
+        [InlineKeyboardButton(text="Tijorat-2",   callback_data="op_tariff_tijorat_plan_1"),
+         InlineKeyboardButton(text="Tijorat-3",  callback_data="op_tariff_tijorat_plan_2")],
+        [InlineKeyboardButton(text="Tijorat-4",   callback_data="op_tariff_tijorat_plan_3"),
+         InlineKeyboardButton(text="Tijorat-5",   callback_data="op_tariff_tijorat_plan_4")],
+        [InlineKeyboardButton(text="Tijorat-100",   callback_data="op_tariff_tijorat_plan_5"),
+         InlineKeyboardButton(text="Tijorat-300",   callback_data="op_tariff_tijorat_plan_6")],
+        [InlineKeyboardButton(text="Tijorat-500",   callback_data="op_tariff_tijorat_plan_7"),
+         InlineKeyboardButton(text="Tijorat-1000",   callback_data="op_tariff_tijorat_plan_8")],
     ])
 
 # =========================

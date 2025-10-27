@@ -137,34 +137,60 @@ def region_display(lang: str, region_code: str | None) -> str:
     return REGION_CODE_TO_NAME.get(lang, {}).get(region_code or "", region_code or "-")
 TARIFF_DISPLAY = {
     "uz": {
-        "tariff_xammasi_birga_4": "Hammasi birga 4",
-        "tariff_xammasi_birga_3_plus": "Hammasi birga 3+",
-        "tariff_xammasi_birga_3": "Hammasi birga 3",
-        "tariff_xammasi_birga_2": "Hammasi birga 2",
+        # B2C Plans
+        "tariff_b2c_plan_0": "Oddiy-20",
+        "tariff_b2c_plan_1": "Oddiy-50",
+        "tariff_b2c_plan_2": "Oddiy-100",
+        "tariff_b2c_plan_3": "XIT-200",
+        "tariff_b2c_plan_4": "VIP-500",
+        "tariff_b2c_plan_5": "PREMIUM",
+        # BizNET-Pro Plans
+        "tariff_biznet_plan_0": "BizNET-Pro-1",
+        "tariff_biznet_plan_1": "BizNET-Pro-2",
+        "tariff_biznet_plan_2": "BizNET-Pro-3",
+        "tariff_biznet_plan_3": "BizNET-Pro-4",
+        "tariff_biznet_plan_4": "BizNET-Pro-5",
+        "tariff_biznet_plan_5": "BizNET-Pro-6",
+        "tariff_biznet_plan_6": "BizNET-Pro-7+",
+        # Tijorat Plans
+        "tariff_tijorat_plan_0": "Tijorat-1",
+        "tariff_tijorat_plan_1": "Tijorat-2",
+        "tariff_tijorat_plan_2": "Tijorat-3",
+        "tariff_tijorat_plan_3": "Tijorat-4",
+        "tariff_tijorat_plan_4": "Tijorat-5",
+        "tariff_tijorat_plan_5": "Tijorat-100",
+        "tariff_tijorat_plan_6": "Tijorat-300",
+        "tariff_tijorat_plan_7": "Tijorat-500",
+        "tariff_tijorat_plan_8": "Tijorat-1000",
     },
     "ru": {
-        "tariff_xammasi_birga_4": "Всё вместе 4",
-        "tariff_xammasi_birga_3_plus": "Всё вместе 3+",
-        "tariff_xammasi_birga_3": "Всё вместе 3",
-        "tariff_xammasi_birga_2": "Всё вместе 2",
+        # B2C Plans
+        "tariff_b2c_plan_0": "Oddiy-20",
+        "tariff_b2c_plan_1": "Oddiy-50",
+        "tariff_b2c_plan_2": "Oddiy-100",
+        "tariff_b2c_plan_3": "XIT-200",
+        "tariff_b2c_plan_4": "VIP-500",
+        "tariff_b2c_plan_5": "PREMIUM",
+        # BizNET-Pro Plans
+        "tariff_biznet_plan_0": "BizNET-Pro-1",
+        "tariff_biznet_plan_1": "BizNET-Pro-2",
+        "tariff_biznet_plan_2": "BizNET-Pro-3",
+        "tariff_biznet_plan_3": "BizNET-Pro-4",
+        "tariff_biznet_plan_4": "BizNET-Pro-5",
+        "tariff_biznet_plan_5": "BizNET-Pro-6",
+        "tariff_biznet_plan_6": "BizNET-Pro-7+",
+        # Tijorat Plans
+        "tariff_tijorat_plan_0": "Tijorat-1",
+        "tariff_tijorat_plan_1": "Tijorat-2",
+        "tariff_tijorat_plan_2": "Tijorat-3",
+        "tariff_tijorat_plan_3": "Tijorat-4",
+        "tariff_tijorat_plan_4": "Tijorat-5",
+        "tariff_tijorat_plan_5": "Tijorat-100",
+        "tariff_tijorat_plan_6": "Tijorat-300",
+        "tariff_tijorat_plan_7": "Tijorat-500",
+        "tariff_tijorat_plan_8": "Tijorat-1000",
     }
 }
-
-# -------------------------------------------------------
-# 🔧 Telefon raqam normalizatsiyasi
-# -------------------------------------------------------
-PHONE_RE = re.compile(r"^\+?998\s?\d{2}\s?\d{3}\s?\d{2}\s?\d{2}$|^\+?998\d{9}$|^\d{9,12}$")
-
-def normalize_phone(phone_raw: str) -> str | None:
-    phone_raw = (phone_raw or "").strip()
-    if not PHONE_RE.match(phone_raw):
-        return None
-    digits = re.sub(r"\D", "", phone_raw)
-    if digits.startswith("998") and len(digits) == 12:
-        return "+" + digits
-    if len(digits) == 9:
-        return "+998" + digits
-    return phone_raw if phone_raw.startswith("+") else ("+" + digits if digits else None)
 
 def strip_op_prefix_to_tariff(code: str | None) -> str | None:
     if not code:

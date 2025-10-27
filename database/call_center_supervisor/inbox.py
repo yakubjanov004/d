@@ -236,15 +236,19 @@ async def ccs_send_technician_to_controller(order_id: int, supervisor_telegram_i
             
             controller_id = controller['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", order_id)
+            
             # Create connection record
             await conn.execute("""
                 INSERT INTO connections(
-                    technician_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_controller', NOW(), NOW())
-            """, order_id, supervisor_id, controller_id)
+            """, app_info['application_number'] if app_info else None, supervisor_id, controller_id)
             
             return True
     finally:
@@ -280,15 +284,19 @@ async def ccs_send_staff_to_controller(order_id: int, supervisor_telegram_id: in
             
             controller_id = controller['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", order_id)
+            
             # Create connection record
             await conn.execute("""
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_controller', NOW(), NOW())
-            """, order_id, supervisor_id, controller_id)
+            """, app_info['application_number'] if app_info else None, supervisor_id, controller_id)
             
             return True
     finally:
@@ -326,15 +334,20 @@ async def ccs_send_technician_to_operator(order_id: int, supervisor_telegram_id:
             
             operator_id = operator['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", order_id)
+            if not app_info:
+                return False
+            
             # Create connection record
             await conn.execute("""
                 INSERT INTO connections(
-                    technician_id, sender_id, recipient_id,
+                    application_number, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_call_center_operator', NOW(), NOW())
-            """, order_id, supervisor_id, operator_id)
+            """, app_info["application_number"], supervisor_id, operator_id)
             
             return True
     finally:
@@ -370,15 +383,20 @@ async def ccs_send_staff_to_operator(order_id: int, supervisor_telegram_id: int)
             
             operator_id = operator['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", order_id)
+            if not app_info:
+                return False
+            
             # Create connection record
             await conn.execute("""
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_call_center_operator', NOW(), NOW())
-            """, order_id, supervisor_id, operator_id)
+            """, app_info["application_number"], supervisor_id, operator_id)
             
             return True
     finally:
@@ -409,15 +427,19 @@ async def ccs_complete_technician_order(order_id: int, supervisor_telegram_id: i
             if result == "UPDATE 0":
                 return False
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", order_id)
+            
             # Create connection record for completion
             await conn.execute("""
                 INSERT INTO connections(
-                    technician_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
-                VALUES ($1, $2, $3, 'in_call_center_supervisor', 'completed', NOW(), NOW())
-            """, order_id, supervisor_id, supervisor_id)
+                VALUES ($1, $2, $2, 'in_call_center_supervisor', 'completed', NOW(), NOW())
+            """, app_info['application_number'] if app_info else None, supervisor_id)
             
             return True
     finally:
@@ -446,15 +468,19 @@ async def ccs_complete_staff_order(order_id: int, supervisor_telegram_id: int) -
             if result == "UPDATE 0":
                 return False
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", order_id)
+            
             # Create connection record for completion
             await conn.execute("""
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
-                VALUES ($1, $2, $3, 'in_call_center_supervisor', 'completed', NOW(), NOW())
-            """, order_id, supervisor_id, supervisor_id)
+                VALUES ($1, $2, $2, 'in_call_center_supervisor', 'completed', NOW(), NOW())
+            """, app_info['application_number'] if app_info else None, supervisor_id)
             
             return True
     finally:

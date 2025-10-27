@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 import asyncpg
 from asyncpg.exceptions import UndefinedColumnError
 from config import settings
+from datetime import datetime, timezone, timedelta
 
 # =========================================================
 #  OVERVIEW COUNTS (faqat connection_orders)
@@ -119,6 +120,17 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # First get application_number for this order_id
+        app_number = await conn.fetchval(
+            """
+            SELECT application_number FROM connection_orders WHERE id = $1
+            """,
+            order_id
+        )
+        
+        if not app_number:
+            return {"steps": [], "user_times": []}
+        
         # Barcha order turlarini tekshirib, mos connection recordlarni olamiz
         sql_all_connections = """
         SELECT c.id,
@@ -127,28 +139,49 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
                c.sender_status::text AS sender_status,
                c.recipient_status::text AS recipient_status,
                c.created_at,
-               CASE 
-                   WHEN c.connection_id IS NOT NULL THEN 'connection'
-                   WHEN c.technician_id IS NOT NULL THEN 'technician'
-                   WHEN c.staff_id IS NOT NULL THEN 'staff'
-                   ELSE 'unknown'
-               END AS order_type
+               'connection' AS order_type
           FROM connections c
           LEFT JOIN users su ON su.id = c.sender_id
           LEFT JOIN users ru ON ru.id = c.recipient_id
-         WHERE (c.connection_id = $1 OR c.technician_id = $1 OR c.staff_id = $1)
+         WHERE c.application_number = $1
          ORDER BY c.created_at ASC, c.id ASC;
         """
 
-        rows = await conn.fetch(sql_all_connections, order_id)
+        rows = await conn.fetch(sql_all_connections, app_number)
 
         steps: List[Dict[str, Any]] = []
-        processed_statuses = set()  
+        processed_statuses = set()
+        
+        # Hash to store time spent by each user
+        user_times: Dict[str, Any] = {}  # key: user_id, value: {name, total_seconds, start_time}
         
         for i, r in enumerate(rows):
             start_at = r["created_at"]
             end_at = rows[i + 1]["created_at"] if i + 1 < len(rows) else None
             duration_str = _fmt_duration(end_at - start_at) if end_at else "—"
+
+            # Track time spent by recipient (the person who received the order)
+            recipient_id = r["recipient_id"]
+            recipient_name = r["recipient_name"] or "—"
+            
+            if end_at:
+                time_spent = (end_at - start_at).total_seconds()
+            else:
+                # If no end time, calculate from now
+                now = datetime.now(timezone.utc)
+                time_spent = (now - start_at).total_seconds()
+            
+            if recipient_id:
+                key = str(recipient_id)
+                if key not in user_times:
+                    user_times[key] = {
+                        "user_id": recipient_id,
+                        "name": recipient_name,
+                        "total_seconds": 0,
+                        "roles": set()
+                    }
+                user_times[key]["total_seconds"] += time_spent
+                user_times[key]["roles"].add(r["recipient_role"] or "—")
 
             status_key = f"{r['sender_status']}_{r['recipient_status']}"
             if status_key in processed_statuses:
@@ -188,7 +221,25 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
                 "description": step_description
             })
 
-        return {"steps": steps}
+        # Convert user_times to list for display
+        user_times_list = []
+        for user_id, data in user_times.items():
+            # Create a timedelta object for formatting
+            time_delta = timedelta(seconds=data["total_seconds"])
+            duration_str = _fmt_duration(time_delta)
+            
+            user_times_list.append({
+                "user_id": data["user_id"],
+                "name": data["name"],
+                "total_seconds": data["total_seconds"],
+                "duration_str": duration_str,
+                "roles": list(data["roles"])
+            })
+        
+        # Sort by time spent (descending)
+        user_times_list.sort(key=lambda x: x["total_seconds"], reverse=True)
+
+        return {"steps": steps, "user_times": user_times_list}
     finally:
         await conn.close()
 

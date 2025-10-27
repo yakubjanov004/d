@@ -323,17 +323,17 @@ async def get_recipient_load(
                 count = await conn.fetchval(
                     """
                     WITH last_assign AS (
-                        SELECT DISTINCT ON (c.connection_id)
-                               c.connection_id,
+                        SELECT DISTINCT ON (c.application_number)
+                               c.application_number,
                                c.recipient_id,
                                c.recipient_status
                         FROM connections c
-                        WHERE c.connection_id IS NOT NULL
-                        ORDER BY c.connection_id, c.created_at DESC
+                        WHERE c.application_number IS NOT NULL
+                        ORDER BY c.application_number, c.created_at DESC
                     )
                     SELECT COUNT(*)
                     FROM last_assign la
-                    JOIN connection_orders co ON co.id = la.connection_id
+                    JOIN connection_orders co ON co.application_number = la.application_number
                     WHERE la.recipient_id = $1
                       AND co.is_active = TRUE
                       AND co.status = 'in_junior_manager'
@@ -346,17 +346,17 @@ async def get_recipient_load(
                 count = await conn.fetchval(
                     """
                     WITH last_assign AS (
-                        SELECT DISTINCT ON (c.staff_id)
-                               c.staff_id,
+                        SELECT DISTINCT ON (c.application_number)
+                               c.application_number,
                                c.recipient_id,
                                c.recipient_status
                         FROM connections c
-                        WHERE c.staff_id IS NOT NULL
-                        ORDER BY c.staff_id, c.created_at DESC
+                        WHERE c.application_number IS NOT NULL
+                        ORDER BY c.application_number, c.created_at DESC
                     )
                     SELECT COUNT(*)
                     FROM last_assign la
-                    JOIN staff_orders so ON so.id = la.staff_id
+                    JOIN staff_orders so ON so.application_number = la.application_number
                     WHERE la.recipient_id = $1
                       AND COALESCE(so.is_active, TRUE) = TRUE
                       AND so.status = 'in_controller'
@@ -375,7 +375,7 @@ async def get_recipient_load(
                           AND co.is_active = TRUE
                           AND EXISTS (
                               SELECT 1 FROM connections c
-                              WHERE c.connection_id = co.id
+                              WHERE c.application_number = co.application_number
                                 AND c.recipient_id = $1
                                 AND c.recipient_status IN ('between_controller_technician', 'in_technician')
                           )
@@ -387,7 +387,7 @@ async def get_recipient_load(
                           AND COALESCE(to_orders.is_active, TRUE) = TRUE
                           AND EXISTS (
                               SELECT 1 FROM connections c
-                              WHERE c.technician_id = to_orders.id
+                              WHERE c.application_number = to_orders.application_number
                                 AND c.recipient_id = $1
                                 AND c.recipient_status IN ('between_controller_technician', 'in_technician')
                           )
@@ -399,7 +399,7 @@ async def get_recipient_load(
                           AND COALESCE(so.is_active, TRUE) = TRUE
                           AND EXISTS (
                               SELECT 1 FROM connections c
-                              WHERE c.staff_id = so.id
+                              WHERE c.application_number = so.application_number
                                 AND c.recipient_id = $1
                                 AND c.recipient_status IN ('between_controller_technician', 'in_technician')
                           )

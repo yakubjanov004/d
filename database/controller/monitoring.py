@@ -20,13 +20,13 @@ async def get_realtime_counts() -> Dict[str, int]:
         stats = await conn.fetchrow(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 COUNT(CASE WHEN so.status = 'in_controller' THEN 1 END) as in_controller,
@@ -36,7 +36,7 @@ async def get_realtime_counts() -> Dict[str, int]:
                 COUNT(CASE WHEN so.status = 'cancelled' THEN 1 END) as cancelled,
                 COUNT(*) as total_active
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND COALESCE(so.is_active, TRUE) = TRUE
             """
@@ -54,14 +54,14 @@ async def list_active_orders_detailed(limit: int = 50) -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             WITH last_assign AS (
-                SELECT DISTINCT ON (c.staff_id)
-                       c.staff_id,
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
                        c.recipient_id,
                        c.recipient_status,
                        c.created_at as assigned_at
                 FROM connections c
-                WHERE c.staff_id IS NOT NULL
-                ORDER BY c.staff_id, c.created_at DESC
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
             )
             SELECT 
                 so.id,
@@ -96,7 +96,7 @@ async def list_active_orders_detailed(limit: int = 50) -> List[Dict[str, Any]]:
                     ELSE so.status
                 END as status_text
             FROM staff_orders so
-            JOIN last_assign la ON la.staff_id = so.id
+            JOIN last_assign la ON la.application_number = so.application_number
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
             LEFT JOIN regions r ON r.id = so.region
@@ -169,15 +169,18 @@ async def get_controller_workflow_history(order_id: int) -> Dict[str, Any]:
                 recipient.full_name as recipient_name,
                 recipient.role as recipient_role,
                 CASE 
-                    WHEN c.connection_id IS NOT NULL THEN 'connection'
-                    WHEN c.technician_id IS NOT NULL THEN 'technician'
-                    WHEN c.staff_id IS NOT NULL THEN 'staff'
-                    ELSE 'unknown'
+                    'connection'
                 END AS order_type
             FROM connections c
             LEFT JOIN users sender ON sender.id = c.sender_id
             LEFT JOIN users recipient ON recipient.id = c.recipient_id
-            WHERE (c.connection_id = $1 OR c.technician_id = $1 OR c.staff_id = $1)
+                WHERE EXISTS (
+                    SELECT 1 FROM connection_orders co WHERE co.application_number = c.application_number AND co.id = $1
+                    UNION ALL
+                    SELECT 1 FROM technician_orders to WHERE to.application_number = c.application_number AND to.id = $1
+                    UNION ALL
+                    SELECT 1 FROM staff_orders so WHERE so.application_number = c.application_number AND so.id = $1
+                )
             ORDER BY c.created_at ASC
             """,
             order_id
@@ -208,7 +211,7 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     COUNT(CASE WHEN co.status = 'in_technician' THEN 1 END) as in_progress_orders,
                     COUNT(CASE WHEN co.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
-                JOIN connection_orders co ON co.id = c.connection_id
+                JOIN connection_orders co ON co.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND co.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND co.is_active = TRUE
@@ -224,7 +227,7 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     COUNT(CASE WHEN to_orders.status = 'in_technician' THEN 1 END) as in_progress_orders,
                     COUNT(CASE WHEN to_orders.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
-                JOIN technician_orders to_orders ON to_orders.id = c.technician_id
+                JOIN technician_orders to_orders ON to_orders.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND to_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(to_orders.is_active, TRUE) = TRUE
@@ -240,7 +243,7 @@ async def get_controller_technician_load() -> List[Dict[str, Any]]:
                     COUNT(CASE WHEN so.status = 'in_technician' THEN 1 END) as in_progress_orders,
                     COUNT(CASE WHEN so.status = 'in_technician_work' THEN 1 END) as in_work_orders
                 FROM connections c
-                JOIN staff_orders so ON so.id = c.staff_id
+                JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE c.recipient_id IS NOT NULL
                   AND so.status IN ('between_controller_technician', 'in_technician', 'in_technician_work')
                   AND COALESCE(so.is_active, TRUE) = TRUE

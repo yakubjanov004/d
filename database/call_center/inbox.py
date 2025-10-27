@@ -214,17 +214,21 @@ async def log_connection_from_operator(
     """Operator tomonidan controllerga yuborilgan ariza uchun connection yaratish"""
     conn = await get_connection()
     try:
+        # Get application_number
+        app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", technician_order_id)
+        
         row = await conn.fetchrow(
             """
             INSERT INTO connections(
-                technician_id, sender_id, recipient_id,
+                application_number,
+                sender_id, recipient_id,
                 sender_status, recipient_status,
                 created_at, updated_at
             )
             VALUES ($1, $2, $3, 'in_call_center_operator', 'in_controller', NOW(), NOW())
             RETURNING id
             """,
-            technician_order_id, sender_id, recipient_id,
+            app_info['application_number'] if app_info else None, sender_id, recipient_id,
         )
         return row["id"] if row else None
     finally:
@@ -238,17 +242,21 @@ async def log_connection_completed_from_operator(
     """Operator tomonidan yopilgan ariza uchun connection yaratish"""
     conn = await get_connection()
     try:
+        # Get application_number
+        app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", technician_order_id)
+        
         row = await conn.fetchrow(
             """
             INSERT INTO connections(
-                technician_id, sender_id, recipient_id,
+                application_number,
+                sender_id, recipient_id,
                 sender_status, recipient_status,
                 created_at, updated_at
             )
             VALUES ($1, $2, $3, 'in_call_center_operator', 'completed', NOW(), NOW())
             RETURNING id
             """,
-            technician_order_id, sender_id, recipient_id,
+            app_info['application_number'] if app_info else None, sender_id, recipient_id,
         )
         return row["id"] if row else None
     finally:

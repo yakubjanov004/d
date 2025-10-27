@@ -56,12 +56,13 @@ async def staff_orders_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             # Connections jadvaliga yozuv qo'shamiz (controller -> manager)
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -69,9 +70,9 @@ async def staff_orders_create(
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, 'new', 'in_controller', NOW(), NOW())
+                VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
                 """,
-                staff_order_id, user_id, user_id  # sender: controller, recipient: manager (hozircha bir xil)
+                app_number, user_id  # sender: controller, recipient: manager (hozircha bir xil)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -116,12 +117,13 @@ async def staff_orders_technician_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             # Connections jadvaliga yozuv qo'shamiz (yaratilganda to'g'ridan-to'g'ri controller'da)
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -131,7 +133,7 @@ async def staff_orders_technician_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
                 """,
-                staff_order_id, user_id  # sender va recipient bir xil (controller yaratdi)
+                app_number, user_id  # sender va recipient bir xil (controller yaratdi)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -206,7 +208,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                     -- Controller assignments (yaratgan)
                     to_orders.user_id as controller_id
                 FROM technician_orders to_orders
-                LEFT JOIN connections c ON c.technician_id = to_orders.id
+                LEFT JOIN connections c ON c.application_number = to_orders.application_number
                 WHERE COALESCE(to_orders.is_active, TRUE) = TRUE
                 
                 UNION ALL
@@ -224,7 +226,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                     -- Controller assignments (yaratgan)
                     so.user_id as controller_id
                 FROM staff_orders so
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE so.type_of_zayavka = 'connection'
                   AND COALESCE(so.is_active, TRUE) = TRUE
                 
@@ -243,7 +245,7 @@ async def fetch_staff_activity() -> List[Dict[str, Any]]:
                     -- Controller assignments (yaratgan)
                     so.user_id as controller_id
                 FROM staff_orders so
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE so.type_of_zayavka = 'technician'
                   AND COALESCE(so.is_active, TRUE) = TRUE
             )

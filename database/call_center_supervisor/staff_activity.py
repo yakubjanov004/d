@@ -46,7 +46,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_call_center_operator', 'in_call_center_supervisor') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.connection_id = co.id
+                LEFT JOIN connections c ON c.application_number = co.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ),
@@ -61,7 +61,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_call_center_operator', 'in_call_center_supervisor') AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as assigned_tech_active
                 FROM users u
                 LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                LEFT JOIN connections c ON c.application_number = tech_orders.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             ),
@@ -76,7 +76,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                     COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_call_center_operator', 'in_call_center_supervisor') AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as assigned_staff_active
                 FROM users u
                 LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             ),
@@ -84,17 +84,17 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                 SELECT
                     u.id,
                     -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN connections c ON c.sender_id = u.id
-                LEFT JOIN connection_orders co ON co.id = c.connection_id
-                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
-                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                LEFT JOIN connection_orders co ON co.application_number = c.application_number
+                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
+                LEFT JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             )
@@ -153,7 +153,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
                     AND {conn_time_condition}
-                LEFT JOIN connections c ON c.connection_id = co.id
+                LEFT JOIN connections c ON c.application_number = co.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ),
@@ -169,7 +169,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
                     AND {tech_time_condition}
-                LEFT JOIN connections c ON c.technician_id = tech_orders.id
+                LEFT JOIN connections c ON c.application_number = tech_orders.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             ),
@@ -185,7 +185,7 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                 FROM users u
                 LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
                     AND {staff_time_condition}
-                LEFT JOIN connections c ON c.staff_id = so.id
+                LEFT JOIN connections c ON c.application_number = so.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             ),
@@ -193,18 +193,18 @@ async def fetch_callcenter_staff_activity_with_time_filter(time_filter: str = "t
                 SELECT
                     u.id,
                     -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN connections c ON c.sender_id = u.id
                     AND {staff_time_condition.replace('so.', 'c.')}
-                LEFT JOIN connection_orders co ON co.id = c.connection_id
-                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
-                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                LEFT JOIN connection_orders co ON co.application_number = c.application_number
+                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
+                LEFT JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE u.role IN ('callcenter_operator', 'callcenter_supervisor')
                 GROUP BY u.id
             )

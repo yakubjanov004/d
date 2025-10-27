@@ -50,11 +50,12 @@ async def staff_orders_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -64,7 +65,7 @@ async def staff_orders_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
                 """,
-                staff_order_id, user_id  # sender va recipient bir xil (manager yaratdi)
+                app_number, user_id  # sender va recipient bir xil (manager yaratdi)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -109,12 +110,13 @@ async def staff_orders_technician_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             # Connections jadvaliga yozuv qo'shamiz (yaratilganda to'g'ridan-to'g'ri controller'ga)
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -124,7 +126,7 @@ async def staff_orders_technician_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
                 """,
-                staff_order_id, user_id  # sender va recipient bir xil (manager yaratdi)
+                app_number, user_id  # sender va recipient bir xil (manager yaratdi)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -751,7 +753,7 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
         
         rows = await conn.fetch(
             f"""
-            WITH manager_connection_stats AS (
+            WITH             manager_connection_stats AS (
                 SELECT
                     u.id,
                     u.full_name,
@@ -759,15 +761,17 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
                     u.role,
                     u.created_at,
                     -- Orders they created (as user_id) - Connection orders
-                    COUNT(CASE WHEN co.user_id = u.id THEN co.id END) as created_conn_orders,
-                    COUNT(CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as created_conn_active,
+                    COUNT(DISTINCT CASE WHEN co.user_id = u.id THEN co.id END) as created_conn_orders,
+                    COUNT(DISTINCT CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as created_conn_active,
                     -- Orders assigned to them through workflow (as recipient) - Connection orders
-                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') THEN co.id END) as assigned_conn_orders,
-                    COUNT(CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
+                    COUNT(DISTINCT CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') THEN co.id END) as assigned_conn_orders,
+                    COUNT(DISTINCT CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
                     AND {conn_time_condition}
-                LEFT JOIN connections c ON c.connection_id = co.id
+                LEFT JOIN connections c ON c.application_number = co.application_number
+                    AND c.recipient_id = u.id 
+                    AND c.recipient_status IN ('in_manager', 'in_junior_manager')
                 WHERE u.role IN ('junior_manager', 'manager')
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
             ),
@@ -799,18 +803,18 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
                 SELECT
                     u.id,
                     -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.connection_id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.technician_id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND c.staff_id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL THEN c.id END) as sent_conn_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
+                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN connections c ON c.sender_id = u.id
                     AND {staff_time_condition.replace('so.', 'c.')}
-                LEFT JOIN connection_orders co ON co.id = c.connection_id
-                LEFT JOIN technician_orders tech_orders ON tech_orders.id = c.technician_id
-                LEFT JOIN staff_orders so ON so.id = c.staff_id
+                LEFT JOIN connection_orders co ON co.application_number = c.application_number
+                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
+                LEFT JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE u.role IN ('junior_manager', 'manager')
                 GROUP BY u.id
             )

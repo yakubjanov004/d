@@ -54,17 +54,21 @@ async def accept_technician_work(applications_id: int,
                    SET status = 'in_technician'::connection_order_status,
                        updated_at = NOW()
                  WHERE id=$1 AND status='between_controller_technician'::connection_order_status
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            # Get application_number
+            app_number = row_new["application_number"]
 
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connection_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2,
@@ -72,7 +76,7 @@ async def accept_technician_work(applications_id: int,
                         'in_technician'::connection_order_status,
                         NOW(), NOW())
                 """,
-                applications_id, uid
+                app_number, uid
             )
             return True
     finally:
@@ -103,17 +107,20 @@ async def start_technician_work(applications_id: int,
                    SET status='in_technician_work'::connection_order_status,
                        updated_at=NOW()
                  WHERE id=$1 AND status='in_technician'::connection_order_status
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    connection_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
@@ -122,7 +129,7 @@ async def start_technician_work(applications_id: int,
                         'in_technician_work'::connection_order_status,
                         NOW(), NOW())
                 """,
-                applications_id, uid
+                app_number, uid
             )
             return True
     finally:
@@ -153,17 +160,20 @@ async def finish_technician_work(applications_id: int,
                    SET status = 'completed'::connection_order_status,
                        updated_at = NOW()
                  WHERE id = $1 AND status = 'in_technician_work'::connection_order_status
-             RETURNING id
+             RETURNING id, application_number
                 """,
                 applications_id
             )
             if not ok:
                 return False
+            
+            app_number = ok["application_number"]
 
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connection_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2,
@@ -171,7 +181,7 @@ async def finish_technician_work(applications_id: int,
                         'completed'::connection_order_status,
                         NOW(), NOW())
                 """,
-                applications_id, uid
+                app_number, uid
             )
             
             # Texnikda mavjud materiallar uchun material kamaytirish endi kerak emas,
@@ -207,23 +217,26 @@ async def accept_technician_work_for_tech(applications_id: int,
                    SET status = 'in_technician',
                        updated_at = NOW()
                  WHERE id=$1 AND status='between_controller_technician'
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             try:
                 await conn.execute(
                     """
                     INSERT INTO connections(
-                        technician_id, sender_id, recipient_id,
+                        application_number,
+                        sender_id, recipient_id,
                         sender_status, recipient_status, created_at, updated_at
                     )
                     VALUES ($1, $2, $2, 'between_controller_technician', 'in_technician', NOW(), NOW())
                     """,
-                    applications_id, uid
+                    app_number, uid
                 )
             except Exception:
                 pass
@@ -256,23 +269,26 @@ async def start_technician_work_for_tech(applications_id: int,
                    SET status='in_technician_work',
                        updated_at=NOW()
                  WHERE id=$1 AND status='in_technician'
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             try:
                 await conn.execute(
                     """
                     INSERT INTO connections(
-                        technician_id, sender_id, recipient_id,
+                        application_number,
+                        sender_id, recipient_id,
                         sender_status, recipient_status, created_at, updated_at
                     )
                     VALUES ($1, $2, $2, 'in_technician', 'in_technician_work', NOW(), NOW())
                     """,
-                    applications_id, uid
+                    app_number, uid
                 )
             except Exception:
                 pass
@@ -341,23 +357,26 @@ async def finish_technician_work_for_tech(applications_id: int,
                    SET status='completed',
                        updated_at=NOW()
                  WHERE id=$1 AND status='in_technician_work'
-             RETURNING id
+             RETURNING id, application_number
                 """,
                 applications_id
             )
             if not ok:
                 return False
+            
+            app_number = ok["application_number"]
 
             try:
                 await conn.execute(
                     """
                     INSERT INTO connections(
-                        technician_id, sender_id, recipient_id,
+                        application_number,
+                        sender_id, recipient_id,
                         sender_status, recipient_status, created_at, updated_at
                     )
                     VALUES ($1, $2, $2, 'in_technician_work', 'completed', NOW(), NOW())
                     """,
-                    applications_id, uid
+                    app_number, uid
                 )
             except Exception:
                 pass
@@ -395,22 +414,25 @@ async def accept_technician_work_for_staff(applications_id: int,
                    SET status = 'in_technician',
                        updated_at = NOW()
                  WHERE id=$1 AND status='between_controller_technician'
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2, 'between_controller_technician', 'in_technician', NOW(), NOW())
                 """,
-                applications_id, uid
+                app_number, uid
             )
 
             return True
@@ -442,22 +464,25 @@ async def start_technician_work_for_staff(applications_id: int,
                    SET status='in_technician_work',
                        updated_at=NOW()
                  WHERE id=$1 AND status='in_technician'
-             RETURNING status
+             RETURNING status, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             await conn.execute(
                 """
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number,
+                    sender_id, recipient_id,
                     sender_status, recipient_status, created_at, updated_at
                 )
                 VALUES ($1, $2, $2, 'in_technician', 'in_technician_work', NOW(), NOW())
                 """,
-                applications_id, uid
+                app_number, uid
             )
 
             return True
@@ -489,23 +514,26 @@ async def finish_technician_work_for_staff(applications_id: int,
                    SET status = 'completed',
                        updated_at = NOW()
                  WHERE id = $1 AND status = 'in_technician_work'
-             RETURNING id
+             RETURNING id, application_number
                 """,
                 applications_id
             )
             if not row_new:
                 return False
+            
+            app_number = row_new["application_number"]
 
             try:
                 await conn.execute(
                     """
                     INSERT INTO connections(
-                        staff_id, sender_id, recipient_id,
+                        application_number,
+                        sender_id, recipient_id,
                         sender_status, recipient_status, created_at, updated_at
                     )
                     VALUES ($1, $2, $2, 'in_technician_work', 'completed', NOW(), NOW())
                     """,
-                    applications_id, uid
+                    app_number, uid
                 )
             except Exception:
                 pass

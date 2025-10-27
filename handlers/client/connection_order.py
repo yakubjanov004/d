@@ -16,6 +16,11 @@ from keyboards.client_buttons import (
     zayavka_type_keyboard,
     geolocation_keyboard,
     get_client_tariff_selection_keyboard,
+    get_biznet_tariff_keyboard,
+    get_tijorat_tariff_keyboard,
+    B2C_PLANS,
+    BIZNET_PRO_PLANS,
+    TIJORAT_PLANS,
     confirmation_keyboard,
     get_client_regions_keyboard
 )
@@ -70,12 +75,33 @@ def normalize_region(region_code: str, lang: str) -> str:
         return REGION_CODE_TO_RU.get(region_code, region_code)
     return REGION_CODE_TO_UZ.get(region_code, region_code)
 
-# --- Tarif ko‘rinish nomlari (UZ/RU)
+# --- Tarif ko'rinish nomlari (UZ/RU)
 TARIFF_NAMES = {
-    "tariff_xammasi_birga_4": {"uz": "Hammasi birga 4", "ru": "Hammasi birga 4"},
-    "tariff_xammasi_birga_3_plus": {"uz": "Hammasi birga 3+", "ru": "Hammasi birga 3+"},
-    "tariff_xammasi_birga_3": {"uz": "Hammasi birga 3", "ru": "Hammasi birga 3"},
-    "tariff_xammasi_birga_2": {"uz": "Hammasi birga 2", "ru": "Hammasi birga 2"},
+    # B2C tariffs
+    "tariff_b2c_plan_0": {"uz": "Oddiy-20", "ru": "Oddiy-20"},
+    "tariff_b2c_plan_1": {"uz": "Oddiy-50", "ru": "Oddiy-50"},
+    "tariff_b2c_plan_2": {"uz": "Oddiy-100", "ru": "Oddiy-100"},
+    "tariff_b2c_plan_3": {"uz": "XIT-200", "ru": "XIT-200"},
+    "tariff_b2c_plan_4": {"uz": "VIP-500", "ru": "VIP-500"},
+    "tariff_b2c_plan_5": {"uz": "PREMIUM", "ru": "PREMIUM"},
+    # BizNET-Pro tariffs
+    "tariff_biznet_plan_0": {"uz": "BizNET-Pro-1", "ru": "BizNET-Pro-1"},
+    "tariff_biznet_plan_1": {"uz": "BizNET-Pro-2", "ru": "BizNET-Pro-2"},
+    "tariff_biznet_plan_2": {"uz": "BizNET-Pro-3", "ru": "BizNET-Pro-3"},
+    "tariff_biznet_plan_3": {"uz": "BizNET-Pro-4", "ru": "BizNET-Pro-4"},
+    "tariff_biznet_plan_4": {"uz": "BizNET-Pro-5", "ru": "BizNET-Pro-5"},
+    "tariff_biznet_plan_5": {"uz": "BizNET-Pro-6", "ru": "BizNET-Pro-6"},
+    "tariff_biznet_plan_6": {"uz": "BizNET-Pro-7+", "ru": "BizNET-Pro-7+"},
+    # Tijorat tariffs
+    "tariff_tijorat_plan_0": {"uz": "Tijorat-1", "ru": "Tijorat-1"},
+    "tariff_tijorat_plan_1": {"uz": "Tijorat-2", "ru": "Tijorat-2"},
+    "tariff_tijorat_plan_2": {"uz": "Tijorat-3", "ru": "Tijorat-3"},
+    "tariff_tijorat_plan_3": {"uz": "Tijorat-4", "ru": "Tijorat-4"},
+    "tariff_tijorat_plan_4": {"uz": "Tijorat-5", "ru": "Tijorat-5"},
+    "tariff_tijorat_plan_5": {"uz": "Tijorat-100", "ru": "Tijorat-100"},
+    "tariff_tijorat_plan_6": {"uz": "Tijorat-300", "ru": "Tijorat-300"},
+    "tariff_tijorat_plan_7": {"uz": "Tijorat-500", "ru": "Tijorat-500"},
+    "tariff_tijorat_plan_8": {"uz": "Tijorat-1000", "ru": "Tijorat-1000"},
 }
 
 # ================== FLOW ==================
@@ -131,19 +157,30 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
         connection_type = callback.data.split("_")[-1]
         await state.update_data(connection_type=connection_type)
 
-        try:
-            photo = FSInputFile("static/images/image.png")
-            await callback.message.answer_photo(
-                photo=photo,
-                caption=("📋 <b>Tariflardan birini tanlang:</b>\n\n" if lang == "uz" else "📋 <b>Выберите один из тарифов:</b>\n\n"),
-                reply_markup=get_client_tariff_selection_keyboard(lang) if callable(get_client_tariff_selection_keyboard) else get_client_tariff_selection_keyboard(),
-                parse_mode='HTML'
-            )
-        except Exception as img_error:
-            logger.warning(f"Could not send tariff image: {img_error}")
+        # For B2C: send image and show plans
+        if connection_type == "b2c":
+            photo = FSInputFile("static/images/b2c.png")
+            try:
+                sent_message = await callback.message.answer_photo(
+                    photo=photo,
+                    caption="📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                    reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
+                    parse_mode='HTML'
+                )
+                # Store photo message ID for back navigation
+                await state.update_data(photo_message_id=sent_message.message_id)
+            except Exception as img_error:
+                logger.warning(f"Could not send tariff image: {img_error}")
+                await callback.message.answer(
+                    "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                    reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
+                    parse_mode='HTML'
+                )
+        else:
+            # For B2B: just show the text without image
             await callback.message.answer(
-                ("📋 <b>Tariflardan birini tanlang:</b>\n\n" if lang == "uz" else "📋 <b>Выберите один из тарифов:</b>\n\n"),
-                reply_markup=get_client_tariff_selection_keyboard(lang) if callable(get_client_tariff_selection_keyboard) else get_client_tariff_selection_keyboard(),
+                "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
                 parse_mode='HTML'
             )
         await state.set_state(ConnectionOrderStates.selecting_tariff)
@@ -152,6 +189,179 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
         logger.error(f"Error in select_connection_type_client: {e}")
         await callback.answer(("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring." if lang == "uz" else "❌ Произошла ошибка. Пожалуйста, попробуйте ещё раз."), show_alert=True)
 
+# --- B2C Plan Selection (New) ---
+@router.callback_query(F.data.startswith("b2c_plan_"), StateFilter(ConnectionOrderStates.selecting_tariff))
+async def select_b2c_plan(callback: CallbackQuery, state: FSMContext):
+    """Handle B2C plan selection"""
+    try:
+        plan_idx = int(callback.data.replace("b2c_plan_", ""))
+        lang = (await state.get_data()).get("lang", "uz")
+        
+        await callback.answer()
+        await callback.message.edit_reply_markup(reply_markup=None)
+        
+        plan = B2C_PLANS[plan_idx]
+        tariff_name = plan['name']
+        
+        await state.update_data(selected_tariff=f"b2c_plan_{plan_idx}")
+        await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
+        await state.set_state(ConnectionOrderStates.entering_address)
+    except Exception as e:
+        logger.error(f"Error in select_b2c_plan: {e}")
+        await callback.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.", show_alert=True)
+
+# --- B2B BizNET-Pro Selection ---
+@router.callback_query(F.data == "biznet_select", StateFilter(ConnectionOrderStates.selecting_tariff))
+async def handle_biznet_select(callback: CallbackQuery, state: FSMContext):
+    """Handle BizNET-Pro selection"""
+    lang = (await state.get_data()).get("lang", "uz")
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    
+    # Send image when BizNET-Pro is selected
+    photo = FSInputFile("static/images/b2b-1.png")
+    try:
+        sent_message = await callback.message.answer_photo(photo=photo)
+        # Store photo message ID for back navigation
+        await state.update_data(photo_message_id=sent_message.message_id)
+    except Exception:
+        pass
+    
+    await callback.message.answer(
+        "BizNET-Pro tarif rejalarni tanlang:\n(Yechilish tezligi kun va kechada bir xil)",
+        reply_markup=get_biznet_tariff_keyboard(lang)
+    )
+
+@router.callback_query(F.data.startswith("biznet_plan_"), StateFilter(ConnectionOrderStates.selecting_tariff))
+async def select_biznet_plan(callback: CallbackQuery, state: FSMContext):
+    """Handle BizNET-Pro plan selection"""
+    try:
+        plan_idx = int(callback.data.replace("biznet_plan_", ""))
+        lang = (await state.get_data()).get("lang", "uz")
+        
+        await callback.answer()
+        await callback.message.edit_reply_markup(reply_markup=None)
+        
+        plan = BIZNET_PRO_PLANS[plan_idx]
+        tariff_name = plan['name']
+        
+        await state.update_data(selected_tariff=f"biznet_plan_{plan_idx}")
+        await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
+        await state.set_state(ConnectionOrderStates.entering_address)
+    except Exception as e:
+        logger.error(f"Error in select_biznet_plan: {e}")
+        await callback.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.", show_alert=True)
+
+# --- B2B Tijorat Selection ---
+@router.callback_query(F.data == "tijorat_select", StateFilter(ConnectionOrderStates.selecting_tariff))
+async def handle_tijorat_select(callback: CallbackQuery, state: FSMContext):
+    """Handle Tijorat selection"""
+    lang = (await state.get_data()).get("lang", "uz")
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    
+    # Send image when Tijorat is selected
+    photo = FSInputFile("static/images/b2b-2.png")
+    try:
+        sent_message = await callback.message.answer_photo(photo=photo)
+        # Store photo message ID for back navigation
+        await state.update_data(photo_message_id=sent_message.message_id)
+    except Exception:
+        pass
+    
+    await callback.message.answer(
+        "Tijorat tarif rejalarni tanlang:\n(Yechilish tezligi kun va kechada farqli)",
+        reply_markup=get_tijorat_tariff_keyboard(lang)
+    )
+
+@router.callback_query(F.data.startswith("tijorat_plan_"), StateFilter(ConnectionOrderStates.selecting_tariff))
+async def select_tijorat_plan(callback: CallbackQuery, state: FSMContext):
+    """Handle Tijorat plan selection"""
+    try:
+        plan_idx = int(callback.data.replace("tijorat_plan_", ""))
+        lang = (await state.get_data()).get("lang", "uz")
+        
+        await callback.answer()
+        await callback.message.edit_reply_markup(reply_markup=None)
+        
+        plan = TIJORAT_PLANS[plan_idx]
+        tariff_name = plan['name']
+        
+        await state.update_data(selected_tariff=f"tijorat_plan_{plan_idx}")
+        await callback.message.answer("📍 Manzilingizni kiriting:" if lang == "uz" else "📍 Введите ваш адрес:")
+        await state.set_state(ConnectionOrderStates.entering_address)
+    except Exception as e:
+        logger.error(f"Error in select_tijorat_plan: {e}")
+        await callback.answer("❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.", show_alert=True)
+
+# --- Back Navigation Handlers ---
+@router.callback_query(F.data == "back_to_tariff_selection", StateFilter(ConnectionOrderStates.selecting_tariff))
+async def back_to_tariff_selection(callback: CallbackQuery, state: FSMContext):
+    """Go back from BizNET-Pro/Tijorat plans to B2B selection"""
+    try:
+        lang = (await state.get_data()).get("lang", "uz")
+        connection_type = (await state.get_data()).get("connection_type", "b2b")
+        
+        await callback.answer()
+        
+        # Delete photo message if exists
+        photo_msg_id = (await state.get_data()).get("photo_message_id")
+        if photo_msg_id:
+            try:
+                await callback.message.bot.delete_message(chat_id=callback.message.chat.id, message_id=photo_msg_id)
+            except:
+                pass
+        
+        # Delete current message with plan options
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        
+        # Go back to B2B main selection
+        await callback.message.answer(
+            "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+            reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Error in back_to_tariff_selection: {e}")
+        await callback.answer("❌ Xatolik yuz berdi.", show_alert=True)
+
+@router.callback_query(F.data == "back_to_connection_type", StateFilter(ConnectionOrderStates.selecting_tariff))
+async def back_to_connection_type(callback: CallbackQuery, state: FSMContext):
+    """Go back from tariff selection to connection type selection (Yuridik/Jismoniy)"""
+    try:
+        lang = (await state.get_data()).get("lang", "uz")
+        region = (await state.get_data()).get("selected_region", "toshkent_city")
+        
+        await callback.answer()
+        
+        # Delete photo message if exists (for B2C, BizNET-Pro, Tijorat)
+        photo_msg_id = (await state.get_data()).get("photo_message_id")
+        if photo_msg_id:
+            try:
+                await callback.message.bot.delete_message(chat_id=callback.message.chat.id, message_id=photo_msg_id)
+            except:
+                pass
+        
+        # Delete current message
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        
+        # Go back to connection type selection
+        await callback.message.answer(
+            ("Ulanish turini tanlang:" if lang == "uz" else "Выберите тип подключения:"),
+            reply_markup=zayavka_type_keyboard(lang) if callable(zayavka_type_keyboard) else zayavka_type_keyboard()
+        )
+        await state.set_state(ConnectionOrderStates.selecting_connection_type)
+    except Exception as e:
+        logger.error(f"Error in back_to_connection_type: {e}")
+        await callback.answer("❌ Xatolik yuz berdi.", show_alert=True)
+
+# --- Legacy Tariff Handler (for backward compatibility with old orders) ---
 @router.callback_query(F.data.in_(["tariff_xammasi_birga_4", "tariff_xammasi_birga_3_plus", "tariff_xammasi_birga_3", "tariff_xammasi_birga_2"]))
 async def select_tariff_client(callback: CallbackQuery, state: FSMContext):
     lang = "uz"  # Default language
@@ -261,7 +471,7 @@ async def finish_connection_order_client(message_or_callback, state: FSMContext,
 
         region = data.get('selected_region', data.get('region', 'toshkent shahri'))
         connection_type = data.get('connection_type', 'b2c')
-        tariff_code = data.get('selected_tariff', 'tariff_xammasi_birga_4')
+        tariff_code = data.get('selected_tariff', 'tariff_b2c_plan_0')
         tariff_display = TARIFF_NAMES.get(tariff_code, {}).get(lang, tariff_code)
         address = data.get('address', '-')
 
@@ -356,7 +566,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    connection_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -364,9 +574,9 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, 'client_created', 'in_controller', NOW(), NOW())
+                VALUES ($1, $2, $2, 'client_created', 'in_controller', NOW(), NOW())
                 """,
-                request_id, user_id, user_id  
+                app_number, user_id  
             )
         except Exception as e:
             logger.error(f"Error fetching application number or creating connection record: {e}")

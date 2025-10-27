@@ -63,7 +63,7 @@ async def _get_connection_akt_data(conn, request_id: int) -> Optional[Dict[str, 
         LEFT JOIN users tech ON tech.id = (
             SELECT c.recipient_id 
             FROM connections c 
-            WHERE c.connection_id = co.id 
+            WHERE c.application_number = co.application_number 
             AND c.recipient_id IN (
                 SELECT id FROM users WHERE role = 'technician'
             )
@@ -103,7 +103,7 @@ async def _get_technician_akt_data(conn, request_id: int) -> Optional[Dict[str, 
         LEFT JOIN users tech ON tech.id = (
             SELECT c.recipient_id 
             FROM connections c 
-            WHERE c.technician_id = t.id 
+            WHERE c.application_number = t.application_number 
             AND c.recipient_id IN (
                 SELECT id FROM users WHERE role = 'technician'
             )
@@ -146,7 +146,7 @@ async def _get_staff_akt_data(conn, request_id: int) -> Optional[Dict[str, Any]]
         LEFT JOIN users tech ON tech.id = (
             SELECT c.recipient_id 
             FROM connections c 
-            WHERE c.staff_id = so.id 
+            WHERE c.application_number = so.application_number 
             AND c.recipient_id IN (
                 SELECT id FROM users WHERE role = 'technician'
             )

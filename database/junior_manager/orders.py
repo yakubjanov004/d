@@ -63,12 +63,13 @@ async def staff_orders_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             # Connections jadvaliga yozuv qo'shamiz (yaratilish)
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -78,7 +79,7 @@ async def staff_orders_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_manager', NOW(), NOW())
                 """,
-                staff_order_id, user_id  # sender va recipient bir xil (junior manager yaratdi)
+                app_number, user_id  # sender va recipient bir xil (junior manager yaratdi)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -122,12 +123,13 @@ async def staff_orders_technician_create(
             )
             
             staff_order_id = row["id"]
+            app_number = row["application_number"]
             
             # Connections jadvaliga yozuv qo'shamiz (yaratilish)
             await conn.execute(
                 """
                 INSERT INTO connections (
-                    staff_id,
+                    application_number,
                     sender_id,
                     recipient_id,
                     sender_status,
@@ -137,7 +139,7 @@ async def staff_orders_technician_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_manager', NOW(), NOW())
                 """,
-                staff_order_id, user_id  # sender va recipient bir xil (junior manager yaratdi)
+                app_number, user_id  # sender va recipient bir xil (junior manager yaratdi)
             )
             
             return {"id": staff_order_id, "application_number": row["application_number"]}
@@ -317,11 +319,11 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
                 NULL as client_name,
                 NULL as client_phone_number
             FROM connections c
-            JOIN connection_orders co ON co.id = c.connection_id
+            JOIN connection_orders co ON co.application_number = c.application_number
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
             WHERE c.recipient_id = $1
-              AND c.connection_id IS NOT NULL
+              AND c.application_number IS NOT NULL
               AND co.is_active = TRUE
               AND c.recipient_status = 'in_junior_manager'
             
@@ -350,12 +352,12 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
                 client_u.full_name AS client_name,
                 client_u.phone AS client_phone_number
             FROM connections c
-            JOIN staff_orders so ON so.id = c.staff_id
+            JOIN staff_orders so ON so.application_number = c.application_number
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN users client_u ON client_u.id = so.abonent_id::bigint
             LEFT JOIN tarif t ON t.id = so.tarif_id
             WHERE c.recipient_id = $1
-              AND c.staff_id IS NOT NULL
+              AND so.id IS NOT NULL
               AND so.is_active = TRUE
               AND c.recipient_status = 'in_junior_manager'
             
@@ -516,13 +518,24 @@ async def send_to_controller(order_id: int, jm_id: int) -> bool:
                 order_id
             )
             
+            # Get application_number
+            app_info = await conn.fetchrow(
+                """
+                SELECT application_number FROM staff_orders WHERE id = $1
+                """,
+                order_id
+            )
+            
             # Connection yozuvini yaratish
             await conn.execute(
                 """
-                INSERT INTO connections (sender_id, recipient_id, connection_id, created_at, updated_at)
-                VALUES ($1, $2, $3, NOW(), NOW())
+                INSERT INTO connections (
+                    application_number, sender_id, recipient_id, 
+                    created_at, updated_at
+                )
+                VALUES ($1, $2, 0, NOW(), NOW())
                 """,
-                jm_id, 0, order_id  # recipient_id = 0 (controller)
+                app_info["application_number"], jm_id  # recipient_id = 0 (controller)
             )
             
             return True

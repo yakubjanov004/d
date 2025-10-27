@@ -695,15 +695,18 @@ async def ccs_tech_select_operator(cb: CallbackQuery):
             
             sender_id = sender_user['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", order_id)
+            
             # Connection yaratish
             await conn.execute("""
                 INSERT INTO connections(
-                    technician_id, sender_id, recipient_id,
+                    application_number, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_call_center_operator', NOW(), NOW())
-            """, order_id, sender_id, operator_id)
+            """, app_info['application_number'], sender_id, operator_id)
             
             # Operator'ga notification yuborish
             if operator['telegram_id']:
@@ -1077,15 +1080,18 @@ async def ccs_staff_select_operator(cb: CallbackQuery):
             
             sender_id = sender_user['id']
             
+            # Get application_number
+            app_info = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", order_id)
+            
             # Connection yaratish
             await conn.execute("""
                 INSERT INTO connections(
-                    staff_id, sender_id, recipient_id,
+                    application_number, sender_id, recipient_id,
                     sender_status, recipient_status,
                     created_at, updated_at
                 )
                 VALUES ($1, $2, $3, 'in_call_center_supervisor', 'in_call_center_operator', NOW(), NOW())
-            """, order_id, sender_id, operator_id)
+            """, app_info['application_number'], sender_id, operator_id)
             
             # Operator'ga notification yuborish
             if operator['telegram_id']:

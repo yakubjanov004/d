@@ -664,19 +664,32 @@ async def send_selection_to_warehouse(
                 tech_oid = applications_id if request_type == "technician" else None
                 staff_oid = applications_id if request_type == "staff"       else None
 
+                # Get application_number based on request_type
+                if request_type == "connection":
+                    app_info = await conn.fetchrow("SELECT application_number FROM connection_orders WHERE id = $1", applications_id)
+                elif request_type == "technician":
+                    app_info = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", applications_id)
+                elif request_type == "staff":
+                    app_info = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", applications_id)
+                else:
+                    app_info = None
+                
+                app_number = app_info['application_number'] if app_info else None
+
                 await conn.execute(
                     """
                     INSERT INTO connections(
+                        application_number,
                         sender_id, recipient_id,
                         connection_id, technician_id, staff_id,
                         sender_status, recipient_status,
                         created_at, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5,
+                    VALUES ($1, $2, $3, $4, $5, $6,
                             'in_technician_work', 'pending_warehouse',
                             NOW(), NOW())
                     """,
-                    uid, warehouse_id, conn_id, tech_oid, staff_oid
+                    app_number, uid, warehouse_id, conn_id, tech_oid, staff_oid
                 )
 
             return True

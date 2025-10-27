@@ -1306,36 +1306,29 @@ async def tech_accept(cb: CallbackQuery, state: FSMContext):
             try:
                 # Get controller who assigned this order to technician
                 controller_info = None
+                
+                # First, get application_number from the order
+                app_number = None
                 if mode == "technician":
-                    controller_info = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.language 
-                        FROM connections c
-                        JOIN users u ON u.id = c.sender_id
-                        WHERE c.technician_id = $1 AND c.sender_id IN (
-                            SELECT id FROM users WHERE role = 'controller'
-                        )
-                        ORDER BY c.created_at DESC LIMIT 1
-                    """, req_id)
+                    row = await conn.fetchrow("SELECT application_number FROM technician_orders WHERE id = $1", req_id)
+                    app_number = row["application_number"] if row else None
                 elif mode == "staff":
-                    controller_info = await conn.fetchrow("""
-                        SELECT u.telegram_id, u.language 
-                        FROM connections c
-                        JOIN users u ON u.id = c.sender_id
-                        WHERE c.staff_id = $1 AND c.sender_id IN (
-                            SELECT id FROM users WHERE role = 'controller'
-                        )
-                        ORDER BY c.created_at DESC LIMIT 1
-                    """, req_id)
+                    row = await conn.fetchrow("SELECT application_number FROM staff_orders WHERE id = $1", req_id)
+                    app_number = row["application_number"] if row else None
                 else:  # connection mode
+                    row = await conn.fetchrow("SELECT application_number FROM connection_orders WHERE id = $1", req_id)
+                    app_number = row["application_number"] if row else None
+                
+                if app_number:
                     controller_info = await conn.fetchrow("""
                         SELECT u.telegram_id, u.language 
                         FROM connections c
                         JOIN users u ON u.id = c.sender_id
-                        WHERE c.connection_id = $1 AND c.sender_id IN (
+                        WHERE c.application_number = $1 AND c.sender_id IN (
                             SELECT id FROM users WHERE role = 'controller'
                         )
                         ORDER BY c.created_at DESC LIMIT 1
-                    """, req_id)
+                    """, app_number)
                 
 
             finally:

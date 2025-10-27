@@ -46,9 +46,9 @@ async def get_jm_stats_for_telegram(telegram_id: int) -> Dict[str, Any]:
                     co.status::text as status,
                     co.updated_at
                 FROM connections c
-                JOIN connection_orders co ON co.id = c.connection_id
+                JOIN connection_orders co ON co.application_number = c.application_number
                 WHERE c.recipient_id = $1
-                  AND c.connection_id IS NOT NULL
+                  AND c.application_number IS NOT NULL
                   AND co.is_active = TRUE
                   AND c.recipient_status = 'in_junior_manager'
                 
@@ -60,9 +60,9 @@ async def get_jm_stats_for_telegram(telegram_id: int) -> Dict[str, Any]:
                     so.status::text as status,
                     so.updated_at
                 FROM connections c
-                JOIN staff_orders so ON so.id = c.staff_id
+                JOIN staff_orders so ON so.application_number = c.application_number
                 WHERE c.recipient_id = $1
-                  AND c.staff_id IS NOT NULL
+                  AND c.application_number IS NOT NULL
                   AND so.is_active = TRUE
                   AND c.recipient_status = 'in_junior_manager'
             ) combined_orders
@@ -110,7 +110,7 @@ async def get_jm_performance_stats(telegram_id: int, days: int = 30) -> Dict[str
                 AVG(EXTRACT(EPOCH FROM (so.updated_at - so.created_at))/3600) AS avg_processing_hours,
                 COUNT(*) FILTER (WHERE so.status = 'completed') * 100.0 / COUNT(*) AS completion_rate
             FROM connections c
-            JOIN staff_orders so ON so.id = c.staff_id
+            JOIN staff_orders so ON so.application_number = c.application_number
             WHERE c.recipient_id = $1
               AND so.is_active = TRUE
               AND so.created_at >= NOW() - INTERVAL '%s days'
