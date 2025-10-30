@@ -114,8 +114,8 @@ def _build_report(lang: str, items: list, period: str) -> str:
     # Jami hisoblar
     total_conn = sum(item.get("conn_count", 0) for item in items)
     total_tech = sum(item.get("tech_count", 0) for item in items)
-    total_staff = sum(item.get("created_staff_count", 0) + item.get("assigned_staff_count", 0) + item.get("sent_staff_count", 0) for item in items)
-    total_all = sum(item.get("total_orders", 0) for item in items)
+    total_staff = sum(item.get("staff_count", 0) for item in items)
+    total_all = sum(item.get("total_orders", 0) for item in items if item.get("role") == "controller")
     staff_count = len(items)
     
     # Header
@@ -135,55 +135,95 @@ def _build_report(lang: str, items: list, period: str) -> str:
     # Har bir xodim uchun
     for i, item in enumerate(items, 1):
         name = item.get("full_name", "N/A")
-        role = _t(lang, "role_controller")
-        active = item.get("active_count", 0)
+        user_role = item.get("role", "controller")
         
-        text += f"{i}. {name} ({role})\n"
-        
-        if active > 0:
-            text += f"   {_t(lang, 'active')}: {active}\n"
-        
-        # Ulanish arizalari
-        conn_assigned = item.get("assigned_conn_count", 0)
-        conn_created = item.get("created_conn_count", 0)
-        conn_sent = item.get("sent_conn_count", 0)
-        
-        if conn_assigned > 0 or conn_created > 0 or conn_sent > 0:
-            text += f"   {_t(lang, 'conn')}:\n"
-            if conn_assigned > 0:
-                text += f"     {_t(lang, 'conn_assigned')}: {conn_assigned}\n"
-            if conn_created > 0:
-                text += f"     {_t(lang, 'conn_created')}: {conn_created}\n"
-            if conn_sent > 0:
-                text += f"     {_t(lang, 'conn_sent')}: {conn_sent}\n"
-        
-        # Texnik arizalar
-        tech_created = item.get("created_tech_count", 0)
-        tech_assigned = item.get("assigned_tech_count", 0)
-        tech_sent = item.get("sent_tech_count", 0)
-        
-        if tech_created > 0 or tech_assigned > 0 or tech_sent > 0:
-            text += f"   Texnik:\n"
-            if tech_created > 0:
-                text += f"     {_t(lang, 'tech_created')}: {tech_created}\n"
-            if tech_assigned > 0:
-                text += f"     {_t(lang, 'tech_assigned')}: {tech_assigned}\n"
-            if tech_sent > 0:
-                text += f"     {_t(lang, 'tech_sent')}: {tech_sent}\n"
-        
-        # Xodim arizalari
-        staff_created = item.get("created_staff_count", 0)
-        staff_assigned = item.get("assigned_staff_count", 0)
-        staff_sent = item.get("sent_staff_count", 0)
-        
-        if staff_created > 0 or staff_assigned > 0 or staff_sent > 0:
-            text += f"   Xodim:\n"
-            if staff_created > 0:
-                text += f"     {_t(lang, 'staff_created')}: {staff_created}\n"
-            if staff_assigned > 0:
-                text += f"     {_t(lang, 'staff_assigned')}: {staff_assigned}\n"
-            if staff_sent > 0:
-                text += f"     {_t(lang, 'staff_sent')}: {staff_sent}\n"
+        # Agar texnik bo'lsa, boshqacha ko'rsatish
+        if user_role == "technician":
+            role = "Texnik"
+            active = item.get("active_count", 0)
+            
+            text += f"{i}. {name} ({role})\n"
+            
+            if active > 0:
+                text += f"   {_t(lang, 'active')}: {active}\n"
+            
+            # Ulanish arizalari uchun
+            conn_assigned = item.get("tech_assigned_conn", 0)
+            conn_completed = item.get("completed_conn_count", 0)
+            
+            if conn_assigned > 0 or conn_completed > 0:
+                text += f"   📡 Ulanish:\n"
+                if conn_assigned > 0:
+                    text += f"     📥 Texnikka kelgan: {conn_assigned}\n"
+                if conn_completed > 0:
+                    text += f"     ✅ Yopilgan: {conn_completed}\n"
+            
+            # Texnik xizmat arizalari uchun
+            tech_assigned = item.get("tech_assigned_tech", 0)
+            tech_completed = item.get("completed_tech_count", 0)
+            
+            if tech_assigned > 0 or tech_completed > 0:
+                text += f"   🔧 Texnik xizmat:\n"
+                if tech_assigned > 0:
+                    text += f"     📥 Texnikka kelgan: {tech_assigned}\n"
+                if tech_completed > 0:
+                    text += f"     ✅ Yopilgan: {tech_completed}\n"
+            
+            # Xodim yaratgan arizalar uchun
+            staff_assigned = item.get("tech_assigned_staff", 0)
+            staff_completed = item.get("completed_staff_count", 0)
+            
+            if staff_assigned > 0 or staff_completed > 0:
+                text += f"   📋 Xodim yaratgan:\n"
+                if staff_assigned > 0:
+                    text += f"     📥 Texnikka kelgan: {staff_assigned}\n"
+                if staff_completed > 0:
+                    text += f"     ✅ Yopilgan: {staff_completed}\n"
+        else:
+            # Controller uchun eski format
+            role = _t(lang, "role_controller")
+            active = item.get("active_count", 0)
+            
+            text += f"{i}. {name} ({role})\n"
+            
+            if active > 0:
+                text += f"   {_t(lang, 'active')}: {active}\n"
+            
+            # Ulanish arizalari
+            conn_assigned = item.get("assigned_conn_count", 0)
+            conn_created = item.get("created_conn_count", 0)
+            conn_sent = item.get("sent_conn_count", 0)
+            
+            if conn_created > 0 or conn_sent > 0:
+                text += f"   {_t(lang, 'conn')}:\n"
+                if conn_created > 0:
+                    text += f"     {_t(lang, 'conn_created')}: {conn_created}\n"
+                if conn_sent > 0:
+                    text += f"     {_t(lang, 'conn_sent')}: {conn_sent}\n"
+            
+            # Texnik arizalar
+            tech_created = item.get("created_tech_count", 0)
+            tech_assigned = item.get("assigned_tech_count", 0)
+            tech_sent = item.get("sent_tech_count", 0)
+            
+            if tech_created > 0 or tech_sent > 0:
+                text += f"   Texnik:\n"
+                if tech_created > 0:
+                    text += f"     {_t(lang, 'tech_created')}: {tech_created}\n"
+                if tech_sent > 0:
+                    text += f"     {_t(lang, 'tech_sent')}: {tech_sent}\n"
+            
+            # Xodim arizalari
+            staff_created = item.get("created_staff_count", 0)
+            staff_assigned = item.get("assigned_staff_count", 0)
+            staff_sent = item.get("sent_staff_count", 0)
+            
+            if staff_created > 0 or staff_sent > 0:
+                text += f"   Xodim:\n"
+                if staff_created > 0:
+                    text += f"     {_t(lang, 'staff_created')}: {staff_created}\n"
+                if staff_sent > 0:
+                    text += f"     {_t(lang, 'staff_sent')}: {staff_sent}\n"
         
         text += "\n"
     
@@ -237,7 +277,14 @@ async def controller_staff_filter_callback(callback: CallbackQuery, state: FSMCo
         # Telegram xabar uzunligi limitidan oshmasligi uchun bo'laklab yuboramiz
         CHUNK = 3500
         if len(text) <= CHUNK:
-            await callback.message.edit_text(text, reply_markup=keyboard)
+            try:
+                await callback.message.edit_text(text, reply_markup=keyboard)
+            except Exception as edit_error:
+                # Agar xabar o'zgarmagan bo'lsa, foydalanuvchiga signal bering
+                if "message is not modified" in str(edit_error):
+                    await callback.answer("✅ Ma'lumotlar o'zgarishsiz", show_alert=False)
+                else:
+                    raise edit_error
             return
         
         # Agar xabar juda uzun bo'lsa, yangi xabar yuboramiz

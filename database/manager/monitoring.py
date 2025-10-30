@@ -110,28 +110,29 @@ def _fmt_duration(delta) -> str:
     if not parts: parts.append(f"{s}s")
     return " ".join(parts)
 
-async def get_workflow_history(order_id: int) -> Dict[str, Any]:
+async def get_workflow_history(application_number: str) -> Dict[str, Any]:
     """
-    connections jadvalidan berilgan order_id bo'yicha barcha o'tishlar.
+    connections jadvalidan berilgan application_number bo'yicha barcha o'tishlar.
     - sender_id/recipient_id -> users.full_name
     - Qadam davomiyligi: keyingi yozuv.created_at - joriy.created_at
     - Tugallanmagan bosqichda end_at = NULL, duration_str = "—" (handler UZ/RU matnini o'zi qo'yadi).
     Barcha order turlarini qo'llab-quvvatlaydi: connection_orders, technician_orders, staff_orders, smart_service_orders
+    
+    Manager uchun:
+    - STAFF-CONN-* → controller logikasi (client_created → in_controller)
+    - CONN-* → manager logikasi (client_created → in_manager)
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # First get application_number for this order_id
-        app_number = await conn.fetchval(
-            """
-            SELECT application_number FROM connection_orders WHERE id = $1
-            """,
-            order_id
-        )
-        
-        if not app_number:
+        if not application_number:
             return {"steps": [], "user_times": []}
         
+        # Application type aniqlash
+        is_staff_conn = application_number.upper().startswith("STAFF-CONN-")
+        is_conn = application_number.upper().startswith("CONN-")
+        
         # Barcha order turlarini tekshirib, mos connection recordlarni olamiz
+        # application_number bo'yicha to'g'ri qidirish - NULL va bo'sh string holatlarini ham tekshiramiz
         sql_all_connections = """
         SELECT c.id,
                c.sender_id, su.full_name AS sender_name, su.role AS sender_role,
@@ -143,11 +144,12 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
           FROM connections c
           LEFT JOIN users su ON su.id = c.sender_id
           LEFT JOIN users ru ON ru.id = c.recipient_id
-         WHERE c.application_number = $1
+         WHERE c.application_number IS NOT NULL 
+           AND c.application_number = $1
          ORDER BY c.created_at ASC, c.id ASC;
         """
 
-        rows = await conn.fetch(sql_all_connections, app_number)
+        rows = await conn.fetch(sql_all_connections, application_number)
 
         steps: List[Dict[str, Any]] = []
         processed_statuses = set()
@@ -161,59 +163,97 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
             duration_str = _fmt_duration(end_at - start_at) if end_at else "—"
 
             # Track time spent by recipient (the person who received the order)
+            # Faqat xodimlar uchun (client emas) vaqt hisoblaymiz
             recipient_id = r["recipient_id"]
             recipient_name = r["recipient_name"] or "—"
+            recipient_role = r["recipient_role"]
+            recipient_status = r["recipient_status"]
             
-            if end_at:
-                time_spent = (end_at - start_at).total_seconds()
-            else:
-                # If no end time, calculate from now
-                now = datetime.now(timezone.utc)
-                time_spent = (now - start_at).total_seconds()
+            # Client uchun vaqt hisoblamaymiz - faqat xodimlar uchun
+            # recipient_role "client" bo'lsa yoki recipient_status "client_created" bo'lsa, uni qo'shmaymiz
+            is_staff_member = (
+                recipient_id and  # recipient_id bo'lishi kerak
+                recipient_role and  # role mavjud bo'lishi kerak
+                recipient_role.lower() != "client" and  # role client bo'lmasligi kerak
+                recipient_role != "—" and  # role "—" bo'lmasligi kerak
+                recipient_status and  # status mavjud bo'lishi kerak
+                recipient_status != "client_created"  # status client_created bo'lmasligi kerak
+            )
             
-            if recipient_id:
-                key = str(recipient_id)
-                if key not in user_times:
-                    user_times[key] = {
-                        "user_id": recipient_id,
-                        "name": recipient_name,
-                        "total_seconds": 0,
-                        "roles": set()
-                    }
-                user_times[key]["total_seconds"] += time_spent
-                user_times[key]["roles"].add(r["recipient_role"] or "—")
+            if is_staff_member:
+                if end_at:
+                    time_spent = (end_at - start_at).total_seconds()
+                else:
+                    # If no end time, calculate from now
+                    now = datetime.now(timezone.utc)
+                    time_spent = (now - start_at).total_seconds()
+                
+                if recipient_id:
+                    key = str(recipient_id)
+                    if key not in user_times:
+                        user_times[key] = {
+                            "user_id": recipient_id,
+                            "name": recipient_name,
+                            "total_seconds": 0,
+                            "roles": set()
+                        }
+                    user_times[key]["total_seconds"] += time_spent
+                    user_times[key]["roles"].add(recipient_role or "—")
 
-            status_key = f"{r['sender_status']}_{r['recipient_status']}"
+            # CONN arizalar uchun boshidagi bosqichni to'g'rilash
+            # Agar CONN bo'lsa va client_created → in_controller bo'lsa, 
+            # uni client_created → in_manager sifatida ko'rsatamiz
+            actual_sender_status = r["sender_status"]
+            actual_recipient_status = r["recipient_status"]
+            
+            if is_conn and actual_sender_status == "client_created" and actual_recipient_status == "in_controller":
+                # CONN arizalar uchun boshida manager ga kelishi kerak
+                actual_recipient_status = "in_manager"
+            
+            status_key = f"{actual_sender_status}_{actual_recipient_status}"
             if status_key in processed_statuses:
                 continue
             processed_statuses.add(status_key)
 
-            if r["sender_status"] == "client_created":
+            if actual_sender_status == "client_created":
                 from_name = "Mijoz"  # Client
             else:
-                from_name = r["sender_name"] or (r["sender_status"] or "—")
+                from_name = r["sender_name"] or (actual_sender_status or "—")
             
-            if r["recipient_status"] == "in_manager":
+            # Manager uchun to'g'ri nomlar - application_number ga qarab
+            if actual_recipient_status == "in_manager":
                 to_name = "Manager"
-            elif r["recipient_status"] == "in_junior_manager":
+            elif actual_recipient_status == "in_junior_manager":
                 to_name = "Junior Manager"
-            elif r["recipient_status"] == "in_controller":
-                to_name = "Controller"
-            elif r["recipient_status"] == "in_technician":
+            elif actual_recipient_status == "in_controller":
+                # Agar STAFF-CONN bo'lsa → Controller (to'g'ri)
+                if is_staff_conn:
+                    to_name = "Controller"  # STAFF-CONN uchun controller to'g'ri
+                else:
+                    # CONN uchun ham in_controller bo'lishi mumkin (keyinroq controller ga o'tganda)
+                    to_name = r["recipient_name"] or "Controller"
+            elif actual_recipient_status == "in_technician":
                 to_name = "Technician"
-            elif r["recipient_status"] == "in_warehouse":
+            elif actual_recipient_status == "in_warehouse":
                 to_name = "Warehouse"
             else:
-                to_name = r["recipient_name"] or (r["recipient_status"] or "—")
+                to_name = r["recipient_name"] or (actual_recipient_status or "—")
 
-            step_description = _get_step_description(r["sender_status"], r["recipient_status"], r["order_type"])
+            # Application type bo'yicha to'g'ri tavsif
+            step_description = _get_step_description_for_manager(
+                actual_sender_status, 
+                actual_recipient_status, 
+                r["order_type"],
+                is_staff_conn,
+                is_conn
+            )
 
             steps.append({
                 "idx": len(steps) + 1,
                 "from_name": from_name,
                 "to_name": to_name,
-                "from_status": r["sender_status"],
-                "to_status": r["recipient_status"],
+                "from_status": actual_sender_status,
+                "to_status": actual_recipient_status,
                 "start_at": start_at,
                 "end_at": end_at,
                 "duration_str": duration_str,
@@ -243,22 +283,51 @@ async def get_workflow_history(order_id: int) -> Dict[str, Any]:
     finally:
         await conn.close()
 
-def _get_step_description(sender_status: str, recipient_status: str, order_type: str) -> Dict[str, str]:
+def _get_step_description_for_manager(
+    sender_status: str, 
+    recipient_status: str, 
+    order_type: str,
+    is_staff_conn: bool,
+    is_conn: bool
+) -> Dict[str, str]:
     """
-    Har bir workflow qadami uchun batafsil tavsif (UZ va RU tillarida)
+    Manager uchun workflow qadami tavsifi.
+    - STAFF-CONN-* uchun controller logikasi
+    - CONN-* uchun manager logikasi
     """
+    # Agar STAFF-CONN bo'lsa, controller logikasi
+    if is_staff_conn:
+        if (sender_status, recipient_status) == ("client_created", "in_controller"):
+            return {
+                "uz": "Ariza client_created dan in_controller ga o'tkazildi",
+                "ru": "Заявка передана с client_created на in_controller"
+            }
+    
+    # Agar CONN bo'lsa, manager logikasi
+    if is_conn:
+        if (sender_status, recipient_status) == ("client_created", "in_manager"):
+            return {
+                "uz": "Ariza client_created dan in_manager ga o'tkazildi",
+                "ru": "Заявка передана с client_created на in_manager"
+            }
+    
+    # Umumiy tavsiflar
     descriptions = {
         ("client_created", "in_manager"): {
-            "uz": "Mijoz tomonidan ariza yaratildi va menejerga yuborildi",
-            "ru": "Заявка создана клиентом и отправлена менеджеру"
+            "uz": "Ariza client_created dan in_manager ga o'tkazildi",
+            "ru": "Заявка передана с client_created на in_manager"
+        },
+        ("client_created", "in_controller"): {
+            "uz": "Ariza client_created dan in_controller ga o'tkazildi",
+            "ru": "Заявка передана с client_created на in_controller"
         },
         ("in_manager", "in_junior_manager"): {
-            "uz": "Menejer arizani kichik menejerga topshirdi",
-            "ru": "Менеджер передал заявку младшему менеджеру"
+            "uz": "Ariza in_manager dan in_junior_manager ga o'tkazildi",
+            "ru": "Заявка передана с in_manager на in_junior_manager"
         },
         ("in_junior_manager", "in_controller"): {
-            "uz": "Kichik menejer arizani kontrollerga yubordi",
-            "ru": "Младший менеджер отправил заявку контроллеру"
+            "uz": "Ariza in_junior_manager dan in_controller ga o'tkazildi",
+            "ru": "Заявка передана с in_junior_manager на in_controller"
         },
         ("in_controller", "in_technician"): {
             "uz": "Kontroller arizani texnik xizmatga topshirdi",

@@ -169,13 +169,17 @@ async def open_inbox(message: Message, state: FSMContext):
         lang = "uz"
 
     await state.update_data(lang=lang, inbox=[], idx=0)
+
+    inbox_items = await fetch_manager_inbox()
+    total = await count_manager_inbox()
+    await state.update_data(lang=lang, inbox=inbox_items, idx=0)
+    if not inbox_items:
+        text = "📭 Нет клиентских заявок" if lang == "ru" else "📭 Mijoz arizalari yo'q"
+        await message.answer(text)
+        return
+    text = short_view_text(inbox_items[0], 0, total, lang)
+    await message.answer(text, reply_markup=nav_keyboard(lang, 0, total, "connection"), parse_mode="HTML")
     
-    if lang == "ru":
-        text = "📂 Какой раздел откроем?"
-    else:
-        text = "📂 Qaysi bo'limni ko'ramiz?"
-    
-    await message.answer(text, reply_markup=category_keyboard(lang))
 
 @router.callback_query(F.data == "cat_connection")
 async def cat_connection_flow(callback: CallbackQuery, state: FSMContext):

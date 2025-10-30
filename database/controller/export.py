@@ -11,16 +11,42 @@ logger = logging.getLogger(__name__)
 #  Controller Export Functions
 # =========================================================
 
-async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
+def _get_time_condition(time_period: str, column: str) -> str:
+    """
+    Get SQL WHERE condition for time period filtering.
+    time_period: 'today', 'week', 'month', 'total'
+    column: column name to filter on (e.g., 'created_at')
+    
+    For 'week': calculates from Monday to today
+    """
+    if time_period == "today":
+        return f"{column} >= CURRENT_DATE"
+    elif time_period == "week":
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        days_since_monday = today.weekday() 
+        monday = today - timedelta(days=days_since_monday)
+        monday_date = monday.strftime("%Y-%m-%d")
+        return f"{column} >= '{monday_date}'"
+    elif time_period == "month":
+        return f"{column} >= CURRENT_DATE - INTERVAL '30 days'"
+    else:  # total
+        return "TRUE"
+
+async def get_controller_orders_for_export(time_period: str = "total") -> List[Dict[str, Any]]:
     """
     Controller orders ro'yxatini export uchun olish.
     Faqat texnik arizalar: technician_orders va staff_orders (type_of_zayavka = 'technician').
+    time_period: 'today', 'week', 'month', 'total'
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        # Time filter WHERE condition
+        time_condition = _get_time_condition(time_period, "t.created_at")
+        
         # Technician orders (mijozlar yaratgan texnik arizalar)
         tech_rows = await conn.fetch(
-            """
+            f"""
             SELECT 
                 t.id,
                 t.application_number,
@@ -47,14 +73,16 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
             LEFT JOIN users tech_user ON tech_user.id = c.recipient_id AND tech_user.role = 'technician'
             LEFT JOIN users controller_user ON controller_user.id = c.sender_id AND controller_user.role = 'controller'
             WHERE COALESCE(t.is_active, TRUE) = TRUE
+                AND {time_condition}
             ORDER BY t.created_at DESC
             """
         )
         
         # Staff orders (xodimlar yaratgan texnik xizmat arizalari)
         # Eski database bilan mos kelishi uchun cancellation_note maydonini ixtiyoriy qildik
+        time_condition_staff = _get_time_condition(time_period, "s.created_at")
         staff_rows = await conn.fetch(
-            """
+            f"""
             SELECT 
                 s.id,
                 s.application_number,
@@ -82,6 +110,7 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
             LEFT JOIN users controller_user ON controller_user.id = c.sender_id AND controller_user.role = 'controller'
             WHERE COALESCE(s.is_active, TRUE) = TRUE
               AND s.type_of_zayavka = 'technician'
+              AND {time_condition_staff}
             ORDER BY s.created_at DESC
             """
         )
@@ -100,18 +129,22 @@ async def get_controller_orders_for_export() -> List[Dict[str, Any]]:
     finally:
         await conn.close()
 
-async def get_controller_statistics_for_export() -> Dict[str, Any]:
+async def get_controller_statistics_for_export(time_period: str = "total") -> Dict[str, Any]:
     """
     Controller uchun statistika export.
+    time_period: 'today', 'week', 'month', 'total'
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         # 1. Asosiy statistika
         stats = {}
         
+        # Time filter WHERE condition
+        time_condition = _get_time_condition(time_period, "created_at")
+        
         # 2. Umumiy texnik arizalar statistikasi
         general_stats = await conn.fetchrow(
-            """
+            f"""
             SELECT 
                 COUNT(*) as total_orders,
                 COUNT(CASE WHEN status = 'in_controller' THEN 1 END) as in_controller,
@@ -127,6 +160,7 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
                 COUNT(DISTINCT region) as unique_problem_types
             FROM technician_orders
             WHERE COALESCE(is_active, TRUE) = TRUE
+                AND {time_condition}
             """
         )
         
@@ -135,7 +169,6 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
         if general_stats['total_orders'] > 0:
             completion_rate = round((general_stats['completed'] / general_stats['total_orders']) * 100, 1)
         
-        # Create summary structure expected by the handler
         stats['summary'] = {
             'total_requests': general_stats['total_orders'] or 0,
             'new_requests': general_stats['in_controller'] or 0,
@@ -146,41 +179,56 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
             'unique_problem_types': general_stats['unique_problem_types'] or 0
         }
         
-        # 3. Oylik texnik ariza statistikasi (oxirgi 6 oy)
-        stats['monthly_trends'] = await conn.fetch(
-            """
-            SELECT 
-                TO_CHAR(created_at, 'YYYY-MM') as month,
-                COUNT(*) as total_requests,
-                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_requests,
-                COUNT(CASE WHEN status = 'in_controller' THEN 1 END) as new_requests
-            FROM technician_orders
-            WHERE COALESCE(is_active, TRUE) = TRUE
-              AND created_at >= NOW() - INTERVAL '6 months'
-            GROUP BY TO_CHAR(created_at, 'YYYY-MM')
-            ORDER BY month DESC
-            """
-        )
+        if time_period in ["total", "month"]:
+            stats['monthly_trends'] = await conn.fetch(
+                f"""
+                SELECT 
+                    TO_CHAR(created_at, 'YYYY-MM') as month,
+                    COUNT(*) as total_requests,
+                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_requests,
+                    COUNT(CASE WHEN status = 'in_controller' THEN 1 END) as new_requests
+                FROM technician_orders
+                WHERE COALESCE(is_active, TRUE) = TRUE
+                  AND {time_condition}
+                GROUP BY TO_CHAR(created_at, 'YYYY-MM')
+                ORDER BY month DESC
+                """
+            )
+        else:
+            stats['monthly_trends'] = []
         
         # 4. Technicianlar bo'yicha statistika
+        # Use connections table to find orders assigned to technicians
+        time_condition_for_tech = _get_time_condition(time_period, "tech_orders.created_at")
         stats['by_technician'] = await conn.fetch(
-            """
+            f"""
+            WITH last_assign AS (
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
+                       c.recipient_id as technician_id
+                FROM connections c
+                WHERE c.application_number IS NOT NULL
+                  AND c.recipient_id IN (SELECT id FROM users WHERE role = 'technician')
+                ORDER BY c.application_number, c.created_at DESC
+            )
             SELECT 
                 u.full_name as technician_name,
                 u.phone as technician_phone,
-                COUNT(tech_orders.id) as total_orders,
-                COUNT(CASE WHEN tech_orders.status = 'completed' THEN 1 END) as completed_orders,
-                COUNT(CASE WHEN tech_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work') THEN 1 END) as in_progress_orders,
+                COUNT(DISTINCT tech_orders.id) as total_orders,
+                COUNT(DISTINCT CASE WHEN tech_orders.status = 'completed' THEN tech_orders.id END) as completed_orders,
+                COUNT(DISTINCT CASE WHEN tech_orders.status IN ('between_controller_technician', 'in_technician', 'in_technician_work') THEN tech_orders.id END) as in_progress_orders,
                 COUNT(DISTINCT tech_orders.user_id) as unique_clients
             FROM users u
-            LEFT JOIN technician_orders tech_orders ON tech_orders.user_id = u.id AND COALESCE(tech_orders.is_active, TRUE) = TRUE
+            LEFT JOIN last_assign la ON la.technician_id = u.id
+            LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = la.application_number
+                AND COALESCE(tech_orders.is_active, TRUE) = TRUE
+                AND {time_condition_for_tech}
             WHERE u.role = 'technician'
             GROUP BY u.id, u.full_name, u.phone
             ORDER BY total_orders DESC
             """
         )
         
-        # 5. Tarif rejalari bo'yicha statistika
         stats['by_tariff'] = await conn.fetch(
             """
             SELECT 
@@ -195,7 +243,6 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
             """
         )
         
-        # 6. So'ngi 30 kun ichidagi faol technicianlar
         stats['recent_activity'] = await conn.fetch(
             """
             SELECT 
@@ -214,7 +261,6 @@ async def get_controller_statistics_for_export() -> Dict[str, Any]:
             """
         )
         
-        # Summary qo'shish (bu qism allaqachon yuqorida qo'shilgan)
         
         return stats
     finally:
@@ -226,10 +272,9 @@ async def get_controller_employees_for_export() -> List[Dict[str, Any]]:
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # First get all controller and technician users
         users = await conn.fetch(
             """
-            SELECT 
+            SELECT DISTINCT ON (u.id)
                 u.id,
                 u.full_name,
                 u.phone,
@@ -240,13 +285,23 @@ async def get_controller_employees_for_export() -> List[Dict[str, Any]]:
                 u.created_at
             FROM users u
             WHERE u.role IN ('controller', 'technician')
-            ORDER BY u.role, u.full_name
+            ORDER BY u.id, u.role, u.full_name
             """
         )
         
         # Then get order counts for each user
         result = []
+        seen_ids = set()  # Additional safety check
+        
         for user in users:
+            user_id = user['id']
+            
+            # Skip if we've already processed this user
+            if user_id in seen_ids:
+                logger.warning(f"Duplicate user detected: {user_id} - {user['full_name']}")
+                continue
+            
+            seen_ids.add(user_id)
             user_dict = dict(user)
             
             # Get order counts for this user
@@ -258,7 +313,7 @@ async def get_controller_employees_for_export() -> List[Dict[str, Any]]:
                 FROM staff_orders 
                 WHERE user_id = $1 AND COALESCE(is_active, TRUE) = TRUE
                 """,
-                user['id']
+                user_id
             )
             
             user_dict['total_orders'] = order_stats['total_orders'] if order_stats else 0

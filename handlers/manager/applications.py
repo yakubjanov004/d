@@ -96,6 +96,22 @@ T = {
     "created":        {"uz": "🗓 <b>Yaratilgan:</b>",            "ru": "🗓 <b>Создано:</b>"},
     "updated":        {"uz": "🗓 <b>Yangilangan:</b>",           "ru": "🗓 <b>Обновлено:</b>"},
     "item_idx":       {"uz": "📄 <b>Ariza:</b>",                 "ru": "📄 <b>Заявка:</b>"},
+    # Additional labels
+    "type_label":     {"uz": "📋 <b>Turi:</b>",                 "ru": "📋 <b>Тип:</b>"},
+    "source_label":   {"uz": "👤 <b>Manbai:</b>",                "ru": "👤 <b>Источник:</b>"},
+    "total_label":    {"uz": "📈 <b>Umumiy:</b>",                "ru": "📈 <b>Итого:</b>"},
+    "total_time":     {"uz": "• Umumiy vaqt:",                   "ru": "• Общее время:"},
+    # Order types
+    "order_type_connection": {"uz": "🔌 Ulanish arizasi",       "ru": "🔌 Заявка на подключение"},
+    "order_type_technician": {"uz": "🛠️ Texnik xizmat arizasi", "ru": "🛠️ Техническая заявка"},
+    "order_type_default":   {"uz": "📋 Ariza",                  "ru": "📋 Заявка"},
+    # Source types
+    "source_client": {"uz": "👤 Mijoz",                         "ru": "👤 Клиент"},
+    "source_staff":  {"uz": "👨‍💼 Xodim",                         "ru": "👨‍💼 Сотрудник"},
+    # Error messages
+    "tariff_not_selected": {"uz": "❌ Tarif tanlanmagan",        "ru": "❌ Тариф не выбран"},
+    "phone_not_entered":   {"uz": "❌ Telefon kiritilmagan",    "ru": "❌ Телефон не введён"},
+    "client_name_not_entered": {"uz": "❌ Mijoz nomi kiritilmagan", "ru": "❌ Имя клиента не введено"},
 
     # Misc
     "closed":         {"uz": "Yopildi",                          "ru": "Закрыто"},
@@ -300,23 +316,23 @@ def _item_card(lang: str, item: dict, index: int, total: int) -> str:
     # Ariza turini ko'rsatamiz
     order_type = item.get("type_of_zayavka", "")
     if order_type == "connection":
-        type_text = "🔌 Ulanish arizasi"
+        type_text = t(lang, "order_type_connection")
     elif order_type == "technician":
-        type_text = "🛠️ Texnik xizmat arizasi"
+        type_text = t(lang, "order_type_technician")
     else:
-        type_text = "📋 Ariza"
+        type_text = t(lang, "order_type_default")
     
     # Ariza manbaini ko'rsatamiz
-    source_text = "👤 Mijoz" if order_source == "client" else "👨‍💼 Xodim"
+    source_text = t(lang, "source_client") if order_source == "client" else t(lang, "source_staff")
     
     # Tarif uchun maxsus ko'rinish
-    tariff_display = tariff if tariff != "N/A" else "❌ Tarif tanlanmagan"
+    tariff_display = tariff if tariff != "N/A" else t(lang, "tariff_not_selected")
     
     # Telefon uchun maxsus ko'rinish
-    phone_display = client_phone if client_phone != "N/A" else "❌ Telefon kiritilmagan"
+    phone_display = client_phone if client_phone != "N/A" else t(lang, "phone_not_entered")
     
     # Mijoz nomi uchun maxsus ko'rinish
-    client_display = client_name if client_name != "N/A" else "❌ Mijoz nomi kiritilmagan"
+    client_display = client_name if client_name != "N/A" else t(lang, "client_name_not_entered")
     
     # Umumiy vaqt hisoblash
     total_duration = _fmt_duration(item.get("created_at"), lang)
@@ -324,17 +340,17 @@ def _item_card(lang: str, item: dict, index: int, total: int) -> str:
     return (
         f"{t(lang,'card_title')}\n\n"
         f"🪪 <b>ID:</b> {app_number}\n"
-        f"📋 <b>Turi:</b> {type_text}\n"
-        f"👤 <b>Manbai:</b> {source_text}\n"
-        f"📊 <b>Status:</b> {status_txt}\n"
-        f"👤 <b>Mijoz:</b> {client_display}\n"
-        f"📞 <b>Telefon:</b> {phone_display}\n"
-        f"🕘 <b>Yaratilgan:</b> {created_at}\n"
-        f"📍 <b>Manzil:</b> {address}\n"
-        f"📊 <b>Tarif:</b> {tariff_display}\n\n"
-        f"📈 <b>Umumiy:</b>\n"
-        f"• Umumiy vaqt: {total_duration}\n"
-        f"📄 <b>Ariza:</b> {index + 1}/{total}"
+        f"{t(lang,'type_label')} {type_text}\n"
+        f"{t(lang,'source_label')} {source_text}\n"
+        f"{t(lang,'status')} {status_txt}\n"
+        f"{t(lang,'client')} {client_display}\n"
+        f"{t(lang,'phone')} {phone_display}\n"
+        f"{t(lang,'created')} {created_at}\n"
+        f"{t(lang,'address')} {address}\n"
+        f"{t(lang,'tariff')} {tariff_display}\n\n"
+        f"{t(lang,'total_label')}\n"
+        f"{t(lang,'total_time')} {total_duration}\n"
+        f"{t(lang,'item_idx')} {index + 1}/{total}"
     )
 
 async def _load_stats(user_id: int):

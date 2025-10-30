@@ -126,6 +126,26 @@ def get_manager_export_types_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
         ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+def get_manager_time_period_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
+    """Time period selection keyboard for manager exports"""
+    if lang == "uz":
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Bugun", callback_data="manager_time_today")],
+            [InlineKeyboardButton(text="📅 Hafta", callback_data="manager_time_week")],
+            [InlineKeyboardButton(text="📅 Oy", callback_data="manager_time_month")],
+            [InlineKeyboardButton(text="📅 Jami", callback_data="manager_time_total")],
+            [InlineKeyboardButton(text="◀️ Orqaga", callback_data="manager_export_back_types")]
+        ]
+    else:
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Сегодня", callback_data="manager_time_today")],
+            [InlineKeyboardButton(text="📅 Неделя", callback_data="manager_time_week")],
+            [InlineKeyboardButton(text="📅 Месяц", callback_data="manager_time_month")],
+            [InlineKeyboardButton(text="📅 Всего", callback_data="manager_time_total")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="manager_export_back_types")]
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 def get_manager_export_formats_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
     """Manager export formats selection keyboard"""
     if lang == "uz":

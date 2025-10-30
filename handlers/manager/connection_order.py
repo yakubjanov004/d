@@ -206,8 +206,8 @@ def back_to_phone_kb(lang: str) -> InlineKeyboardMarkup:
 
 # ======================= ENTRY (reply buttons) =======================
 ENTRY_TEXTS_CONN = [
-    "🔌 Ulanish arizasi yaratish",  # UZ tugma
-    "🔌 Создать заявку",            # RU tugma
+    "🔌 Ulanish arizasi yaratish",          # UZ tugma
+    "🔌 Создать заявку на подключение",     # RU tugma (keyboard bilan mos)
 ]
 
 # ======================= ENTRY (reply buttons) =======================

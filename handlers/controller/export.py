@@ -2,7 +2,11 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from filters.role_filter import RoleFilter
-from keyboards.controllers_buttons import get_controller_export_types_keyboard, get_controller_export_formats_keyboard
+from keyboards.controllers_buttons import (
+    get_controller_export_types_keyboard, 
+    get_controller_export_formats_keyboard,
+    get_controller_time_period_keyboard
+)
 from database.controller.export import (
     get_controller_orders_for_export,
     get_controller_statistics_for_export,
@@ -11,7 +15,7 @@ from database.controller.export import (
 from utils.export_utils import ExportUtils
 from utils.universal_error_logger import get_universal_logger, log_error
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = Router()
 router.message.filter(RoleFilter(role="controller"))
@@ -35,13 +39,15 @@ async def export_handler(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "controller_export_tech_requests")
 async def export_tech_requests_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle tech requests export selection"""
+    """Handle tech requests export selection - show time period selection"""
     try:
         await state.update_data(export_type="tech_requests")
-        keyboard = get_controller_export_formats_keyboard()
+        from database.basic.language import get_user_language
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_controller_time_period_keyboard(lang)
         await callback.message.edit_text(
             "📋 <b>Texnik arizalar ro'yxati</b>\n\n"
-            "Export formatini tanlang:",
+            "Qaysi davr uchun export qilasiz?",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -54,13 +60,15 @@ async def export_tech_requests_handler(callback: CallbackQuery, state: FSMContex
 
 @router.callback_query(F.data == "controller_export_statistics")
 async def export_statistics_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle statistics export selection"""
+    """Handle statistics export selection - show time period selection"""
     try:
         await state.update_data(export_type="statistics")
-        keyboard = get_controller_export_formats_keyboard()
+        from database.basic.language import get_user_language
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_controller_time_period_keyboard(lang)
         await callback.message.edit_text(
             "📊 <b>Statistika hisoboti</b>\n\n"
-            "Export formatini tanlang:",
+            "Qaysi davr uchun export qilasiz?",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -71,12 +79,15 @@ async def export_statistics_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "controller_export_employees")
 async def export_employees_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle employees export selection"""
+    """Handle employees export selection - show format selection directly"""
     try:
         await state.update_data(export_type="employees")
-        keyboard = get_controller_export_formats_keyboard()
+        from database.basic.language import get_user_language
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        keyboard = get_controller_export_formats_keyboard(lang)
         await callback.message.edit_text(
             "👥 <b>Xodimlar ro'yxati</b>\n\n"
+            "Barcha xodimlar (Controllerlar va Texniklar) export qilinadi.\n\n"
             "Export formatini tanlang:",
             reply_markup=keyboard,
             parse_mode="HTML"
@@ -86,6 +97,61 @@ async def export_employees_handler(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Export employees handler error: {e}")
         await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
 
+@router.callback_query(F.data.startswith("controller_time_"))
+async def export_time_period_handler(callback: CallbackQuery, state: FSMContext):
+    """Handle time period selection - show format selection"""
+    try:
+        time_period = callback.data.replace("controller_time_", "")  # today, week, month, total
+        await state.update_data(time_period=time_period)
+        
+        from database.basic.language import get_user_language
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        
+        # Get period text
+        period_texts = {
+            "today": ("Bugungi hisobot", "Отчёт за сегодня"),
+            "week": ("Haftalik hisobot (Dushanba - {today})", "Недельный отчёт (Понедельник - {today})"),
+            "month": ("Oylik hisobot", "Месячный отчёт"),
+            "total": ("Jami hisobot", "Общий отчёт")
+        }
+        
+        export_type = (await state.get_data()).get("export_type", "tech_requests")
+        
+        # Calculate period text
+        if time_period == "week":
+            today = datetime.now().strftime("%d.%m.%Y")
+            period_text = period_texts["week"][0].format(today=today) if lang == "uz" else period_texts["week"][1].format(today=today)
+        else:
+            period_text = period_texts[time_period][0] if lang == "uz" else period_texts[time_period][1]
+        
+        keyboard = get_controller_export_formats_keyboard(lang)
+        
+        title_text = {
+            "tech_requests": ("Texnik arizalar ro'yxati", "Список технических заявок"),
+            "statistics": ("Statistika hisoboti", "Статистический отчёт")
+        }.get(export_type, ("Export", "Экспорт"))
+        
+        title = title_text[0] if lang == "uz" else title_text[1]
+        
+        await callback.message.edit_text(
+            f"{get_emoji(export_type)} <b>{title}</b>\n\n"
+            f"📅 Davr: <i>{period_text}</i>\n\n"
+            f"Export formatini tanlang:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Export time period handler error: {e}")
+        await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
+
+def get_emoji(export_type: str) -> str:
+    """Get emoji for export type"""
+    return {
+        "tech_requests": "📋",
+        "statistics": "📊",
+        "employees": "👥"
+    }.get(export_type, "📤")
 
 @router.callback_query(F.data.startswith("controller_format_"))
 async def export_format_handler(callback: CallbackQuery, state: FSMContext):
@@ -94,10 +160,11 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         format_type = callback.data.split("_")[-1]  # csv, xlsx, docx, pdf
         data = await state.get_data()
         export_type = data.get("export_type", "tech_requests")
+        time_period = data.get("time_period", "total")  # today, week, month, total
         
-        # Get data based on export type
+        # Get data based on export type and time period
         if export_type == "tech_requests":
-            orders_data = await get_controller_orders_for_export()
+            orders_data = await get_controller_orders_for_export(time_period)
             title = "Texnik arizalar ro'yxati"
             filename_base = "texnik_arizalar"
             headers = [
@@ -139,7 +206,7 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             ]
             
         elif export_type == "statistics":
-            stats = await get_controller_statistics_for_export()
+            stats = await get_controller_statistics_for_export(time_period)
 
             if not stats or 'summary' not in stats:
                 logger.error("Failed to get statistics for export or summary is missing.")
@@ -223,6 +290,10 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             
         elif export_type == "employees":
             employees = await get_controller_employees_for_export()
+            
+            # Debug: log employees count
+            logger.info(f"Employees from DB: {len(employees)}")
+            
             title = "Xodimlar ro'yxati"
             filename_base = "xodimlar"
             headers = [
@@ -230,7 +301,16 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                 "Qo'shilgan sana"
             ]
             
-            # Convert the list of dicts to the format expected by the export functions
+            seen_ids = set()
+            unique_employees = []
+            for emp in employees:
+                emp_id = emp.get("id")
+                if emp_id and emp_id not in seen_ids:
+                    seen_ids.add(emp_id)
+                    unique_employees.append(emp)
+            
+            logger.info(f"Unique employees after filtering: {len(unique_employees)}")
+            
             raw_data = [
                 [
                     emp.get("full_name", ""),
@@ -238,8 +318,10 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                     emp.get("role", ""),
                     emp.get("created_at", "").strftime('%Y-%m-%d') if emp.get("created_at") else ""
                 ]
-                for emp in employees
+                for emp in unique_employees
             ]
+            
+            logger.info(f"Raw data rows: {len(raw_data)}")
             
         elif export_type == "reports":
             raw_data = await get_controller_reports_for_export()
@@ -273,12 +355,34 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
             logger.error(f"Error generating {format_type.upper()} file: {str(e)}", exc_info=True)
             raise ValueError(f"{format_type.upper()} faylini yaratishda xatolik: {str(e)}")
         
+        # Format caption with time period (if applicable)
+        from database.basic.language import get_user_language
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        
+        # Build caption
+        if export_type == "employees":
+            caption = f"📤 {title}\n" \
+                     f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n" \
+                     f"✅ Muvaffaqiyatli yuklab olindi!"
+        else:
+            period_texts = {
+                "today": ("Bugun", "Сегодня"),
+                "week": ("Hafta (Dushanba - hozirgi)", "Неделя (Понедельник - сейчас)"),
+                "month": ("Oy", "Месяц"),
+                "total": ("Jami", "Всего")
+            }
+            
+            period_text = period_texts.get(time_period, ("Jami", "Всего"))[0] if lang == "uz" else period_texts.get(time_period, ("Jami", "Всего"))[1]
+            
+            caption = f"📤 {title}\n" \
+                     f"📅 Davr: {period_text}\n" \
+                     f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n" \
+                     f"✅ Muvaffaqiyatli yuklab olindi!"
+        
         # Send the file
         await callback.message.answer_document(
             document=file,
-            caption=f"📤 {title}\n"
-                   f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                   f"✅ Muvaffaqiyatli yuklab olindi!"
+            caption=caption
         )
         
         # Remove the inline keyboard
@@ -300,18 +404,76 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "controller_export_back_types")
 async def export_back_to_types_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle back to export types"""
+    """Handle back - go to time period selection or initial export types"""
     try:
-        keyboard = get_controller_export_types_keyboard()
-        await callback.message.edit_text(
-            "📊 <b>Kontrollerlar uchun hisobotlar</b>\n\n"
-            "Quyidagi hisobot turlaridan birini tanlang:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-        await callback.answer()
+        data = await state.get_data()
+        export_type = data.get("export_type")
+        time_period = data.get("time_period")
+        
+        # If we're coming from format selection (time_period is set) and it's not employees,
+        # go back to time period selection
+        if time_period and export_type and export_type != "employees":
+            # Remove time_period from state to allow re-selection
+            await state.update_data(time_period=None)
+            
+            from database.basic.language import get_user_language
+            lang = await get_user_language(callback.from_user.id) or "uz"
+            keyboard = get_controller_time_period_keyboard(lang)
+            
+            title_text = {
+                "tech_requests": ("Texnik arizalar ro'yxati", "Список технических заявок"),
+                "statistics": ("Statistika hisoboti", "Статистический отчёт")
+            }.get(export_type, ("Export", "Экспорт"))
+            
+            title = title_text[0] if lang == "uz" else title_text[1]
+            emoji = get_emoji(export_type)
+            
+            edited = False
+            try:
+                await callback.message.edit_text(
+                    f"{emoji} <b>{title}</b>\n\n"
+                    f"Qaysi davr uchun export qilasiz?",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                edited = True
+            except Exception as edit_error:
+                if "message is not modified" in str(edit_error):
+                    pass
+                else:
+                    raise edit_error
+            
+            if not edited:
+                await callback.answer("✅", show_alert=False)
+            else:
+                await callback.answer()
+        else:
+            # Go back to initial export types screen
+            # Clear state to reset the flow
+            await state.clear()
+            
+            keyboard = get_controller_export_types_keyboard()
+            edited = False
+            try:
+                await callback.message.edit_text(
+                    "📊 <b>Kontrollerlar uchun hisobotlar</b>\n\n"
+                    "Quyidagi hisobot turlaridan birini tanlang:",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                edited = True
+            except Exception as edit_error:
+                if "message is not modified" in str(edit_error):
+                    pass
+                else:
+                    raise edit_error
+            
+            if not edited:
+                await callback.answer("✅", show_alert=False)
+            else:
+                await callback.answer()
     except Exception as e:
-        logger.error(f"Export back to types handler error: {e}")
+        logger.error(f"Export back handler error: {e}")
         await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
 
 @router.callback_query(F.data == "controller_export_end")
@@ -412,28 +574,24 @@ def _get_db_key_for_header(header: str) -> str:
 
 async def generate_excel(data: list, headers: list, title: str, filename: str) -> BufferedInputFile:
     """Generate Excel file from data"""
-    dict_data = _rows_to_dicts(data, headers)
+    logger.info(f"generate_excel called with {len(data)} rows of data for title: {title}")
+    
     if not data:
         # Handle empty data
         dict_data = []
-    elif isinstance(data[0], dict):
-        # Data is already in dictionary format (from database queries)
-        for row in data:
-            row_dict = {}
-            for header in headers:
-                # Map header to corresponding database column key
-                 row_dict[header] = row.get(_get_db_key_for_header(header), "")
-            dict_data.append(row_dict)
     else:
-        # Data is in list format (like statistics)
+        # Data is in list format - convert to dict format
+        dict_data = []
         for row in data:
             row_dict = {}
             for i, header in enumerate(headers):
                 if i < len(row):
-                    row_dict[header] = row[i]
+                    row_dict[header] = str(row[i]) if row[i] is not None else ""
                 else:
                     row_dict[header] = ""
             dict_data.append(row_dict)
+    
+    logger.info(f"Converted to dict_data with {len(dict_data)} rows")
     
     # Use ExportUtils to generate Excel
     output = ExportUtils.generate_excel(dict_data, title[:30], title)

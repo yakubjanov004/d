@@ -73,6 +73,7 @@ def map_region_code_to_id(region_code: str) -> int | None:
     """Region code dan region ID ga o'tkazish"""
     mapping = {
         'toshkent_city': 1,
+        'tashkent_city': 1,
         'toshkent_region': 2,
         'andijon': 3,
         'fergana': 4,
@@ -93,6 +94,7 @@ def region_display(lang: str, region_code: str) -> str:
     """Region code dan display name ga o'tkazish"""
     mapping = {
         'toshkent_city': {'uz': 'Toshkent shahri', 'ru': 'г. Ташкент'},
+        'tashkent_city': {'uz': 'Toshkent shahri', 'ru': 'г. Ташкент'},
         'toshkent_region': {'uz': 'Toshkent viloyati', 'ru': 'Ташкентская область'},
         'andijon': {'uz': 'Andijon', 'ru': 'Андижан'},
         'fergana': {'uz': 'Farg\'ona', 'ru': 'Фергана'},

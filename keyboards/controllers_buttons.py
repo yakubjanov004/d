@@ -41,6 +41,26 @@ def get_controller_export_types_keyboard(lang: str = 'uz') -> InlineKeyboardMark
         ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+def get_controller_time_period_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
+    """Time period selection keyboard for exports"""
+    if (lang or 'uz').lower().startswith('ru'):
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Сегодня", callback_data="controller_time_today")],
+            [InlineKeyboardButton(text="📅 Неделя", callback_data="controller_time_week")],
+            [InlineKeyboardButton(text="📅 Месяц", callback_data="controller_time_month")],
+            [InlineKeyboardButton(text="📅 Всего", callback_data="controller_time_total")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="controller_export_back_types")]
+        ]
+    else:
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Bugun", callback_data="controller_time_today")],
+            [InlineKeyboardButton(text="📅 Hafta", callback_data="controller_time_week")],
+            [InlineKeyboardButton(text="📅 Oy", callback_data="controller_time_month")],
+            [InlineKeyboardButton(text="📅 Jami", callback_data="controller_time_total")],
+            [InlineKeyboardButton(text="◀️ Orqaga", callback_data="controller_export_back_types")]
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 def get_controller_export_formats_keyboard(lang: str = 'uz') -> InlineKeyboardMarkup:
     if (lang or 'uz').lower().startswith('ru'):
         keyboard = [

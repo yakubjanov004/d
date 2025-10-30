@@ -730,15 +730,17 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
     """
     Xodimlar faoliyati - vaqt filtri bilan.
     time_filter: 'today', '3days', '7days', 'month', 'total'
+    Counts connection_orders and staff_orders where connection exists.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         # Vaqt filtri uchun WHERE sharti
+        # created - order yaratilgan vaqt
+        # assigned/sent - workflow orqali tayinlangan/yuborilgan vaqt (la.created_at)
         if time_filter == "total":
-            # Barcha vaqt uchun hech qanday shart qo'shmaslik
-            staff_time_condition = "TRUE"
-            conn_time_condition = "TRUE"
-            tech_time_condition = "TRUE"
+            time_condition_co = "TRUE"
+            time_condition_so = "TRUE"
+            time_condition_assign = "TRUE"  # Assignment vaqt filtri
         else:
             time_conditions = {
                 "today": "created_at >= CURRENT_DATE",
@@ -746,14 +748,34 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
                 "7days": "created_at >= CURRENT_DATE - INTERVAL '7 days'",
                 "month": "created_at >= CURRENT_DATE - INTERVAL '30 days'"
             }
-            time_condition = time_conditions.get(time_filter, "TRUE")
-            staff_time_condition = f"so.{time_condition}"
-            conn_time_condition = f"co.{time_condition}"
-            tech_time_condition = f"tech_orders.{time_condition}"
+            base_condition = time_conditions.get(time_filter, "TRUE")
+            # Table alias bilan to'liq shart
+            if base_condition == "TRUE":
+                time_condition_co = "TRUE"
+                time_condition_so = "TRUE"
+                time_condition_assign = "TRUE"
+            else:
+                # Created uchun - order yaratilgan vaqt
+                time_condition_co = f"co.{base_condition}"
+                time_condition_so = f"so.{base_condition}"
+                # Assigned/Sent uchun - assignment vaqti (la.created_at)
+                time_condition_assign = f"la.{base_condition}"
         
         rows = await conn.fetch(
             f"""
-            WITH             manager_connection_stats AS (
+            WITH last_assign AS (
+                SELECT DISTINCT ON (c.application_number)
+                       c.application_number,
+                       c.recipient_id,
+                       c.sender_id,
+                       c.recipient_status,
+                       c.sender_status,
+                       c.created_at
+                FROM connections c
+                WHERE c.application_number IS NOT NULL
+                ORDER BY c.application_number, c.created_at DESC
+            ),
+            manager_connection_stats AS (
                 SELECT
                     u.id,
                     u.full_name,
@@ -761,61 +783,42 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
                     u.role,
                     u.created_at,
                     -- Orders they created (as user_id) - Connection orders
-                    COUNT(DISTINCT CASE WHEN co.user_id = u.id THEN co.id END) as created_conn_orders,
-                    COUNT(DISTINCT CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as created_conn_active,
+                    COUNT(DISTINCT CASE WHEN co.user_id = u.id AND {time_condition_co} THEN co.id END) as created_conn_orders,
+                    COUNT(DISTINCT CASE WHEN co.user_id = u.id AND co.status NOT IN ('cancelled', 'completed') AND {time_condition_co} THEN co.id END) as created_conn_active,
                     -- Orders assigned to them through workflow (as recipient) - Connection orders
-                    COUNT(DISTINCT CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') THEN co.id END) as assigned_conn_orders,
-                    COUNT(DISTINCT CASE WHEN c.recipient_id = u.id AND c.recipient_status IN ('in_manager', 'in_junior_manager') AND co.status NOT IN ('cancelled', 'completed') THEN co.id END) as assigned_conn_active
+                    -- Time filter: la.created_at (assignment vaqti)
+                    COUNT(DISTINCT CASE WHEN la.recipient_id = u.id AND la.recipient_status IN ('in_manager', 'in_junior_manager') AND {time_condition_assign} THEN co.id END) as assigned_conn_orders,
+                    COUNT(DISTINCT CASE WHEN la.recipient_id = u.id AND la.recipient_status IN ('in_manager', 'in_junior_manager') AND co.status NOT IN ('cancelled', 'completed') AND {time_condition_assign} THEN co.id END) as assigned_conn_active,
+                    -- Orders they sent (as sender_id) - Connection orders
+                    -- Time filter: la.created_at (send vaqti)
+                    COUNT(DISTINCT CASE WHEN la.sender_id = u.id AND co.id IS NOT NULL AND {time_condition_assign} THEN co.id END) as sent_conn_orders,
+                    COUNT(DISTINCT CASE WHEN la.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') AND {time_condition_assign} THEN co.id END) as sent_conn_active
                 FROM users u
                 LEFT JOIN connection_orders co ON COALESCE(co.is_active, TRUE) = TRUE
-                    AND {conn_time_condition}
-                LEFT JOIN connections c ON c.application_number = co.application_number
-                    AND c.recipient_id = u.id 
-                    AND c.recipient_status IN ('in_manager', 'in_junior_manager')
+                LEFT JOIN last_assign la ON la.application_number = co.application_number
                 WHERE u.role IN ('junior_manager', 'manager')
+                  AND COALESCE(u.is_blocked, FALSE) = FALSE
                 GROUP BY u.id, u.full_name, u.phone, u.role, u.created_at
-            ),
-            manager_technician_stats AS (
-                SELECT
-                    u.id,
-                    -- Orders they created (as user_id) - Technician orders (only for managers)
-                    COUNT(CASE WHEN tech_orders.user_id = u.id THEN tech_orders.id END) as created_tech_orders,
-                    COUNT(CASE WHEN tech_orders.user_id = u.id AND tech_orders.status NOT IN ('cancelled', 'completed') THEN tech_orders.id END) as created_tech_active
-                FROM users u
-                LEFT JOIN technician_orders tech_orders ON COALESCE(tech_orders.is_active, TRUE) = TRUE
-                    AND {tech_time_condition}
-                WHERE u.role = 'manager'  -- Only managers create technician orders
-                GROUP BY u.id
             ),
             manager_staff_orders_stats AS (
                 SELECT
                     u.id,
                     -- Orders they created (as user_id) - Staff orders
-                    COUNT(CASE WHEN so.user_id = u.id THEN so.id END) as created_staff_orders,
-                    COUNT(CASE WHEN so.user_id = u.id AND so.status NOT IN ('cancelled', 'completed') THEN so.id END) as created_staff_active
+                    COUNT(DISTINCT CASE WHEN so.user_id = u.id AND {time_condition_so} THEN so.id END) as created_staff_orders,
+                    COUNT(DISTINCT CASE WHEN so.user_id = u.id AND so.status NOT IN ('cancelled', 'completed') AND {time_condition_so} THEN so.id END) as created_staff_active,
+                    -- Orders assigned to them through workflow (as recipient) - Staff orders
+                    -- Time filter: la.created_at (assignment vaqti)
+                    COUNT(DISTINCT CASE WHEN la.recipient_id = u.id AND la.recipient_status IN ('in_manager', 'in_junior_manager') AND {time_condition_assign} THEN so.id END) as assigned_staff_orders,
+                    COUNT(DISTINCT CASE WHEN la.recipient_id = u.id AND la.recipient_status IN ('in_manager', 'in_junior_manager') AND so.status NOT IN ('cancelled', 'completed') AND {time_condition_assign} THEN so.id END) as assigned_staff_active,
+                    -- Orders they sent (as sender_id) - Staff orders
+                    -- Time filter: la.created_at (send vaqti)
+                    COUNT(DISTINCT CASE WHEN la.sender_id = u.id AND so.id IS NOT NULL AND {time_condition_assign} THEN so.id END) as sent_staff_orders,
+                    COUNT(DISTINCT CASE WHEN la.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') AND {time_condition_assign} THEN so.id END) as sent_staff_active
                 FROM users u
                 LEFT JOIN staff_orders so ON COALESCE(so.is_active, TRUE) = TRUE
-                    AND {staff_time_condition}
+                LEFT JOIN last_assign la ON la.application_number = so.application_number
                 WHERE u.role IN ('junior_manager', 'manager')
-                GROUP BY u.id
-            ),
-            manager_sent_orders_stats AS (
-                SELECT
-                    u.id,
-                    -- Orders they sent (as sender_id) - Through connections table
-                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL THEN c.id END) as sent_conn_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND co.id IS NOT NULL AND co.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_conn_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL THEN c.id END) as sent_tech_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND tech_orders.id IS NOT NULL AND tech_orders.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_tech_active,
-                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL THEN c.id END) as sent_staff_orders,
-                    COUNT(CASE WHEN c.sender_id = u.id AND so.id IS NOT NULL AND so.status NOT IN ('cancelled', 'completed') THEN c.id END) as sent_staff_active
-                FROM users u
-                LEFT JOIN connections c ON c.sender_id = u.id
-                    AND {staff_time_condition.replace('so.', 'c.')}
-                LEFT JOIN connection_orders co ON co.application_number = c.application_number
-                LEFT JOIN technician_orders tech_orders ON tech_orders.application_number = c.application_number
-                LEFT JOIN staff_orders so ON so.application_number = c.application_number
-                WHERE u.role IN ('junior_manager', 'manager')
+                  AND COALESCE(u.is_blocked, FALSE) = FALSE
                 GROUP BY u.id
             )
             SELECT
@@ -824,29 +827,38 @@ async def fetch_staff_activity_with_time_filter(time_filter: str = "total") -> L
                 mcs.phone,
                 mcs.role,
                 mcs.created_at,
-                (COALESCE(mcs.created_conn_orders, 0) + COALESCE(mcs.assigned_conn_orders, 0) + 
-                 COALESCE(mts.created_tech_orders, 0) + COALESCE(msos.created_staff_orders, 0) +
-                 COALESCE(msent.sent_conn_orders, 0) + COALESCE(msent.sent_tech_orders, 0) + COALESCE(msent.sent_staff_orders, 0)) as total_orders,
-                (COALESCE(mcs.created_conn_orders, 0) + COALESCE(mcs.assigned_conn_orders, 0) + 
-                 COALESCE(msent.sent_conn_orders, 0)) as conn_count,
-                (COALESCE(mts.created_tech_orders, 0) + COALESCE(msent.sent_tech_orders, 0)) as tech_count,
-                (COALESCE(mcs.created_conn_active, 0) + COALESCE(mcs.assigned_conn_active, 0) + 
-                 COALESCE(mts.created_tech_active, 0) + COALESCE(msos.created_staff_active, 0) +
-                 COALESCE(msent.sent_conn_active, 0) + COALESCE(msent.sent_tech_active, 0) + COALESCE(msent.sent_staff_active, 0)) as active_count,
-                -- New detailed counts
+                -- Total orders: Manager uchun created+sent, Junior Manager uchun assigned+sent
+                CASE 
+                    WHEN mcs.role = 'junior_manager' THEN
+                        (COALESCE(mcs.assigned_conn_orders, 0) + COALESCE(mcs.sent_conn_orders, 0) +
+                         COALESCE(msos.assigned_staff_orders, 0) + COALESCE(msos.sent_staff_orders, 0))
+                    ELSE
+                        (COALESCE(mcs.created_conn_orders, 0) + COALESCE(mcs.sent_conn_orders, 0) +
+                         COALESCE(msos.created_staff_orders, 0) + COALESCE(msos.sent_staff_orders, 0))
+                END as total_orders,
+                -- Connection count: Manager uchun created+sent, Junior Manager uchun assigned+sent
+                CASE 
+                    WHEN mcs.role = 'junior_manager' THEN
+                        (COALESCE(mcs.assigned_conn_orders, 0) + COALESCE(mcs.sent_conn_orders, 0))
+                    ELSE
+                        (COALESCE(mcs.created_conn_orders, 0) + COALESCE(mcs.sent_conn_orders, 0))
+                END as conn_count,
+                -- Active count: barcha role lar uchun bir xil
+                (COALESCE(mcs.created_conn_active, 0) + COALESCE(mcs.assigned_conn_active, 0) + COALESCE(mcs.sent_conn_active, 0) +
+                 COALESCE(msos.created_staff_active, 0) + COALESCE(msos.assigned_staff_active, 0) + COALESCE(msos.sent_staff_active, 0)) as active_count,
+                -- Detailed counts (barcha role lar uchun saqlanadi)
                 COALESCE(mcs.assigned_conn_orders, 0) as assigned_conn_count,
                 COALESCE(mcs.created_conn_orders, 0) as created_conn_count,
-                COALESCE(mts.created_tech_orders, 0) as created_tech_count,
-                -- Staff orders they created
+                COALESCE(mcs.sent_conn_orders, 0) as sent_conn_count,
                 COALESCE(msos.created_staff_orders, 0) as created_staff_count,
-                -- Orders they sent
-                COALESCE(msent.sent_conn_orders, 0) as sent_conn_count,
-                COALESCE(msent.sent_tech_orders, 0) as sent_tech_count,
-                COALESCE(msent.sent_staff_orders, 0) as sent_staff_count
+                COALESCE(msos.assigned_staff_orders, 0) as assigned_staff_count,
+                COALESCE(msos.sent_staff_orders, 0) as sent_staff_count,
+                -- Tech counts (set to 0 for now)
+                0 as tech_count,
+                0 as created_tech_count,
+                0 as sent_tech_count
             FROM manager_connection_stats mcs
-            LEFT JOIN manager_technician_stats mts ON mts.id = mcs.id
             LEFT JOIN manager_staff_orders_stats msos ON msos.id = mcs.id
-            LEFT JOIN manager_sent_orders_stats msent ON msent.id = mcs.id
             ORDER BY total_orders DESC, mcs.full_name
             """
         )

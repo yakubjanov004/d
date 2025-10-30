@@ -108,15 +108,15 @@ def t(lang: str, key: str) -> str:
 def esc(x) -> str:
     return html.escape(x or "-", quote=False)
 
-# Region ko‘rsatkichlari
+# Region ko'rsatkichlari
 REGION_CODE_TO_ID = {
-    "toshkent_city": 1, "toshkent_region": 2, "andijon": 3, "fergana": 4, "namangan": 5,
+    "toshkent_city": 1, "tashkent_city": 1, "toshkent_region": 2, "andijon": 3, "fergana": 4, "namangan": 5,
     "sirdaryo": 6, "jizzax": 7, "samarkand": 8, "bukhara": 9, "navoi": 10,
     "kashkadarya": 11, "surkhandarya": 12, "khorezm": 13, "karakalpakstan": 14,
 }
 REGION_CODE_TO_NAME = {
-    "uz": {"toshkent_city":"Toshkent shahri","toshkent_region":"Toshkent viloyati","andijon":"Andijon","fergana":"Farg‘ona","namangan":"Namangan","sirdaryo":"Sirdaryo","jizzax":"Jizzax","samarkand":"Samarqand","bukhara":"Buxoro","navoi":"Navoiy","kashkadarya":"Qashqadaryo","surkhandarya":"Surxondaryo","khorezm":"Xorazm","karakalpakstan":"Qoraqalpog‘iston"},
-    "ru": {"toshkent_city":"г. Ташкент","toshkent_region":"Ташкентская область","andijon":"Андижан","fergana":"Фергана","namangan":"Наманган","sirdaryo":"Сырдарья","jizzax":"Джизак","samarkand":"Самарканд","bukhara":"Бухара","navoi":"Навои","kashkadarya":"Кашкадарья","surkhandarya":"Сурхандарья","khorezm":"Хорезм","karakalpakstan":"Каракалпакстан"},
+    "uz": {"toshkent_city":"Toshkent shahri","tashkent_city":"Toshkent shahri","toshkent_region":"Toshkent viloyati","andijon":"Andijon","fergana":"Farg'ona","namangan":"Namangan","sirdaryo":"Sirdaryo","jizzax":"Jizzax","samarkand":"Samarqand","bukhara":"Buxoro","navoi":"Navoiy","kashkadarya":"Qashqadaryo","surkhandarya":"Surxondaryo","khorezm":"Xorazm","karakalpakstan":"Qoraqalpog'iston"},
+    "ru": {"toshkent_city":"г. Ташкент","tashkent_city":"г. Ташкент","toshkent_region":"Ташкентская область","andijon":"Андижан","fergana":"Фергана","namangan":"Наманган","sirdaryo":"Сырдарья","jizzax":"Джизак","samarkand":"Самарканд","bukhara":"Бухара","navoi":"Навои","kashkadarya":"Кашкадарья","surkhandarya":"Сурхандарья","khorezm":"Хорезм","karakalpakstan":"Каракалпакстан"},
 }
 def region_display(lang: str, code: str | None) -> str:
     lang = normalize_lang(lang)

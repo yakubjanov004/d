@@ -410,9 +410,6 @@ async def build_assign_keyboard_tech_only(full_id: str, lang: str) -> InlineKeyb
     rows = []
     load_suffix = "ta" if lang == "uz" else ""
     
-    # CCS ga yuborish tugmasi (1ta CCS)
-    rows.append([InlineKeyboardButton(text="👔 CCS ga yuborish" if lang == "uz" else "👔 Отправить в CCS", 
-                                      callback_data=f"ctrl_inbox_to_ccs_{full_id}")])
     
     technicians = await get_technicians_with_load_via_history()
     if technicians:
@@ -812,6 +809,15 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
         await cb.answer(t(lang, "no_user"), show_alert=True)
         return
     
+    # Connection arizalari CCS ga yuborilmaydi!
+    if mode == "connection":
+        await cb.answer(
+            "❌ Ulanish arizalari faqat texnikka yuboriladi!" if lang == "uz" 
+            else "❌ Заявки на подключение отправляются только технику!",
+            show_alert=True
+        )
+        return
+    
     # 1ta CCS ni topish
     ccs_list = await get_ccs_supervisors_with_load()
     if not ccs_list:
@@ -830,7 +836,12 @@ async def assign_to_ccs_direct(cb: CallbackQuery, state: FSMContext):
         elif mode == "staff":
             result = await assign_to_ccs_staff(request_id=request_id, ccs_id=ccs_id, actor_id=user["id"])
         elif mode == "connection":
-            result = await assign_to_ccs_connection(request_id=request_id, ccs_id=ccs_id, actor_id=user["id"])
+            await cb.answer(
+                "❌ Ulanish arizalari CCS ga yuborilmaydi!" if lang == "uz"
+                else "❌ Заявки на подключение не отправляются в CCS!",
+                show_alert=True
+            )
+            return
         else:
             await cb.answer("❌ Noto'g'ri mode", show_alert=True)
             return

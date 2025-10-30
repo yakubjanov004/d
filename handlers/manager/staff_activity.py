@@ -49,6 +49,7 @@ T = {
     "tech_created": {"uz": "🔧 Texnik arizalar (yaratilgan)", "ru": "🔧 Технические заявки (созданные)"},
     "tech_sent": {"uz": "🔧 Texnik arizalar (yuborilgan)", "ru": "🔧 Технические заявки (отправленные)"},
     "staff_created": {"uz": "📋 Xodim arizalari (yaratilgan)", "ru": "📋 Служебные заявки (созданные)"},
+    "staff_assigned": {"uz": "📥 Xodim arizalari (tayinlangan)", "ru": "📥 Служебные заявки (назначенные)"},
     "staff_sent": {"uz": "📋 Xodim arizalari (yuborilgan)", "ru": "📋 Служебные заявки (отправленные)"},
     "active": {"uz": "⚡ Hozir ishlayotgan", "ru": "⚡ Сейчас в работе"},
     "role_manager": {"uz": "Menejer", "ru": "Менеджер"},
@@ -126,62 +127,74 @@ def _build_report(lang: str, items: list[dict], period: str = "total") -> str:
         name = it.get("full_name") or "—"
         role = _role_label(lang, it.get("role"))
         conn_c = it.get("conn_count", 0)
-        tech_c = it.get("tech_count", 0)
         active_c = it.get("active_count", 0)
         
-        # New detailed counts
-        assigned_conn = it.get("assigned_conn_count", 0)
-        created_conn = it.get("created_conn_count", 0)
-        created_tech = it.get("created_tech_count", 0)
-        created_staff = it.get("created_staff_count", 0)
+        # Role ga qarab ko'rsatish:
+        # Manager: yaratilgan + yuborilgan
+        # Junior Manager: tayinlangan (assigned) + yuborilgan
+        role_type = (it.get("role") or "").lower()
+        is_junior_manager = role_type == "junior_manager"
         
-        # Yuborilgan arizalar
+        # Detailed counts for connection orders
+        created_conn = it.get("created_conn_count", 0)
+        assigned_conn = it.get("assigned_conn_count", 0)
         sent_conn = it.get("sent_conn_count", 0)
-        sent_tech = it.get("sent_tech_count", 0)
+        
+        # Detailed counts for staff orders
+        created_staff = it.get("created_staff_count", 0)
+        assigned_staff = it.get("assigned_staff_count", 0)
         sent_staff = it.get("sent_staff_count", 0)
 
         # Ko'rinish:
-        # 1. 🥇 Ism Fam (Rol)
-        #    ├ Ulanish (tayinlangan): 5 ta
-        #    ├ Ulanish (yaratilgan): 2 ta
-        #    ├ Ulanish (yuborilgan): 1 ta
-        #    ├ Texnik (yaratilgan): 1 ta (faqat menejer uchun)
-        #    ├ Texnik (yuborilgan): 1 ta (faqat menejer uchun)
-        #    ├ Xodim (yaratilgan): 1 ta
-        #    ├ Xodim (yuborilgan): 1 ta
-        #    └ Aktiv: 3 ta
+        # Manager: yaratilgan + yuborilgan
+        # Junior Manager: tayinlangan + yuborilgan
         head = f"{i+1}. {_medal(i)} {name} ({role})"
         # birliklarni UZ: "ta" / RU: "шт."
         unit = "ta" if _norm_lang(lang) == "uz" else "шт."
         lines.append(head)
         
-        # Ulanish (tayinlangan)
-        if assigned_conn > 0:
-            lines.append(f"├ {_t(lang,'conn_assigned')}: {assigned_conn} {unit}")
-        
-        # Ulanish (yaratilgan)
-        if created_conn > 0:
-            lines.append(f"├ {_t(lang,'conn_created')}: {created_conn} {unit}")
-        
-        # Ulanish (yuborilgan)
-        if sent_conn > 0:
-            lines.append(f"├ {_t(lang,'conn_sent')}: {sent_conn} {unit}")
-        
-        # Texnik (yaratilgan) - faqat menejer uchun
-        if created_tech > 0 and it.get("role") == "manager":
-            lines.append(f"├ {_t(lang,'tech_created')}: {created_tech} {unit}")
-        
-        # Texnik (yuborilgan) - faqat menejer uchun
-        if sent_tech > 0 and it.get("role") == "manager":
-            lines.append(f"├ {_t(lang,'tech_sent')}: {sent_tech} {unit}")
-        
-        # Xodim (yaratilgan)
-        if created_staff > 0:
-            lines.append(f"├ {_t(lang,'staff_created')}: {created_staff} {unit}")
-        
-        # Xodim (yuborilgan)
-        if sent_staff > 0:
-            lines.append(f"├ {_t(lang,'staff_sent')}: {sent_staff} {unit}")
+        # Manager uchun: created + sent
+        # Junior Manager uchun: assigned + sent
+        if is_junior_manager:
+            # Junior Manager: assigned + sent
+            has_any = assigned_conn > 0 or sent_conn > 0 or assigned_staff > 0 or sent_staff > 0
+            
+            if has_any:
+                # Ulanish (tayinlangan)
+                if assigned_conn > 0:
+                    lines.append(f"├ {_t(lang,'conn_assigned')}: {assigned_conn} {unit}")
+                
+                # Ulanish (yuborilgan)
+                if sent_conn > 0:
+                    lines.append(f"├ {_t(lang,'conn_sent')}: {sent_conn} {unit}")
+                
+                # Xodim (tayinlangan)
+                if assigned_staff > 0:
+                    lines.append(f"├ {_t(lang,'staff_assigned')}: {assigned_staff} {unit}")
+                
+                # Xodim (yuborilgan)
+                if sent_staff > 0:
+                    lines.append(f"├ {_t(lang,'staff_sent')}: {sent_staff} {unit}")
+        else:
+            # Manager: created + sent
+            has_any = created_conn > 0 or sent_conn > 0 or created_staff > 0 or sent_staff > 0
+            
+            if has_any:
+                # Ulanish (yaratilgan)
+                if created_conn > 0:
+                    lines.append(f"├ {_t(lang,'conn_created')}: {created_conn} {unit}")
+                
+                # Ulanish (yuborilgan)
+                if sent_conn > 0:
+                    lines.append(f"├ {_t(lang,'conn_sent')}: {sent_conn} {unit}")
+                
+                # Xodim (yaratilgan)
+                if created_staff > 0:
+                    lines.append(f"├ {_t(lang,'staff_created')}: {created_staff} {unit}")
+                
+                # Xodim (yuborilgan)
+                if sent_staff > 0:
+                    lines.append(f"├ {_t(lang,'staff_sent')}: {sent_staff} {unit}")
         
         # Aktiv
         lines.append(f"└ {_t(lang,'active')}: {active_c} {unit}")

@@ -185,6 +185,11 @@ async def create_connection_order(user_id: int, region: str, address: str, tarif
 
 async def create_smart_service_order(order_data: dict) -> int:
     """Create a smart service order in smart_service_orders table."""
+    # Validatsiya: user_id bo'lmasligi kerak
+    user_id = order_data.get('user_id')
+    if not user_id or user_id == 0:
+        raise ValueError("user_id is required and cannot be NULL or 0")
+    
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         # Generate application number for smart service
@@ -212,7 +217,7 @@ async def create_smart_service_order(order_data: dict) -> int:
             RETURNING id
             """,
             application_number,
-            order_data['user_id'], 
+            user_id, 
             order_data['category'], 
             order_data['service_type'], 
             order_data['address'], 

@@ -32,7 +32,8 @@ async def fetch_smart_service_orders(limit: int = 50, offset: int = 0) -> List[D
                 u.phone,
                 u.username
             FROM smart_service_orders sso
-            JOIN users u ON u.id = sso.user_id
+            LEFT JOIN users u ON u.id = sso.user_id
+            WHERE sso.is_active = TRUE
             ORDER BY sso.created_at DESC
             LIMIT $1 OFFSET $2
             """,

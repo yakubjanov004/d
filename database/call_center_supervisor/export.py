@@ -7,6 +7,27 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+def _get_time_condition(time_period: str, column: str) -> str:
+    """
+    Get SQL WHERE condition for time period filtering.
+    time_period: 'today', 'week', 'month', 'total'
+    column: column name to filter on (e.g., 'created_at')
+    
+    For 'week': calculates from Monday to today
+    """
+    if time_period == "today":
+        return f"{column} >= CURRENT_DATE"
+    elif time_period == "week":
+        today = datetime.now()
+        days_since_monday = today.weekday() 
+        monday = today - timedelta(days=days_since_monday)
+        monday_date = monday.strftime("%Y-%m-%d")
+        return f"{column} >= '{monday_date}'"
+    elif time_period == "month":
+        return f"{column} >= CURRENT_DATE - INTERVAL '30 days'"
+    else:  # total
+        return "TRUE"
+
 async def get_ccs_connection_orders_for_export() -> List[Dict[str, Any]]:
     """Fetch connection orders handled by call center supervisors for export"""
     conn = await asyncpg.connect(settings.DB_URL)
@@ -52,11 +73,14 @@ async def get_ccs_connection_orders_for_export() -> List[Dict[str, Any]]:
     finally:
         await conn.close()
 
-async def get_ccs_operator_orders_for_export() -> List[Dict[str, Any]]:
-    """Fetch operator orders handled by call center supervisors for export"""
+async def get_ccs_operator_orders_for_export(time_period: str = "total") -> List[Dict[str, Any]]:
+    """Fetch operator orders handled by call center supervisors for export
+    time_period: 'today', 'week', 'month', 'total'
+    """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        query = """
+        time_condition = _get_time_condition(time_period, "so.created_at")
+        query = f"""
         SELECT 
             so.id,
             so.application_number,
@@ -72,6 +96,7 @@ async def get_ccs_operator_orders_for_export() -> List[Dict[str, Any]]:
         FROM staff_orders so
         LEFT JOIN users u ON so.user_id = u.id
         LEFT JOIN tarif t ON t.id = so.tarif_id
+        WHERE {time_condition}
         ORDER BY so.created_at DESC
         """
         
@@ -139,26 +164,30 @@ async def get_ccs_operators_for_export() -> List[Dict[str, Any]]:
     finally:
         await conn.close()
 
-async def get_ccs_statistics_for_export() -> List[Dict[str, Any]]:
-    """Fetch statistics for call center supervisors for export"""
+async def get_ccs_statistics_for_export(time_period: str = "total") -> List[Dict[str, Any]]:
+    """Fetch statistics for call center supervisors for export
+    time_period: 'today', 'week', 'month', 'total'
+    """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         # Get various statistics
         stats = {}
         
+        time_condition = _get_time_condition(time_period, "created_at")
+        
         # Total orders count
-        total_orders = await conn.fetchval("SELECT COUNT(*) FROM staff_orders")
+        total_orders = await conn.fetchval(f"SELECT COUNT(*) FROM staff_orders WHERE {time_condition}")
         stats['Jami arizalar'] = total_orders or 0
         
         # Active orders count
-        active_orders = await conn.fetchval("SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE")
+        active_orders = await conn.fetchval(f"SELECT COUNT(*) FROM staff_orders WHERE is_active = TRUE AND {time_condition}")
         stats['Aktiv arizalar'] = active_orders or 0
         
         # Orders by status
-        status_counts = await conn.fetch("""
+        status_counts = await conn.fetch(f"""
             SELECT status, COUNT(*) as count 
             FROM staff_orders 
-            WHERE is_active = TRUE 
+            WHERE is_active = TRUE AND {time_condition}
             GROUP BY status
         """)
         
@@ -166,10 +195,10 @@ async def get_ccs_statistics_for_export() -> List[Dict[str, Any]]:
             stats[f'Status: {row["status"]}'] = row['count']
         
         # Orders by type
-        type_counts = await conn.fetch("""
+        type_counts = await conn.fetch(f"""
             SELECT type_of_zayavka, COUNT(*) as count 
             FROM staff_orders 
-            WHERE is_active = TRUE 
+            WHERE is_active = TRUE AND {time_condition}
             GROUP BY type_of_zayavka
         """)
         
@@ -177,10 +206,11 @@ async def get_ccs_statistics_for_export() -> List[Dict[str, Any]]:
             stats[f'Tur: {row["type_of_zayavka"]}'] = row['count']
         
         # Recent orders (last 30 days)
-        recent_orders = await conn.fetchval("""
+        recent_condition = f"{time_condition} AND created_at >= NOW() - INTERVAL '30 days'"
+        recent_orders = await conn.fetchval(f"""
             SELECT COUNT(*) 
             FROM staff_orders 
-            WHERE created_at >= NOW() - INTERVAL '30 days'
+            WHERE {recent_condition}
         """)
         stats['Oxirgi 30 kun'] = recent_orders or 0
         

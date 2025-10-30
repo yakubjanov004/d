@@ -171,6 +171,26 @@ def get_ccs_export_types_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def get_ccs_time_period_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    """Time period selection keyboard for CCS exports"""
+    if lang == "uz":
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Bugun", callback_data="ccs_time_today")],
+            [InlineKeyboardButton(text="📅 Hafta", callback_data="ccs_time_week")],
+            [InlineKeyboardButton(text="📅 Oy", callback_data="ccs_time_month")],
+            [InlineKeyboardButton(text="📅 Jami", callback_data="ccs_time_total")],
+            [InlineKeyboardButton(text="◀️ Orqaga", callback_data="ccs_export_back_types")]
+        ]
+    else:
+        keyboard = [
+            [InlineKeyboardButton(text="📅 Сегодня", callback_data="ccs_time_today")],
+            [InlineKeyboardButton(text="📅 Неделя", callback_data="ccs_time_week")],
+            [InlineKeyboardButton(text="📅 Месяц", callback_data="ccs_time_month")],
+            [InlineKeyboardButton(text="📅 Всего", callback_data="ccs_time_total")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="ccs_export_back_types")]
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 def get_ccs_export_formats_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     """Call Center Supervisor export formats keyboard with language support"""
     if lang == "uz":

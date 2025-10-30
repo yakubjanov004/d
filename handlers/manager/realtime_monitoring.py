@@ -221,11 +221,15 @@ def _fmt_card(lang: str, rec: dict) -> str:
     )
 
 def _fmt_history(lang: str, title_name: str, application_number: str, steps: list, created_at, user_times: list = None) -> str:
+    """Format history message - clearer and more readable"""
     header = f"{t(lang,'hist_title', id=application_number)}\n\n" \
              f"{t(lang,'hist_client')} {html.escape(title_name, quote=False)}\n"
-    lines = [header, t(lang, "hist_steps")]
+    lines = [header]
+    
+    # Steps section with clearer formatting
+    lines.append(f"\n{t(lang, 'hist_steps')}")
     if not steps:
-        lines.append(f"\n{t(lang,'hist_no_steps')}")
+        lines.append(f"{t(lang,'hist_no_steps')}")
     else:
         for i, st in enumerate(steps, 1):
             start_s = _to_tz(st['start_at']).strftime("%H:%M") if st['start_at'] else "—"
@@ -243,27 +247,26 @@ def _fmt_history(lang: str, title_name: str, application_number: str, steps: lis
             
             description = html.escape(description, quote=False)
             
+            # Clearer formatting - matches the image style better
             lines.append(
-                f"\n<b>{i}.</b> {from_name} → {to_name}\n"
-                f"   📝 {description}\n"
-                f"   🗓 {start_s} → {end_s}\n"
-                f"   ⏱ {duration_str}"
+                f"\n<b>{from_name} → {to_name}:</b>\n"
+                f"   {description}\n"
+                f"   {start_s} → {end_s}\n"
+                f"   ⏱️ {duration_str}"
             )
     
-    # Add user times section
+    # User times section - clearer formatting
     if user_times:
-        lines.append(f"\n{t(lang,'hist_by_person')}")
+        lines.append(f"\n\n{t(lang,'hist_by_person')}")
         for i, ut in enumerate(user_times[:5], 1):  # Show top 5
             name = html.escape(ut.get('name', '—'), quote=False)
             duration_str = html.escape(ut.get('duration_str', '—'), quote=False)
             lines.append(f"{i}. <b>{name}</b> - {duration_str}")
-    else:
-        # No need to show if no data
-        pass
     
+    # Total time - clearer formatting
     now_local = datetime.now(TZ)
     total_dur = _human_duration(now_local - _to_tz(created_at), lang) if created_at else "—"
-    lines.append(f"\n{t(lang,'sum_total_time')} {total_dur}")
+    lines.append(f"\n• <b>{t(lang,'sum_total_time')}</b> {total_dur}")
     return "\n".join(lines)
 
 # ---- Safe edit helper (lang-aware toast) ----
@@ -371,8 +374,11 @@ async def rtm_show_history(cb: CallbackQuery, state: FSMContext):
     if not items:
         await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
     order = items[idx]
-    history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
+    app_number = order.get("application_number")
+    if not app_number:
+        await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
+    history = await get_workflow_history(application_number=app_number)
+    text = _fmt_history(lang, order.get("creator_name") or "—", app_number, history["steps"], order.get("created_at"), history.get("user_times", []))
     await state.update_data(view="history")
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
@@ -386,8 +392,11 @@ async def rtm_prev_hist(cb: CallbackQuery, state: FSMContext):
     idx = (int(data.get("idx", 0)) - 1) % len(items)
     await state.update_data(idx=idx, view="history")
     order = items[idx]
-    history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
+    app_number = order.get("application_number")
+    if not app_number:
+        await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
+    history = await get_workflow_history(application_number=app_number)
+    text = _fmt_history(lang, order.get("creator_name") or "—", app_number, history["steps"], order.get("created_at"), history.get("user_times", []))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_next_hist")
@@ -400,8 +409,11 @@ async def rtm_next_hist(cb: CallbackQuery, state: FSMContext):
     idx = (int(data.get("idx", 0)) + 1) % len(items)
     await state.update_data(idx=idx, view="history")
     order = items[idx]
-    history = await get_workflow_history(order_id=order["id"])
-    text = _fmt_history(lang, order.get("creator_name") or "—", order.get("application_number") or f"ID-{order['id']}", history["steps"], order.get("created_at"), history.get("user_times", []))
+    app_number = order.get("application_number")
+    if not app_number:
+        await cb.answer(t(lang, "no_data_toast"), show_alert=False); return
+    history = await get_workflow_history(application_number=app_number)
+    text = _fmt_history(lang, order.get("creator_name") or "—", app_number, history["steps"], order.get("created_at"), history.get("user_times", []))
     await _safe_edit(cb, lang, text, _kb_history(lang, idx, len(items)))
 
 @router.callback_query(RoleFilter("manager"), F.data == "rtm_back_card")

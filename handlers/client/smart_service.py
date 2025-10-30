@@ -782,8 +782,19 @@ async def finish_smart_service_order(callback_or_message, state: FSMContext):
             
         user = dict(ensured)
         
+        # Validatsiya: user_id bo'lishi shart
+        user_id = user.get('id')
+        if not user_id or user_id == 0:
+            error_msg = "❌ Foydalanuvchi ma'lumotlari topilmadi. Qaytadan urinib ko'ring." if user_lang == "uz" else "❌ Данные пользователя не найдены. Попробуйте еще раз."
+            if hasattr(callback_or_message, 'message'):
+                await callback_or_message.message.answer(error_msg)
+            else:
+                await callback_or_message.answer(error_msg)
+            await state.clear()
+            return
+        
         order_data = {
-            'user_id': user.get('id'),
+            'user_id': user_id,
             'category': map_category_key_to_db_value(data.get('selected_category'), user_lang),
             'service_type': map_service_key_to_db_value(data.get('selected_service_type'), user_lang),
             'address': data.get('address'),
@@ -792,7 +803,16 @@ async def finish_smart_service_order(callback_or_message, state: FSMContext):
             'is_active': True
         }
         
-        order_id = await create_smart_service_order(order_data)
+        try:
+            order_id = await create_smart_service_order(order_data)
+        except ValueError as e:
+            error_msg = "❌ Xatolik: Foydalanuvchi ma'lumotlari to'liq emas." if user_lang == "uz" else "❌ Ошибка: Данные пользователя неполные."
+            if hasattr(callback_or_message, 'message'):
+                await callback_or_message.message.answer(error_msg)
+            else:
+                await callback_or_message.answer(error_msg)
+            await state.clear()
+            return
 
         if order_id:
             conn = await asyncpg.connect(settings.DB_URL)

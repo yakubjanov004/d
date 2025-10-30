@@ -596,12 +596,12 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
             order_info += f"\n{_t(lang, 'order_sent_comment')}\n{_esc(jm_notes)}\n"
 
     # Remove the sent order from the list
-    items = [x for x in items if (x.get("connection_id") != order_id and x.get("staff_id") != order_id)]
+    items = [x for x in items if (x.get("order_id") != order_id and x.get("staff_order_id") != order_id and x.get("connection_id") != order_id and x.get("staff_id") != order_id)]
 
     if not items:
         await state.clear()
         await cb.message.edit_reply_markup(reply_markup=None)
-        return await cb.message.answer(f"{_t(lang,'send_ok')}{order_info}\n\n{_t(lang,'inbox_empty')}", parse_mode="HTML")
+        return  # xabar chiqarilmaydi, pastda faqat bitta marta chiqadi
 
     if idx >= len(items):
         idx = len(items) - 1

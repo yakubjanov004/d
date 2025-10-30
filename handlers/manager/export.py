@@ -1,7 +1,11 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
-from keyboards.manager_buttons import get_manager_export_types_keyboard, get_manager_export_formats_keyboard
+from keyboards.manager_buttons import (
+    get_manager_export_types_keyboard, 
+    get_manager_export_formats_keyboard,
+    get_manager_time_period_keyboard
+)
 from database.manager.export import (
     get_manager_connection_orders_for_export,
     get_manager_statistics_for_export,
@@ -45,16 +49,16 @@ async def export_handler(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "manager_export_orders")
 async def export_orders_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle orders export selection"""
+    """Handle orders export selection - show time period selection"""
     try:
         await state.update_data(export_type="orders")
         lang = await get_user_language(callback.from_user.id) or "uz"
-        keyboard = get_manager_export_formats_keyboard(lang)
+        keyboard = get_manager_time_period_keyboard(lang)
         
         if lang == "uz":
-            text = "📋 <b>Buyurtmalar ro'yxati</b>\n\nExport formatini tanlang:"
+            text = "📋 <b>Buyurtmalar ro'yxati</b>\n\nQaysi davr uchun export qilasiz?"
         else:
-            text = "📋 <b>Список заказов</b>\n\nВыберите формат экспорта:"
+            text = "📋 <b>Список заказов</b>\n\nЗа какой период экспортировать?"
             
         await callback.message.edit_text(
             text,
@@ -68,16 +72,16 @@ async def export_orders_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "manager_export_statistics")
 async def export_statistics_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle statistics export selection"""
+    """Handle statistics export selection - show time period selection"""
     try:
         await state.update_data(export_type="statistics")
         lang = await get_user_language(callback.from_user.id) or "uz"
-        keyboard = get_manager_export_formats_keyboard(lang)
+        keyboard = get_manager_time_period_keyboard(lang)
         
         if lang == "uz":
-            text = "📊 <b>Statistika hisoboti</b>\n\nExport formatini tanlang:"
+            text = "📊 <b>Statistika hisoboti</b>\n\nQaysi davr uchun export qilasiz?"
         else:
-            text = "📊 <b>Статистический отчет</b>\n\nВыберите формат экспорта:"
+            text = "📊 <b>Статистический отчет</b>\n\nЗа какой период экспортировать?"
             
         await callback.message.edit_text(
             text,
@@ -91,16 +95,16 @@ async def export_statistics_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "manager_export_employees")
 async def export_employees_handler(callback: CallbackQuery, state: FSMContext):
-    """Handle employees export selection"""
+    """Handle employees export selection - go directly to format selection"""
     try:
-        await state.update_data(export_type="employees")
+        await state.update_data(export_type="employees", time_period="total")
         lang = await get_user_language(callback.from_user.id) or "uz"
         keyboard = get_manager_export_formats_keyboard(lang)
         
         if lang == "uz":
-            text = "👥 <b>Xodimlar ro'yxati</b>\n\nExport formatini tanlang:"
+            text = "👥 <b>Xodimlar ro'yxati</b>\n\nBarcha xodimlar (Managerlar va Junior Managerlar) export qilinadi.\n\nExport formatini tanlang:"
         else:
-            text = "👥 <b>Список сотрудников</b>\n\nВыберите формат экспорта:"
+            text = "👥 <b>Список сотрудников</b>\n\nВсе сотрудники (Менеджеры и Младшие менеджеры) будут экспортированы.\n\nВыберите формат экспорта:"
             
         await callback.message.edit_text(
             text,
@@ -113,6 +117,60 @@ async def export_employees_handler(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
 
 
+@router.callback_query(F.data.startswith("manager_time_"))
+async def export_time_period_handler(callback: CallbackQuery, state: FSMContext):
+    """Handle time period selection - show format selection"""
+    try:
+        time_period = callback.data.replace("manager_time_", "")  # today, week, month, total
+        export_type = (await state.get_data()).get("export_type", "orders")
+        
+        # For employees, always use "total" regardless of selection
+        if export_type == "employees":
+            time_period = "total"
+        
+        await state.update_data(time_period=time_period)
+        
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        
+        # Get period text
+        period_texts = {
+            "today": ("Bugungi hisobot", "Отчёт за сегодня"),
+            "week": ("Haftalik hisobot (Dushanba - {today})", "Недельный отчёт (Понедельник - {today})"),
+            "month": ("Oylik hisobot", "Месячный отчёт"),
+            "total": ("Jami hisobot", "Общий отчёт")
+        }
+        
+        export_type = (await state.get_data()).get("export_type", "orders")
+        
+        # Calculate period text
+        if time_period == "week":
+            today = datetime.now().strftime("%d.%m.%Y")
+            period_text = period_texts["week"][0].format(today=today) if lang == "uz" else period_texts["week"][1].format(today=today)
+        else:
+            period_text = period_texts[time_period][0] if lang == "uz" else period_texts[time_period][1]
+        
+        keyboard = get_manager_export_formats_keyboard(lang)
+        
+        title_text = {
+            "orders": ("Buyurtmalar ro'yxati", "Список заказов"),
+            "statistics": ("Statistika hisoboti", "Статистический отчёт"),
+            "employees": ("Xodimlar ro'yxati", "Список сотрудников")
+        }.get(export_type, ("Export", "Экспорт"))
+        
+        title = title_text[0] if lang == "uz" else title_text[1]
+        emoji = {"orders": "📋", "statistics": "📊", "employees": "👥"}.get(export_type, "📤")
+        
+        await callback.message.edit_text(
+            f"{emoji} <b>{title}</b>\n\n"
+            f"📅 Davr: <i>{period_text}</i>\n\n"
+            f"Export formatini tanlang:" if lang == "uz" else f"Экспорт формата:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Export time period handler error: {e}")
+        await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
 
 @router.callback_query(F.data.startswith("manager_format_"))
 async def export_format_handler(callback: CallbackQuery, state: FSMContext):
@@ -121,11 +179,12 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         format_type = callback.data.split("_")[-1]  # csv, xlsx, docx, pdf
         data = await state.get_data()
         export_type = data.get("export_type", "orders")
+        time_period = data.get("time_period", "total")  # today, week, month, total
         lang = await get_user_language(callback.from_user.id) or "uz"
         
         # Get data based on export type
         if export_type == "orders":
-            raw_data = await get_manager_connection_orders_for_export()
+            raw_data = await get_manager_connection_orders_for_export(time_period)
             if lang == "uz":
                 title = "Buyurtmalar ro'yxati"
                 filename_base = "buyurtmalar"
@@ -136,7 +195,7 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
                 headers = ["ID", "Номер заказа", "Имя клиента", "Телефон", "ID клиента", "Регион", "Адрес", "Долгота", "Широта", "Тариф", "Изображение тарифа", "Дата подключения", "Дата обновления", "Статус", "Рейтинг", "Комментарии", "Комментарии JM", "Менеджер", "Телефон менеджера", "Номер акта", "Путь к файлу акта", "Акт создан", "Отправлено клиенту", "Рейтинг акта", "Комментарий акта"]
             
         elif export_type == "statistics":
-            stats = await get_manager_statistics_for_export()
+            stats = await get_manager_statistics_for_export(time_period)
             if lang == "uz":
                 title = "Statistika hisoboti"
                 filename_base = "statistika"
@@ -290,7 +349,19 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
         
         # Send the file
         try:
-            caption_text = f"📊 Eksport fayli - {export_type} ({format_type.upper()})" if lang == "uz" else f"📊 Файл экспорта - {export_type} ({format_type.upper()})"
+            # Format caption with time period (if applicable)
+            if export_type == "employees":
+                caption_text = f"📤 {title}\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n✅ Muvaffaqiyatli yuklab olindi!" if lang == "uz" else f"📤 {title}\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n✅ Успешно загружено!"
+            else:
+                period_texts = {
+                    "today": ("Bugun", "Сегодня"),
+                    "week": ("Hafta (Dushanba - hozirgi)", "Неделя (Понедельник - сейчас)"),
+                    "month": ("Oy", "Месяц"),
+                    "total": ("Jami", "Всего")
+                }
+                period_text = period_texts.get(time_period, ("Jami", "Всего"))[0] if lang == "uz" else period_texts.get(time_period, ("Jami", "Всего"))[1]
+                caption_text = f"📤 {title}\n📅 Davr: {period_text}\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n✅ Muvaffaqiyatli yuklab olindi!" if lang == "uz" else f"📤 {title}\n📅 Период: {period_text}\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}\n✅ Успешно загружено!"
+            
             await callback.message.answer_document(
                 document=file_to_send,
                 caption=caption_text,
@@ -315,19 +386,79 @@ async def export_format_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "manager_export_back_types")
 async def export_back_to_types_handler(callback: CallbackQuery, state: FSMContext):
-    """Go back to export types selection"""
+    """Handle back - go to time period selection or initial export types"""
     try:
-        await state.update_data(export_type=None)
-        keyboard = get_manager_export_types_keyboard()
-        await callback.message.edit_text(
-            "📊 <b>Menejerlar uchun hisobotlar</b>\n\n"
-            "Quyidagi hisobot turlaridan birini tanlang:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-        await callback.answer()
+        data = await state.get_data()
+        export_type = data.get("export_type")
+        time_period = data.get("time_period")
+        lang = await get_user_language(callback.from_user.id) or "uz"
+        
+        # If we're coming from format selection (time_period is set) and it's not employees,
+        # go back to time period selection
+        if time_period and export_type and export_type != "employees":
+            # Remove time_period from state to allow re-selection
+            await state.update_data(time_period=None)
+            
+            keyboard = get_manager_time_period_keyboard(lang)
+            
+            title_text = {
+                "orders": ("Buyurtmalar ro'yxati", "Список заказов"),
+                "statistics": ("Statistika hisoboti", "Статистический отчёт")
+            }.get(export_type, ("Export", "Экспорт"))
+            
+            title = title_text[0] if lang == "uz" else title_text[1]
+            emoji = {"orders": "📋", "statistics": "📊"}.get(export_type, "📤")
+            
+            edited = False
+            try:
+                await callback.message.edit_text(
+                    f"{emoji} <b>{title}</b>\n\n"
+                    f"Qaysi davr uchun export qilasiz?" if lang == "uz" else f"За какой период экспортировать?",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                edited = True
+            except Exception as edit_error:
+                if "message is not modified" in str(edit_error):
+                    pass
+                else:
+                    raise edit_error
+            
+            if not edited:
+                await callback.answer("✅", show_alert=False)
+            else:
+                await callback.answer()
+        else:
+            # Go back to initial export types screen
+            await state.clear()
+            lang = await get_user_language(callback.from_user.id) or "uz"
+            keyboard = get_manager_export_types_keyboard(lang)
+            
+            if lang == "uz":
+                text = "📊 <b>Menejerlar uchun hisobotlar</b>\n\nQuyidagi hisobot turlaridan birini tanlang:"
+            else:
+                text = "📊 <b>Отчеты для менеджеров</b>\n\nВыберите один из типов отчетов:"
+            
+            edited = False
+            try:
+                await callback.message.edit_text(
+                    text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                edited = True
+            except Exception as edit_error:
+                if "message is not modified" in str(edit_error):
+                    pass
+                else:
+                    raise edit_error
+            
+            if not edited:
+                await callback.answer("✅", show_alert=False)
+            else:
+                await callback.answer()
     except Exception as e:
-        logger.error(f"Export back to types handler error: {e}")
+        logger.error(f"Export back handler error: {e}")
         await callback.answer("❌ Xatolik yuz berdi", show_alert=True)
 
 @router.callback_query(F.data == "manager_export_end")
