@@ -13,7 +13,8 @@ async def staff_orders_create(
     region: int,
     address: str,
     tarif_id: Optional[int],
-    business_type: str = "B2C"
+    business_type: str = "B2C",
+    created_by_role: str = "callcenter_supervisor",
 ) -> str:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -31,12 +32,12 @@ async def staff_orders_create(
             """
             INSERT INTO staff_orders (
                 application_number, user_id, phone, abonent_id, region, address, tarif_id,
-                description, business_type, type_of_zayavka, status, is_active
+                description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, 'connection', 'in_controller', TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, 'connection', 'in_controller', TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
-            application_number, user_id, phone, abonent_id, region_str, address, tarif_id, business_type
+            application_number, user_id, phone, abonent_id, region_str, address, tarif_id, business_type, created_by_role
         )
         return row["application_number"]
     finally:
@@ -50,7 +51,8 @@ async def staff_orders_technician_create(
     address: str,
     description: Optional[str],
     media: Optional[str] = None,
-    business_type: str = "B2C"
+    business_type: str = "B2C",
+    created_by_role: str = "callcenter_supervisor",
 ) -> str:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -65,12 +67,12 @@ async def staff_orders_technician_create(
             """
             INSERT INTO staff_orders (
                 application_number, user_id, phone, abonent_id, region, address,
-                description, media, business_type, type_of_zayavka, status, is_active
+                description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'technician', 'in_controller', TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'technician', 'in_controller', TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
-            application_number, user_id, phone, abonent_id, region, address, description, media, business_type
+            application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
         )
         return row["application_number"]
     finally:

@@ -93,6 +93,7 @@ def _L(lang: str) -> dict:
             "assigned": "🔗 <b>Назначенные</b>",
             "wip": "⏳ <b>В работе</b>",
             "done": "✅ <b>Завершённые</b>",
+            "created": "📝 <b>Созданные мной</b>",
             "type_connection": "📦 connection",
             "ago_now": "только что",
             "ago_min": "{} минут назад",
@@ -106,6 +107,7 @@ def _L(lang: str) -> dict:
             "btn_assigned": "🔗 Назначенные",
             "btn_wip": "⏳ В работе",
             "btn_done": "✅ Завершённые",
+            "btn_created": "📝 Мои заявки",
         }
     return {
         "menu_title": "📋 <b>Arizalarni ko'rish</b>\nQuyidan bo'limni tanlang:",
@@ -114,6 +116,7 @@ def _L(lang: str) -> dict:
         "assigned": "🔗 <b>Biriktirilgan</b>",
         "wip": "⏳ <b>Jarayonda</b>",
         "done": "✅ <b>Tugatilgan</b>",
+        "created": "📝 <b>Yaratganlarim</b>",
         "type_connection": "📦 connection",
         "ago_now": "hozirgina",
         "ago_min": "{} daqiqa oldin",
@@ -127,6 +130,7 @@ def _L(lang: str) -> dict:
         "btn_assigned": "🔗 Biriktirilganlar",
         "btn_wip": "⏳ Jarayondagilar",
         "btn_done": "✅ Tugatilganlari",
+        "btn_created": "📝 Yaratganlarim",
     }
 
 # ===================== TZ & time =====================
@@ -155,8 +159,9 @@ def _kb_root(lang: str) -> InlineKeyboardMarkup:
     L = _L(lang)
     kb = InlineKeyboardBuilder()
     kb.button(text=L["btn_assigned"], callback_data="jm_list:assigned")
-    kb.button(text=L["btn_wip"],     callback_data="jm_list:wip")
-    kb.button(text=L["btn_done"],    callback_data="jm_list:done")
+    kb.button(text=L["btn_wip"], callback_data="jm_list:wip")
+    kb.button(text=L["btn_done"], callback_data="jm_list:done")
+    kb.button(text=L["btn_created"], callback_data="jm_list:created")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -206,9 +211,10 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
     addr = html.escape(item.get("address") or "—", quote=False)
     region = _get_region_display_name(item.get("region"), lang)
     tariff_name = html.escape(str(item.get("tariff_name") or "—"), quote=False)
+    status = html.escape(str(item.get("status") or "—"), quote=False)
     
     # Order type
-    order_type = item.get("order_type", "staff")
+    order_type = item.get("order_type", "connection")
     type_icon = "🔗" if order_type == "connection" else "👨‍💼"
     type_text = "Ulanish arizasi" if order_type == "connection" else "Xodim arizasi"
     
@@ -230,7 +236,7 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
     else:
         created_str = str(created_at or "—")
     
-    title = {"new": L["new"], "assigned": L["assigned"], "wip": L["wip"], "done": L["done"]}[kind]
+    title = {"new": L["new"], "assigned": L["assigned"], "wip": L["wip"], "done": L["done"], "created": "📝 Yaratganlarim"}[kind]
     
     if lang == "ru":
         text = f"<b>📋 ПОДРОБНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ</b>\n"
@@ -242,6 +248,7 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
         text += f"<b>📍 Адрес:</b> {addr}\n"
         text += f"<b>🌍 Регион:</b> {region}\n"
         text += f"<b>💰 Тариф:</b> {tariff_name}\n"
+        text += f"<b>📊 Статус:</b> {status}\n"
         text += f"<b>🕐 Дата создания:</b> {created_str}\n"
     else:
         text = f"<b>📋 ARIZA BATAFSIL MA'LUMOTLARI</b>\n"
@@ -253,7 +260,15 @@ def _fmt_card(item: dict, kind: str, lang: str) -> str:
         text += f"<b>📍 Manzil:</b> {addr}\n"
         text += f"<b>🌍 Hudud:</b> {region}\n"
         text += f"<b>💰 Tarif:</b> {tariff_name}\n"
+        text += f"<b>📊 Status:</b> {status}\n"
         text += f"<b>🕐 Yaratilgan:</b> {created_str}\n"
+    
+    # Material_issued ma'lumotlarini qo'shish (tugatilgan arizalar uchun)
+    if kind == "done" and item.get('materials_text'):
+        if lang == "ru":
+            text += f"\n<b>🧾 Материалы:</b>\n{item['materials_text']}\n"
+        else:
+            text += f"\n<b>🧾 Materiallar:</b>\n{item['materials_text']}\n"
     
     return text
 
@@ -267,6 +282,12 @@ ENTRY_TEXTS = [
 
 @router.message(F.text.in_(ENTRY_TEXTS))
 async def jm_orders_menu(msg: Message):
+    # Eski xabarlarda eski inline klaviatura bo‘lsa, tozalab yuborish (reply_markup tozalash)
+    try:
+        if msg.reply_to_message and getattr(msg.reply_to_message, "reply_markup", None):
+            await msg.reply_to_message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     u = await get_user_by_telegram_id(msg.from_user.id)
     lang = _norm_lang(u.get("language") if u else "ru")
     await msg.answer(_L(lang)["menu_title"], reply_markup=_kb_root(lang))
@@ -276,26 +297,30 @@ async def jm_orders_menu(msg: Message):
 async def jm_open_list(cb: CallbackQuery, state: FSMContext):
     u = await get_user_by_telegram_id(cb.from_user.id)
     lang = _norm_lang(u.get("language") if u else "ru")
-
-    kind = cb.data.split(":")[1]  # assigned | wip | done
-    tg_id = cb.from_user.id
-
+    kind = cb.data.split(":")[1]  # assigned | wip | done | created
+    jm_id = u["id"]
     if kind == "assigned":
-        # Kichik menedjerning user_id ni olish kerak
-        user_data = await get_user_by_telegram_id(tg_id)
-        if not user_data:
-            await _safe_edit(cb, _L(lang)["empty"], _kb_root(lang), lang)
-            return
-        items = await list_assigned_for_jm(user_data["id"])
+        items = await list_assigned_for_jm(jm_id)
     elif kind == "wip":
-        items = await list_inprogress_for_jm(tg_id)
+        items = await list_inprogress_for_jm(jm_id)
+    elif kind == "done":
+        items = await list_completed_for_jm(jm_id)
+        # Yakunlanganlarga material_issued ma'lumotini qo'shamiz:
+        from database.warehouse.material_issued_queries import fetch_materials_for_application
+        for item in items:
+            materials = await fetch_materials_for_application(item['application_number'], 'connection')
+            if materials:
+                item['materials_text'] = '\n'.join([
+                    f"{m['material_name']}: {m['quantity']} dona (summa: {m['total_price']})" for m in materials
+                ])
+    elif kind == "created":
+        from database.junior_manager.orders import list_staff_created_by_jm
+        items = await list_staff_created_by_jm(jm_id)
     else:
-        items = await list_completed_for_jm(tg_id)
-
+        items = []
     if not items:
         await _safe_edit(cb, _L(lang)["empty"], _kb_root(lang), lang)
         return
-
     await state.update_data(jm_items=items, jm_idx=0, jm_kind=kind)
     text = _fmt_card(items[0], kind, lang)
     await _safe_edit(cb, text, _kb_pager(0, len(items), kind, lang), lang)
@@ -320,7 +345,8 @@ async def jm_nav(cb: CallbackQuery, state: FSMContext):
         idx = (idx + 1) % len(items)
 
     await state.update_data(jm_idx=idx, jm_kind=kind)
-    await _safe_edit(cb, _fmt_card(items[idx], kind, lang), _kb_pager(idx, len(items), kind, lang), lang)
+    text = _fmt_card(items[idx], kind, lang)
+    await _safe_edit(cb, text, _kb_pager(idx, len(items), kind, lang), lang)
 
 @router.callback_query(F.data == "jm_back")
 async def jm_back(cb: CallbackQuery, state: FSMContext):

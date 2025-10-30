@@ -329,7 +329,7 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
         address_raw = it.get("order_address")
     
     # Get notes - check both connection and staff orders
-    jm_notes_raw = it.get("order_jm_notes") or it.get("staff_jm_notes") or it.get("jm_notes")
+    jm_notes_raw = it.get("order_jm_notes") or it.get("jm_notes")
     
     # Get tariff information
     tariff_name = it.get("tariff_name")
@@ -350,8 +350,8 @@ async def _render_card(target: Message | CallbackQuery, items: List[Dict[str, An
     
     # For technician orders, show problem description instead of tariff
     if is_technician_order:
-        problem_description = it.get("description", "-")
-        tariff_or_problem = _esc(problem_description) if problem_description else "-"
+        description= it.get("description", "-")
+        tariff_or_problem = _esc(description) if description else "-"
         tariff_label = "🔧 <b>Muammo:</b>" if lang == "uz" else "🔧 <b>Проблема:</b>"
     else:
         tariff_or_problem = _esc(tariff_name) if tariff_name else "-"
@@ -584,7 +584,7 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
     order_info = ""
     if current_order:
         app_number = current_order.get("application_number") or current_order.get("staff_application_number")
-        jm_notes = current_order.get("jm_notes") or current_order.get("order_jm_notes") or current_order.get("staff_jm_notes")
+        jm_notes = current_order.get("jm_notes") or current_order.get("order_jm_notes")
         
         order_info = (
             f"\n{_t(lang, 'order_sent_title')}\n"
@@ -641,7 +641,7 @@ async def jm_send_to_controller(cb: CallbackQuery, state: FSMContext):
         address_raw = order.get("order_address")
     
     # Get notes - check both connection and staff orders
-    jm_notes_raw = order.get("order_jm_notes") or order.get("staff_jm_notes") or order.get("jm_notes")
+    jm_notes_raw = order.get("order_jm_notes") or order.get("jm_notes")
     
     # Get tariff
     tariff_name = order.get("tariff_name")
@@ -698,7 +698,7 @@ async def jm_note_start(cb: CallbackQuery, state: FSMContext):
             current_item = items[idx]
             # Check if this is the right order (handle both connection_id and staff_id)
             if (current_item.get("connection_id") == order_id or current_item.get("staff_id") == order_id):
-                pending = current_item.get("order_jm_notes") or current_item.get("staff_jm_notes") or current_item.get("jm_notes")
+                pending = current_item.get("order_jm_notes") or current_item.get("jm_notes")
 
     await state.update_data(note_order_id=order_id, pending_note=(pending or ""))
 
@@ -765,7 +765,6 @@ async def jm_note_confirm(cb: CallbackQuery, state: FSMContext):
         if (current_item.get("connection_id") == order_id or current_item.get("staff_id") == order_id):
             items[idx]["jm_notes"] = note
             items[idx]["order_jm_notes"] = note
-            items[idx]["staff_jm_notes"] = note
             await state.update_data(items=items)
 
     await cb.message.answer(_t(lang, "note_saved"))

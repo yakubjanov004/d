@@ -414,6 +414,7 @@ async def manager_confirm(callback: CallbackQuery, state: FSMContext):
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
             business_type=data.get("connection_type", "B2C").upper(),
+            created_by_role="manager",
         )
 
         # Guruhga xabar yuborish

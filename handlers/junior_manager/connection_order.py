@@ -406,13 +406,14 @@ async def jm_confirm(callback: CallbackQuery, state: FSMContext):
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
 
         result = await staff_orders_create(
-            user_id=jm_user_id,
+            user_id=jm_user_id,  # YARATUVCHI xodim (Junior Manager) ID
             phone=acting_client.get("phone"),
-            abonent_id=str(client_user_id),
+            abonent_id=str(client_user_id),  # MIJOZ (Client) ID
             region=str(region_id),
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
             business_type=data.get("connection_type", "B2C").upper(),
+            created_by_role="junior_manager",
         )
 
         # Guruhga xabar yuborish

@@ -188,7 +188,7 @@ async def controller_select_region_tech(callback: CallbackQuery, state: FSMConte
     )
 
 # ======================= STEP 3: problem description =======================
-@router.message(StateFilter(ControllerTechnicianOrderStates.problem_description))
+@router.message(StateFilter(ControllerTechnicianOrderStates.description))
 async def controller_get_description(msg: Message, state: FSMContext):
     u = await get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
@@ -279,7 +279,8 @@ async def controller_confirm_tech(callback: CallbackQuery, state: FSMContext):
             region=str(region_id),
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             description=data.get("description", "Kiritilmagan" if lang == "uz" else "Не указан"),
-            business_type="B2C",  # Default B2C
+            business_type="B2C",
+            created_by_role="controller",
         )
 
         # Guruhga xabar yuborish

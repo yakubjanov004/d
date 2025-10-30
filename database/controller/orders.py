@@ -26,6 +26,7 @@ async def staff_orders_create(
     address: str,
     tarif_id: Optional[int],
     business_type: str = "B2C",
+    created_by_role: str = "controller",
 ) -> Dict[str, Any]:
     """
     Controller TOMONIDAN ulanish arizasini yaratish.
@@ -46,13 +47,13 @@ async def staff_orders_create(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address, tarif_id,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7,
-                        '', $8, 'connection', 'in_controller'::staff_order_status, TRUE, NOW(), NOW())
+                        '', $8, 'connection', 'in_manager'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type
+                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
             )
             
             staff_order_id = row["id"]
@@ -70,7 +71,7 @@ async def staff_orders_create(
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
+                VALUES ($1, $2, $2, 'new', 'in_manager', NOW(), NOW())
                 """,
                 app_number, user_id  # sender: controller, recipient: manager (hozircha bir xil)
             )
@@ -87,6 +88,7 @@ async def staff_orders_technician_create(
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
+    created_by_role: str = "controller",
 ) -> Dict[str, Any]:
     """
     Controller TOMONIDAN texnik xizmat arizasini yaratish.
@@ -107,13 +109,13 @@ async def staff_orders_technician_create(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6,
-                        $7, $8, 'technician', 'in_controller'::staff_order_status, TRUE, NOW(), NOW())
+                        $7, $8, 'technician', 'in_controller'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, description, business_type
+                application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
             )
             
             staff_order_id = row["id"]

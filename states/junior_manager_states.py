@@ -10,7 +10,7 @@ class staffConnectionOrderStates(StatesGroup):
 
 class staffTechnicianOrderStates(StatesGroup):
     selecting_technician = State()
-    problem_description = State()
+    description= State()
     waiting_client_phone = State()
     selecting_region = State()
     entering_address = State()

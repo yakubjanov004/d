@@ -21,10 +21,11 @@ async def staff_orders_create(
     address: str,
     tarif_id: Optional[int],
     business_type: str = "B2C",
+    created_by_role: str = "manager",
 ) -> int:
     """
     Manager TOMONIDAN ulanish arizasini yaratish.
-    Default status: 'in_manager'.
+    Default status: 'in_controller'.
     Connections jadvaliga ham yozuv qo'shadi.
     """
     conn = await asyncpg.connect(settings.DB_URL)
@@ -35,23 +36,22 @@ async def staff_orders_create(
                 f"STAFF-CONN-{business_type}-%"
             )
             application_number = f"STAFF-CONN-{business_type}-{next_number:04d}"
-            
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address, tarif_id,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7,
-                        '', $8, 'connection', 'in_controller'::staff_order_status, TRUE, NOW(), NOW())
+                        '', $8, 'connection', 'in_controller'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type
+                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
             )
-            
+
             staff_order_id = row["id"]
             app_number = row["application_number"]
-            
             await conn.execute(
                 """
                 INSERT INTO connections (
@@ -65,9 +65,8 @@ async def staff_orders_create(
                 )
                 VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
                 """,
-                app_number, user_id  # sender va recipient bir xil (manager yaratdi)
+                app_number, user_id
             )
-            
             return {"id": staff_order_id, "application_number": row["application_number"]}
     finally:
         await conn.close()
@@ -76,60 +75,36 @@ async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: str,  # TEXT tipida
+    region: str,  
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
+    created_by_role: str = "manager",
 ) -> int:
     """
     Manager TOMONIDAN texnik xizmat arizasini yaratish.
-    Default status: 'in_controller'.
-    Connections jadvaliga ham yozuv qo'shadi.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         async with conn.transaction():
-            # Application number generatsiya qilamiz - TECH uchun alohida ketma-ketlikda
             next_number = await conn.fetchval(
                 "SELECT COALESCE(MAX(CAST(SUBSTRING(application_number FROM '\\d+$') AS INTEGER)), 0) + 1 FROM staff_orders WHERE application_number LIKE $1",
                 f"STAFF-TECH-{business_type}-%"
             )
             application_number = f"STAFF-TECH-{business_type}-{next_number:04d}"
-            
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6,
-                        $7, $8, 'technician', 'in_controller'::staff_order_status, TRUE, NOW(), NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'technician', 'in_controller'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, description, business_type
+                application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
             )
-            
-            staff_order_id = row["id"]
-            app_number = row["application_number"]
-            
-            # Connections jadvaliga yozuv qo'shamiz (yaratilganda to'g'ridan-to'g'ri controller'ga)
-            await conn.execute(
-                """
-                INSERT INTO connections (
-                    application_number,
-                    sender_id,
-                    recipient_id,
-                    sender_status,
-                    recipient_status,
-                    created_at,
-                    updated_at
-                )
-                VALUES ($1, $2, $2, 'new', 'in_controller', NOW(), NOW())
-                """,
-                app_number, user_id  # sender va recipient bir xil (manager yaratdi)
-            )
-            
-            return {"id": staff_order_id, "application_number": row["application_number"]}
+            return {"id": row["id"], "application_number": row["application_number"]}
     finally:
         await conn.close()
 

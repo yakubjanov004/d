@@ -62,39 +62,34 @@ async def staff_orders_create(
     region: int,
     address: str,
     description: Optional[str],
-    business_type: str = "B2C"
+    business_type: str = "B2C",
+    created_by_role: str = "technician",
 ) -> str:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # Region ID ni region nomiga aylantirish (agar regions jadvali mavjud bo'lsa)
-        region_name = f"Region_{region}"  # Default fallback
-        
+        region_name = f"Region_{region}"
         try:
             region_name = await conn.fetchval(
                 "SELECT name FROM regions WHERE id = $1",
                 region
             )
             if not region_name:
-                region_name = f"Region_{region}"  # Fallback
+                region_name = f"Region_{region}"
         except Exception:
-            # Agar regions jadvali mavjud bo'lmasa, fallback ishlatamiz
             region_name = f"Region_{region}"
-        
-        # Application number generatsiya qilish - texnik arizalar uchun business_type ga qarab
         next_number = await conn.fetchval(
             "SELECT COALESCE(MAX(CAST(SUBSTRING(application_number FROM '\\d+$') AS INTEGER)), 0) + 1 FROM staff_orders WHERE application_number LIKE $1",
             f"STAFF-TECH-{business_type}-%"
         )
         application_number = f"STAFF-TECH-{business_type}-{next_number:04d}"
-        
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
                 application_number, user_id, phone, region, abonent_id,
-                address, description, business_type, status, type_of_zayavka, is_active
+                address, description, business_type, status, type_of_zayavka, is_active, created_by_role, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5,
-                    $6, $7, $8, 'in_controller', 'technician', TRUE)
+                    $6, $7, $8, 'in_controller', 'technician', TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
             application_number,
@@ -105,6 +100,7 @@ async def staff_orders_create(
             address,
             (description or ""),
             business_type,
+            created_by_role
         )
         return row["application_number"]
     finally:
@@ -117,18 +113,19 @@ async def staff_orders_technician_create(
     region: int,
     address: str,
     description: Optional[str],
+    business_type: str = "B2C",
+    created_by_role: str = "technician",
 ) -> int:
-    """Call center supervisor uchun texnik xizmat arizasi yaratish"""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
                 user_id, phone, region, abonent_id,
-                address, description, status, type_of_zayavka, is_active
+                address, description, status, type_of_zayavka, is_active, created_by_role, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4,
-                    $5, $6, 'in_controller', 'technician', TRUE)
+                    $5, $6, 'in_controller', 'technician', TRUE, $7, NOW(), NOW())
             RETURNING id
             """,
             user_id,
@@ -137,6 +134,7 @@ async def staff_orders_technician_create(
             abonent_id,
             address,
             (description or ""),
+            created_by_role
         )
         return row["id"]
     finally:

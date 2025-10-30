@@ -111,42 +111,71 @@ async def staff_orders_create(
     region: int,
     address: str,
     tarif_id: Optional[int],
-    business_type: str = "B2C"
-) -> str:
+    business_type: str = "B2C",
+    created_by_role: str = "callcenter_operator",
+) -> int:
+    """
+    Call Center Operator TOMONIDAN ulanish arizasini yaratish.
+    Default status: 'in_call_center_supervisor'.
+    """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # Region ID ni region nomiga aylantirish (agar regions jadvali mavjud bo'lsa)
-        region_name = f"Region_{region}"  # Default fallback
-        
-        try:
-            region_name = await conn.fetchval(
-                "SELECT name FROM regions WHERE id = $1",
-                region
-            )
-            if not region_name:
-                region_name = f"Region_{region}"  
-        except Exception:
-            # Agar regions jadvali mavjud bo'lmasa, fallback ishlatamiz
-            region_name = f"Region_{region}"
-        
-        # Application number generatsiya qilish - business_type ga qarab
         next_number = await conn.fetchval(
             "SELECT COALESCE(MAX(CAST(SUBSTRING(application_number FROM '\\d+$') AS INTEGER)), 0) + 1 FROM staff_orders WHERE application_number LIKE $1",
             f"STAFF-CONN-{business_type}-%"
         )
         application_number = f"STAFF-CONN-{business_type}-{next_number:04d}"
-        
+
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
                 application_number, user_id, phone, abonent_id, region, address, tarif_id,
-                description, business_type, type_of_zayavka, status, is_active
+                description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, '', $8, 'connection', 'in_controller', TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7,
+                    '', $8, 'connection', 'in_call_center_supervisor'::staff_order_status, TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
-            application_number, user_id, phone, abonent_id, region_name, address, tarif_id, business_type
+            application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
         )
-        return row["application_number"]
+        return row["id"]
+    finally:
+        await conn.close()
+
+async def staff_orders_technician_create(
+    user_id: int,
+    phone: Optional[str],
+    abonent_id: Optional[str],
+    region: int,
+    address: str,
+    description: Optional[str],
+    business_type: str = "B2C",
+    created_by_role: str = "callcenter_operator",
+) -> int:
+    """
+    Call Center Operator TOMONIDAN texnik xizmat arizasini yaratish.
+    Default status: 'in_call_center_supervisor'.
+    """
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        next_number = await conn.fetchval(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(application_number FROM '\\d+$') AS INTEGER)), 0) + 1 FROM staff_orders WHERE application_number LIKE $1",
+            f"STAFF-TECH-{business_type}-%"
+        )
+        application_number = f"STAFF-TECH-{business_type}-{next_number:04d}"
+
+        row = await conn.fetchrow(
+            """
+            INSERT INTO staff_orders (
+                application_number, user_id, phone, abonent_id, region, address,
+                description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6,
+                    $7, $8, 'technician', 'in_call_center_supervisor'::staff_order_status, TRUE, $9, NOW(), NOW())
+            RETURNING id, application_number
+            """,
+            application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
+        )
+        return row["id"]
     finally:
         await conn.close()

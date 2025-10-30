@@ -33,11 +33,14 @@ async def staff_orders_create(
     address: str,
     tarif_id: Optional[int],
     business_type: str = "B2C",
+    created_by_role: str = "junior_manager",
 ) -> int:
     """
     Junior Manager TOMONIDAN ulanish arizasini yaratish.
     Default status: 'in_manager'.
     Connections jadvaliga ham yozuv qo'shadi.
+    user_id: YARATUVCHI xodim (Junior Manager) ID
+    abonent_id: MIJOZ (Client) ID
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -53,13 +56,13 @@ async def staff_orders_create(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address, tarif_id,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7,
-                        '', $8, 'connection', 'in_manager'::staff_order_status, TRUE, NOW(), NOW())
+                        '', $8, 'connection', 'in_manager'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type
+                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
             )
             
             staff_order_id = row["id"]
@@ -94,11 +97,14 @@ async def staff_orders_technician_create(
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
+    created_by_role: str = "junior_manager",
 ) -> int:
     """
     Junior Manager TOMONIDAN texnik xizmat arizasini yaratish.
     Default status: 'in_manager'.
     Connections jadvaliga ham yozuv qo'shadi.
+    user_id: YARATUVCHI xodim (Junior Manager) ID
+    abonent_id: MIJOZ (Client) ID
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -113,13 +119,13 @@ async def staff_orders_technician_create(
                 """
                 INSERT INTO staff_orders (
                     application_number, user_id, phone, abonent_id, region, address,
-                    description, business_type, type_of_zayavka, status, is_active, created_at, updated_at
+                    description, business_type, type_of_zayavka, status, is_active, created_by_role, created_at, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6,
-                        $7, $8, 'technician', 'in_manager'::staff_order_status, TRUE, NOW(), NOW())
+                        $7, $8, 'technician', 'in_manager'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, description, business_type
+                application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
             )
             
             staff_order_id = row["id"]
@@ -152,21 +158,14 @@ async def staff_orders_technician_create(
 
 async def update_jm_notes(order_id: int, notes: str, order_type: str = "connection") -> bool:
     """
-    Update jm_notes field for an order.
-    order_type: "connection" or "staff"
+    Update jm_notes field for a connection order only.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        if order_type == "connection":
-            await conn.execute(
-                "UPDATE connection_orders SET jm_notes = $1, updated_at = NOW() WHERE id = $2",
-                notes, order_id
-            )
-        else:  # staff
-            await conn.execute(
-                "UPDATE staff_orders SET jm_notes = $1, updated_at = NOW() WHERE id = $2",
-                notes, order_id
-            )
+        await conn.execute(
+            "UPDATE connection_orders SET jm_notes = $1, updated_at = NOW() WHERE id = $2",
+            notes, order_id
+        )
         return True
     except Exception as e:
         print(f"Error updating jm_notes: {e}")
@@ -219,14 +218,15 @@ async def list_new_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
 
 async def list_inprogress_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Junior Manager uchun jarayondagi arizalar ro'yxati (connection + staff orders, completed bo'lmaganlar).
+    Junior Manager uchun jarayondagi arizalar (faqat connection_orders).
+    Statuslar: in_controller, in_technician, in_repairs, in_warehouse, in_technician_work, between_controller_technician
+    Faqat shu JM dan o'tgan arizalar.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            -- Connection Orders (mijozlar arizalari)
-            SELECT
+            SELECT DISTINCT ON (co.id)
                 co.id,
                 co.application_number,
                 co.user_id,
@@ -234,55 +234,27 @@ async def list_inprogress_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, 
                 co.address,
                 co.tarif_id,
                 co.jm_notes,
-                NULL as phone,
-                NULL as abonent_id,
-                NULL as description,
-                'connection' as type_of_zayavka,
                 co.status::text,
                 co.created_at,
                 co.updated_at,
                 u.full_name AS user_name,
                 u.phone AS client_phone,
-                t.name AS tariff_name,
-                'connection' as order_type
+                t.name AS tariff_name
             FROM connection_orders co
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
-            WHERE co.status != 'completed'
-              AND co.is_active = TRUE
-            
-            UNION ALL
-            
-            -- Staff Orders (xodimlar arizalari)
-            SELECT
-                so.id,
-                so.application_number,
-                so.user_id,
-                so.region,
-                so.address,
-                so.tarif_id,
-                so.jm_notes,
-                so.phone,
-                so.abonent_id,
-                so.description,
-                so.type_of_zayavka,
-                so.status::text,
-                so.created_at,
-                so.updated_at,
-                u.full_name AS user_name,
-                u.phone AS client_phone,
-                t.name AS tariff_name,
-                'staff' as order_type
-            FROM staff_orders so
-            LEFT JOIN users u ON u.id = so.user_id
-            LEFT JOIN tarif t ON t.id = so.tarif_id
-            WHERE so.status != 'completed'
-              AND so.is_active = TRUE
-            
-            ORDER BY updated_at DESC
-            LIMIT $1
+            WHERE co.is_active = TRUE
+              AND co.status IN ('in_controller', 'in_technician', 'in_repairs', 'in_warehouse', 'in_technician_work', 'between_controller_technician')
+              AND EXISTS (
+                  SELECT 1 FROM connections c
+                  WHERE c.application_number = co.application_number
+                    AND c.recipient_id = $1
+                    AND c.recipient_status = 'in_junior_manager'
+              )
+            ORDER BY co.id, co.updated_at DESC
+            LIMIT $2
             """,
-            limit
+            jm_id, limit
         )
         return [dict(r) for r in rows]
     finally:
@@ -290,13 +262,12 @@ async def list_inprogress_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, 
 
 async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Junior Manager uchun biriktirilgan arizalar ro'yxati (faqat o'ziga biriktirilganlar).
+    Junior Manager uchun biriktirilgan arizalar ro'yxati (faqat o'ziga biriktirilganlar, faqat connection_orders).
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            -- Connection Orders (mijozlar arizalari) - faqat o'ziga biriktirilganlar
             SELECT
                 co.id,
                 co.application_number,
@@ -326,42 +297,8 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
               AND c.application_number IS NOT NULL
               AND co.is_active = TRUE
               AND c.recipient_status = 'in_junior_manager'
-            
-            UNION ALL
-            
-            -- Staff Orders (xodimlar arizalari) - faqat o'ziga biriktirilganlar
-            SELECT
-                so.id,
-                so.application_number,
-                so.user_id,
-                so.region,
-                so.address,
-                so.tarif_id,
-                so.jm_notes,
-                so.phone,
-                so.abonent_id,
-                so.description,
-                so.type_of_zayavka,
-                so.status::text,
-                so.created_at,
-                so.updated_at,
-                u.full_name AS user_name,
-                u.phone AS client_phone,
-                t.name AS tariff_name,
-                'staff' as order_type,
-                client_u.full_name AS client_name,
-                client_u.phone AS client_phone_number
-            FROM connections c
-            JOIN staff_orders so ON so.application_number = c.application_number
-            LEFT JOIN users u ON u.id = so.user_id
-            LEFT JOIN users client_u ON client_u.id = so.abonent_id::bigint
-            LEFT JOIN tarif t ON t.id = so.tarif_id
-            WHERE c.recipient_id = $1
-              AND so.id IS NOT NULL
-              AND so.is_active = TRUE
-              AND c.recipient_status = 'in_junior_manager'
-            
-            ORDER BY updated_at DESC
+              AND co.status = 'in_junior_manager'
+            ORDER BY co.updated_at DESC
             LIMIT $2
             """,
             jm_id, limit
@@ -372,14 +309,14 @@ async def list_assigned_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, An
 
 async def list_completed_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Junior Manager uchun tugallangan arizalar ro'yxati (connection + staff orders).
+    Junior Manager uchun yakunlangan arizalar (faqat connection_orders, status 'completed').
+    Faqat shu JM dan o'tgan arizalar.
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
         rows = await conn.fetch(
             """
-            -- Connection Orders (mijozlar arizalari)
-            SELECT
+            SELECT DISTINCT ON (co.id)
                 co.id,
                 co.application_number,
                 co.user_id,
@@ -387,55 +324,69 @@ async def list_completed_for_jm(jm_id: int, limit: int = 50) -> List[Dict[str, A
                 co.address,
                 co.tarif_id,
                 co.jm_notes,
-                NULL as phone,
-                NULL as abonent_id,
-                NULL as description,
-                'connection' as type_of_zayavka,
                 co.status::text,
                 co.created_at,
                 co.updated_at,
                 u.full_name AS user_name,
                 u.phone AS client_phone,
-                t.name AS tariff_name,
-                'connection' as order_type
+                t.name AS tariff_name
             FROM connection_orders co
             LEFT JOIN users u ON u.id = co.user_id
             LEFT JOIN tarif t ON t.id = co.tarif_id
-            WHERE co.status = 'completed'
-              AND co.is_active = TRUE
-            
-            UNION ALL
-            
-            -- Staff Orders (xodimlar arizalari)
+            WHERE co.is_active = TRUE
+              AND co.status = 'completed'
+              AND EXISTS (
+                  SELECT 1 FROM connections c
+                  WHERE c.application_number = co.application_number
+                    AND c.recipient_id = $1
+                    AND c.recipient_status = 'in_junior_manager'
+              )
+            ORDER BY co.id, co.updated_at DESC
+            LIMIT $2
+            """,
+            jm_id, limit
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+async def list_staff_created_by_jm(jm_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Junior Manager yaratgan staff_orders (user_id = jm_id)
+    user_id bu yerda yaratuvchi xodim IDsi
+    """
+    conn = await asyncpg.connect(settings.DB_URL)
+    try:
+        rows = await conn.fetch(
+            """
             SELECT
                 so.id,
                 so.application_number,
                 so.user_id,
+                so.phone,
+                so.abonent_id,
                 so.region,
                 so.address,
                 so.tarif_id,
-                so.jm_notes,
-                so.phone,
-                so.abonent_id,
-                so.description,
-                so.type_of_zayavka,
+                so.business_type,
                 so.status::text,
                 so.created_at,
                 so.updated_at,
-                u.full_name AS user_name,
-                u.phone AS client_phone,
+                so.description,
+                so.type_of_zayavka,
+                u_client.full_name AS user_name,
+                u_client.phone AS client_phone,
                 t.name AS tariff_name,
                 'staff' as order_type
             FROM staff_orders so
-            LEFT JOIN users u ON u.id = so.user_id
+            LEFT JOIN users u_client ON u_client.id = CAST(so.abonent_id AS INTEGER)
             LEFT JOIN tarif t ON t.id = so.tarif_id
-            WHERE so.status = 'completed'
-              AND so.is_active = TRUE
-            
-            ORDER BY updated_at DESC
-            LIMIT $1
+            WHERE so.is_active = TRUE
+              AND so.user_id = $1
+            ORDER BY so.updated_at DESC
+            LIMIT $2
             """,
-            limit
+            jm_id, limit
         )
         return [dict(r) for r in rows]
     finally:

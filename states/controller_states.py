@@ -21,6 +21,6 @@ class ControllerTechnicianOrderStates(StatesGroup):
     """
     waiting_client_phone = State()
     selecting_region = State()
-    problem_description = State()
+    description= State()
     entering_address = State()
     confirming_connection = State()

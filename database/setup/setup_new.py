@@ -297,7 +297,7 @@ CREATE TABLE IF NOT EXISTS public.staff_orders (
   tarif_id         BIGINT REFERENCES public.tarif(id) ON DELETE SET NULL,
   address          TEXT,
   description      TEXT,
-  problem_description TEXT,  -- Muammo haqida batafsil (texnik xizmat uchun)
+  descriptionTEXT,  -- Muammo haqida batafsil (texnik xizmat uchun)
   diagnostics      TEXT,  -- Diagnostika natijalari (texnik xizmat uchun)
   jm_notes         TEXT,  -- Junior manager izohlari
   business_type    public.business_type NOT NULL DEFAULT 'B2C',

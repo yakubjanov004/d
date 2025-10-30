@@ -14,6 +14,7 @@ from database.basic.user import get_user_by_telegram_id
 from filters.role_filter import RoleFilter
 from keyboards.admin_buttons import get_applications_main_menu, get_admin_main_menu
 from database.basic.language import get_user_language
+import os
 
 router = Router()
 
@@ -327,7 +328,7 @@ def staff_order_text(item: dict, lang: str) -> str:
     status = status_map.get(item.get('status', 'in_call_center_supervisor'), item.get('status', 'in_call_center_supervisor'))
     tarif_name = esc(item.get('tariff_name', '-'))  # Use correct field name from database
     type_of_zayavka = esc(item.get('type_of_zayavka', '-'))
-    problem_description = esc(item.get('problem_description', '-'))
+    description = esc(item.get('description', '-'))  # Tuzatildi: description o'zgaruvchisi
     
     username_text = f"\n👤 Username: @{username}" if username else ""
     
@@ -339,7 +340,7 @@ def staff_order_text(item: dict, lang: str) -> str:
     else:
         # For technician orders, show problem description
         tariff_or_problem_label = "🔧 <b>Muammo:</b>" if lang == "uz" else "🔧 <b>Проблема:</b>"
-        tariff_or_problem_value = problem_description if problem_description != '-' else description
+        tariff_or_problem_value = description if description != '-' else description  # Tuzatildi: probirib chiqdi va bo'shliq qo'shildi
     
     if lang == "ru":
         return (

@@ -231,10 +231,10 @@ async def ctrl_tservice_select_region(callback: CallbackQuery, state: FSMContext
     await state.update_data(selected_region=region_code)
 
     await callback.message.answer(t(lang, "ask_desc"))
-    await state.set_state(ControllerTechnicianOrderStates.problem_description)
+    await state.set_state(ControllerTechnicianOrderStates.description)
 
 # ======================= STEP 3: description =======================
-@router.message(StateFilter(ControllerTechnicianOrderStates.problem_description))
+@router.message(StateFilter(ControllerTechnicianOrderStates.description))
 async def ctrl_tservice_get_description(msg: Message, state: FSMContext):
     lang = await _lang(state, msg.from_user.id)
     desc = (msg.text or "").strip()

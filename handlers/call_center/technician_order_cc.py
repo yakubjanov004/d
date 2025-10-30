@@ -187,10 +187,10 @@ async def op_select_region(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "📝 Muammoni qisqacha ta'riflab bering:" if lang == "uz" else "📝 Опишите проблему:"
     )
-    await state.set_state(staffTechnicianOrderStates.problem_description)
+    await state.set_state(staffTechnicianOrderStates.description)
 
 # ======================= STEP 3: description =======================
-@router.message(StateFilter(staffTechnicianOrderStates.problem_description))
+@router.message(StateFilter(staffTechnicianOrderStates.description))
 async def op_get_description(msg: Message, state: FSMContext):
     lang = (await state.get_data()).get("lang") or await get_user_language(msg.from_user.id) or "uz"
 

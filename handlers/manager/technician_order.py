@@ -248,7 +248,7 @@ async def manager_get_address_tech(msg: Message, state: FSMContext):
     await state.set_state(staffTechnicianOrderStates.problem_description)
 
 # ======================= STEP 4: description =======================
-@router.message(StateFilter(staffTechnicianOrderStates.problem_description))
+@router.message(StateFilter(staffTechnicianOrderStates.description))
 async def manager_get_description(msg: Message, state: FSMContext):
     u = await get_user_by_telegram_id(msg.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")

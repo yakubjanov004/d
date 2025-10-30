@@ -326,6 +326,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
             business_type=data.get("business_type", "B2C"),
+            created_by_role="callcenter_operator",
         )
 
         # Guruhga xabar yuborish

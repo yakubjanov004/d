@@ -71,7 +71,7 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
                 co.created_at AS order_created_at,
                 co.updated_at AS order_updated_at,
                 co.jm_notes AS order_jm_notes,
-                -- Staff orders ma'lumotlari
+                -- Staff orders ma'lumotlari (jm_notes qismi olib tashlandi)
                 so.id AS staff_order_id,
                 so.application_number AS staff_application_number,
                 so.user_id AS staff_user_id,
@@ -85,7 +85,6 @@ async def get_connections_by_recipient(recipient_id: int, limit: int = 20) -> Li
                 so.status AS staff_status,
                 so.created_at AS staff_created_at,
                 so.updated_at AS staff_updated_at,
-                so.jm_notes AS staff_jm_notes,
                 -- Client ma'lumotlari (connection_orders uchun)
                 u_co.full_name AS client_full_name,
                 u_co.phone AS client_phone,
@@ -309,10 +308,10 @@ async def move_order_to_controller(order_id: int, jm_id: int) -> Dict[str, Any]:
     finally:
         await conn.close()
 
+# --- set_jm_notes funksiyasi faqat connection_orders uchun qoldirildi ---
 async def set_jm_notes(order_id: int, notes: str) -> bool:
     """
-    Junior Manager notes qo'shish.
-    Both connection_orders and staff_orders ni qo'llab-quvvatlaydi.
+    Junior Manager notes qo'shish (faqat connection_orders uchun).
     """
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -320,7 +319,6 @@ async def set_jm_notes(order_id: int, notes: str) -> bool:
         connection_order = await conn.fetchrow(
             "SELECT id FROM connection_orders WHERE id = $1", order_id
         )
-        
         if connection_order:
             # Update connection order notes
             await conn.execute(
@@ -332,27 +330,9 @@ async def set_jm_notes(order_id: int, notes: str) -> bool:
                 """,
                 notes, order_id
             )
+            return True
         else:
-            # Check if it's a staff order
-            staff_order = await conn.fetchrow(
-                "SELECT id FROM staff_orders WHERE id = $1", order_id
-            )
-            
-            if staff_order:
-                # Update staff order notes
-                await conn.execute(
-                    """
-                    UPDATE staff_orders
-                    SET jm_notes = $1,
-                        updated_at = NOW()
-                    WHERE id = $2
-                    """,
-                    notes, order_id
-                )
-            else:
-                return False  # Order not found
-        
-        return True
+            return False  # Order not found
     except Exception:
         return False
     finally:
