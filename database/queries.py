@@ -2,6 +2,8 @@ import asyncpg
 from config import settings
 from typing import Optional
 
+from database.basic.phone import normalize_phone
+
 async def get_or_create_user(telegram_id: int, username: Optional[str], full_name: Optional[str] = None) -> str:
     """telegram_id bo'yicha userni tekshiradi, bo'lmasa ketma-ket ID bilan 'client' rolida yaratadi.
     
@@ -90,47 +92,48 @@ async def find_user_by_telegram_id(telegram_id: int) -> Optional[asyncpg.Record]
         await conn.close()
 
 async def find_user_by_phone(phone: str) -> Optional[asyncpg.Record]:
-    """Finds a user by their phone number with flexible format matching.
+    """Finds a user by their phone number.
     
-    Supports both formats: +998XXXXXXXXX and 998XXXXXXXXX
-    Also handles spaces and other non-digit characters.
+    After migration 046, all phones in users table are normalized to +998XXXXXXXXX format.
+    This function normalizes input and does exact match for efficiency.
     """
+    from database.basic.phone import normalize_phone
+    
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        # Normalize input phone by removing all non-digits
-        normalized_input = ''.join(filter(str.isdigit, phone))
+        # Normalize input phone (after migration, all phones in DB are normalized)
+        normalized = normalize_phone(phone)
+        if not normalized:
+            return None
         
-        # Try multiple search strategies
+        # Exact match (efficient - phones are normalized in DB after migration 046)
         user = await conn.fetchrow(
             """
             SELECT * FROM users 
-            WHERE 
-                -- Exact match
-                phone = $1 OR
-                -- Match with + prefix
-                phone = $2 OR
-                -- Match without + prefix  
-                phone = $3 OR
-                -- Normalize both sides (remove all non-digits)
-                regexp_replace(phone, '[^0-9]', '', 'g') = $4
+            WHERE phone = $1
             LIMIT 1
             """,
-            phone,  # Original input
-            '+' + phone.lstrip('+'),  # Add + if not present
-            phone.lstrip('+'),  # Remove + if present
-            normalized_input  # Only digits
+            normalized
         )
         return user
     finally:
         await conn.close()
 
-async def update_user_phone(telegram_id: int, phone: str) -> bool:
+async def update_user_phone(telegram_id: int, phone: Optional[str]) -> bool:
     """Updates the phone number of a user by their Telegram ID."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        sanitized = (phone or "").strip()
+        if sanitized:
+            normalized = normalize_phone(sanitized)
+            if not normalized:
+                return False
+        else:
+            normalized = None
+
         result = await conn.execute(
             'UPDATE users SET phone = $1 WHERE telegram_id = $2',
-            phone, telegram_id
+            normalized, telegram_id
         )
         return result != 'UPDATE 0'
     finally:

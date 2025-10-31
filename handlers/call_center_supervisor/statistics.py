@@ -314,6 +314,7 @@ async def callcenter_statistics_entry(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("ccs_stats_"))
 async def callcenter_statistics_callback(callback: CallbackQuery, state: FSMContext):
     """Statistika callback handler"""
+    lang = "uz"
     try:
         action = callback.data.replace("ccs_stats_", "")
         lang = await _get_lang(callback.from_user.id)
@@ -427,6 +428,15 @@ async def callcenter_statistics_callback(callback: CallbackQuery, state: FSMCont
         
         await callback.answer()
         
+    except TelegramBadRequest as e:
+        message = str(e)
+        if "message is not modified" in message:
+            notify = "Kontent allaqachon yangilangan" if lang == "uz" else "Контент уже актуален"
+            await callback.answer(notify)
+            return
+        logger.error(f"Call center statistics callback error: {e}")
+        await callback.answer("Xatolik yuz berdi!", show_alert=True)
+
     except Exception as e:
         logger.error(f"Call center statistics callback error: {e}")
         await callback.answer("Xatolik yuz berdi!", show_alert=True)

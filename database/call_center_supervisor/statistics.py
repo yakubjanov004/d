@@ -234,7 +234,7 @@ async def get_daily_statistics(days: int = 7) -> List[Dict[str, Any]]:
                 COUNT(CASE WHEN is_active = TRUE THEN 1 END) as active_orders,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders
             FROM staff_orders
-            WHERE created_at >= NOW() - INTERVAL '%s days'
+            WHERE created_at >= NOW() - make_interval(days => $1)
             GROUP BY DATE(created_at)
             ORDER BY date DESC
             """,
@@ -260,7 +260,7 @@ async def get_monthly_statistics(months: int = 12) -> List[Dict[str, Any]]:
                 COUNT(CASE WHEN is_active = TRUE THEN 1 END) as active_orders,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_orders
             FROM staff_orders
-            WHERE created_at >= NOW() - INTERVAL '%s months'
+            WHERE created_at >= NOW() - make_interval(months => $1)
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY month DESC
             """,

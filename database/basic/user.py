@@ -76,7 +76,7 @@ async def find_user_by_telegram_id(telegram_id: int) -> Optional[Dict[str, Any]]
     """
     return await get_user_by_telegram_id(telegram_id)
 
-async def update_user_phone(telegram_id: int, phone: str) -> bool:
+async def update_user_phone(telegram_id: int, phone: Optional[str]) -> bool:
     """
     Foydalanuvchi telefonini yangilaydi.
     Bu funksiya update_user_phone_by_telegram_id bilan bir xil, lekin eski nom bilan.
@@ -246,13 +246,21 @@ async def find_user_by_phone(phone: str) -> Optional[Dict[str, Any]]:
     finally:
         await conn.close()
 
-async def update_user_phone_by_telegram_id(telegram_id: int, phone: str) -> bool:
+async def update_user_phone_by_telegram_id(telegram_id: int, phone: Optional[str]) -> bool:
     """Update user's phone by telegram_id; return True if updated."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        sanitized = (phone or "").strip()
+        if sanitized:
+            normalized = normalize_phone(sanitized)
+            if not normalized:
+                return False
+        else:
+            normalized = None
+
         result = await conn.execute(
             "UPDATE users SET phone = $1 WHERE telegram_id = $2",
-            phone, telegram_id
+            normalized, telegram_id
         )
         return result != 'UPDATE 0'
     finally:

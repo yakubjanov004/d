@@ -12,57 +12,99 @@ async def _conn():
 # ==================== TECHNICIAN ORDERS (Controllerdan kelgan) ====================
 
 async def ccs_count_technician_orders() -> int:
-    """Controllerdan kelgan texnik arizalar soni"""
+    """Controllerdan kelgan texnik arizalar soni."""
     conn = await _conn()
     try:
-        count = await conn.fetchval("""
+        count = await conn.fetchval(
+            """
             SELECT COUNT(*)
             FROM technician_orders
             WHERE status = 'in_call_center_supervisor'
-              AND is_active = TRUE
-        """)
+              AND COALESCE(is_active, TRUE) = TRUE
+            """
+        )
         return int(count or 0)
     finally:
         await conn.close()
 
-async def ccs_fetch_technician_orders(offset: int = 0, limit: int = 1) -> Optional[Dict[str, Any]]:
-    """Controllerdan kelgan texnik arizalarni olish"""
+
+async def ccs_fetch_technician_orders(
+    offset: int = 0,
+    limit: int = 1,
+    *,
+    order_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Controllerdan kelgan texnik arizalarni olish."""
     conn = await _conn()
     try:
-        row = await conn.fetchrow("""
-            SELECT 
-                tech_orders.id,
-                tech_orders.application_number,
-                tech_orders.user_id,
-                tech_orders.region,
-                tech_orders.abonent_id,
-                tech_orders.address,
-                tech_orders.media,
-                tech_orders.description,
-                tech_orders.description_operator,
-                tech_orders.status,
-                tech_orders.created_at,
-                tech_orders.updated_at,
-                
-                -- Client ma'lumotlari
-                u.full_name as client_name,
-                u.phone as client_phone,
-                u.telegram_id as client_telegram_id,
-                
-                -- Media type
-                CASE 
-                    WHEN tech_orders.media IS NOT NULL THEN 'photo'
-                    ELSE NULL
-                END as media_type
-                
-            FROM technician_orders tech_orders
-            LEFT JOIN users u ON u.id = tech_orders.user_id
-            WHERE tech_orders.status = 'in_call_center_supervisor'
-              AND tech_orders.is_active = TRUE
-            ORDER BY tech_orders.created_at ASC
-            OFFSET $1 LIMIT $2
-        """, offset, limit)
-        
+        if order_id is not None:
+            row = await conn.fetchrow(
+                """
+                SELECT 
+                    tech_orders.id,
+                    tech_orders.application_number,
+                    tech_orders.user_id,
+                    tech_orders.region,
+                    tech_orders.abonent_id,
+                    tech_orders.address,
+                    tech_orders.media,
+                    tech_orders.description,
+                    tech_orders.description_operator,
+                    tech_orders.status,
+                    tech_orders.created_at,
+                    tech_orders.updated_at,
+                    tech_orders.business_type,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone,
+                    u.telegram_id AS client_telegram_id,
+                    CASE 
+                        WHEN tech_orders.media IS NOT NULL THEN 'photo'
+                        ELSE NULL
+                    END AS media_type
+                FROM technician_orders tech_orders
+                LEFT JOIN users u ON u.id = tech_orders.user_id
+                WHERE tech_orders.status = 'in_call_center_supervisor'
+                  AND COALESCE(tech_orders.is_active, TRUE) = TRUE
+                  AND tech_orders.id = $1
+                LIMIT 1
+                """,
+                order_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT 
+                    tech_orders.id,
+                    tech_orders.application_number,
+                    tech_orders.user_id,
+                    tech_orders.region,
+                    tech_orders.abonent_id,
+                    tech_orders.address,
+                    tech_orders.media,
+                    tech_orders.description,
+                    tech_orders.description_operator,
+                    tech_orders.status,
+                    tech_orders.created_at,
+                    tech_orders.updated_at,
+                    tech_orders.business_type,
+                    u.full_name AS client_name,
+                    u.phone AS client_phone,
+                    u.telegram_id AS client_telegram_id,
+                    CASE 
+                        WHEN tech_orders.media IS NOT NULL THEN 'photo'
+                        ELSE NULL
+                    END AS media_type
+                FROM technician_orders tech_orders
+                LEFT JOIN users u ON u.id = tech_orders.user_id
+                WHERE tech_orders.status = 'in_call_center_supervisor'
+                  AND COALESCE(tech_orders.is_active, TRUE) = TRUE
+                ORDER BY tech_orders.created_at ASC, tech_orders.id ASC
+                OFFSET $1 LIMIT $2
+                """,
+                offset,
+                limit,
+            )
+
         return dict(row) if row else None
     finally:
         await conn.close()

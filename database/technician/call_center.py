@@ -1,8 +1,11 @@
 # database/technician/call_center.py
 from config import settings  # settings.DB_URL
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import os
 import asyncpg
+
+from database.basic.region import normalize_region_code
+from database.basic.phone import normalize_phone
 
 __all__ = ["list_technicians_by_region", "staff_orders_create", "staff_orders_technician_create"]
 
@@ -59,7 +62,7 @@ async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
@@ -67,16 +70,8 @@ async def staff_orders_create(
 ) -> str:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
-        region_name = f"Region_{region}"
-        try:
-            region_name = await conn.fetchval(
-                "SELECT name FROM regions WHERE id = $1",
-                region
-            )
-            if not region_name:
-                region_name = f"Region_{region}"
-        except Exception:
-            region_name = f"Region_{region}"
+        region_value = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+        normalized_phone = normalize_phone(phone) if phone else None
         next_number = await conn.fetchval(
             "SELECT COALESCE(MAX(CAST(SUBSTRING(application_number FROM '\\d+$') AS INTEGER)), 0) + 1 FROM staff_orders WHERE application_number LIKE $1",
             f"STAFF-TECH-{business_type}-%"
@@ -94,8 +89,8 @@ async def staff_orders_create(
             """,
             application_number,
             user_id,
-            phone,
-            region_name,
+            normalized_phone,
+            region_value,
             abonent_id,
             address,
             (description or ""),
@@ -110,7 +105,7 @@ async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
@@ -118,6 +113,8 @@ async def staff_orders_technician_create(
 ) -> int:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        region_value = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+        normalized_phone = normalize_phone(phone) if phone else None
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
@@ -129,8 +126,8 @@ async def staff_orders_technician_create(
             RETURNING id
             """,
             user_id,
-            phone,
-            region,
+            normalized_phone,
+            region_value,
             abonent_id,
             address,
             (description or ""),

@@ -29,6 +29,7 @@ from database.manager.orders import (
     ensure_user_manager,
 )
 from database.basic.user import get_user_by_telegram_id, find_user_by_phone
+from database.basic.region import normalize_region_code
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -119,10 +120,6 @@ REGION_CODE_TO_NAME = {
         "karakalpakstan": "Каракалпакстан",
     }
 }
-
-def map_region_code_to_id(region_code: str | None) -> int | None:
-    return REGION_CODE_TO_ID.get((region_code or "").lower()) if region_code else None
-
 def region_display(lang: str, region_code: str | None) -> str:
     lang = normalize_lang(lang)
     return REGION_CODE_TO_NAME.get(lang, {}).get(region_code or "", region_code or "-")
@@ -304,16 +301,13 @@ async def manager_confirm_tech(callback: CallbackQuery, state: FSMContext):
 
         client_user_id = acting_client["id"]
 
-        region_code = (data.get("selected_region") or "toshkent_city").lower()
-        region_id = map_region_code_to_id(region_code)
-        if region_id is None:
-            raise ValueError(f"Unknown region code: {region_code}")
+        region_code = normalize_region_code((data.get("selected_region") or "toshkent_city")) or "toshkent_city"
 
         result = await staff_orders_technician_create(
             user_id=manager_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
-            region=str(region_id),
+            region=region_code,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             description=data.get("description", "Kiritilmagan" if lang == "uz" else "Не указан"),
             business_type="B2C",  # Default B2C

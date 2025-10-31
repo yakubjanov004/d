@@ -23,7 +23,8 @@ from states.call_center_states import staffTechnicianOrderStates
 from database.call_center.search import find_user_by_phone
 from database.basic.user import ensure_user
 from database.technician.call_center import staff_orders_create
-from database.basic.language import get_user_language  
+from database.basic.language import get_user_language
+from database.basic.region import normalize_region_code
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -47,17 +48,6 @@ def normalize_phone(phone_raw: str) -> str | None:
     if len(digits) == 9:
         return "+998" + digits
     return phone_raw if phone_raw.startswith("+") else ("+" + digits if digits else None)
-
-REGION_CODE_TO_ID = {
-    "toshkent_city": 1, "toshkent_region": 2, "andijon": 3, "fergana": 4, "namangan": 5,
-    "sirdaryo": 6, "jizzax": 7, "samarkand": 8, "bukhara": 9, "navoi": 10,
-    "kashkadarya": 11, "surkhandarya": 12, "khorezm": 13, "karakalpakstan": 14,
-}
-
-def map_region_code_to_id(region_code: str | None) -> int | None:
-    if not region_code:
-        return None
-    return REGION_CODE_TO_ID.get(region_code)
 
 def back_to_phone_kb(lang: str) -> InlineKeyboardMarkup:
     """Telefon bosqichiga qaytaruvchi inline tugma."""
@@ -277,10 +267,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         user_row = await ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
         user_id = user_row["id"]
 
-        region_code = (data.get("selected_region") or "toshkent_city").lower()
-        region_id = map_region_code_to_id(region_code)
-        if region_id is None:
-            raise ValueError(f"Unknown region code: {region_code}")
+        region_code = normalize_region_code((data.get("selected_region") or "toshkent_city")) or "toshkent_city"
 
         description = data.get("description", "") or ""
 
@@ -288,7 +275,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             user_id=user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
-            region=region_id,
+            region=region_code,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             description=description,
         )

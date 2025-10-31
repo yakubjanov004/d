@@ -17,9 +17,14 @@ import html
 from keyboards.controllers_buttons import (
     get_controller_main_menu,
     controller_zayavka_type_keyboard,
-    get_controller_regions_keyboard,
     controller_confirmation_keyboard,
-    get_controller_tariff_selection_keyboard,
+    get_controller_regions_keyboard,
+)
+from keyboards.shared_staff_tariffs import (
+    get_staff_b2c_tariff_keyboard,
+    get_staff_tariff_category_keyboard,
+    get_staff_biznet_tariff_keyboard,
+    get_staff_tijorat_tariff_keyboard,
 )
 
 # === States ===
@@ -32,6 +37,12 @@ from database.controller.orders import (
 )
 from database.basic.user import get_user_by_telegram_id, find_user_by_phone
 from database.basic.tariff import get_or_create_tarif_by_code
+from database.basic.region import normalize_region_code
+
+from utils.tariff_helpers import (
+    resolve_tariff_code_from_callback,
+    get_tariff_display_label,
+)
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -68,30 +79,6 @@ def normalize_lang(lang: str | None) -> str:
     if lang in {"ru", "rus", "russian", "ru-ru", "ru_ru"}:
         return "ru"
     return "uz"
-
-# -------------------------------------------------------
-# 🔧 Region mapping
-# -------------------------------------------------------
-def map_region_code_to_id(region_code: str) -> int | None:
-    """Region code dan region ID ga o'tkazish"""
-    mapping = {
-        'toshkent_city': 1,
-        'tashkent_city': 1,
-        'toshkent_region': 2,
-        'andijon': 3,
-        'fergana': 4,
-        'namangan': 5,
-        'sirdaryo': 6,
-        'jizzax': 7,
-        'samarkand': 8,
-        'bukhara': 9,
-        'navoi': 10,
-        'kashkadarya': 11,
-        'surkhandarya': 12,
-        'khorezm': 13,
-        'karakalpakstan': 14,
-    }
-    return mapping.get(region_code.lower())
 
 def region_display(lang: str, region_code: str) -> str:
     """Region code dan display name ga o'tkazish"""
@@ -267,11 +254,20 @@ async def controller_select_connection_type(callback: CallbackQuery, state: FSMC
     if lang == "ru":
         type_name = "Физ. лицо" if connection_type == "b2c" else "Юр. лицо"
 
-    await callback.message.edit_text(
-        f"✅ Ulanish turi tanlandi: {esc(type_name)}\n\n" +
-        ("Tarifni tanlang:" if lang == "uz" else "Выберите тариф:"),
-        reply_markup=get_controller_tariff_selection_keyboard()
-    )
+    if connection_type == "b2c":
+        text = (
+            f"✅ Ulanish turi tanlandi: {esc(type_name)}\n\n" +
+            ("Tarifni tanlang:" if lang == "uz" else "Выберите тариф:")
+        )
+        keyboard = get_staff_b2c_tariff_keyboard(prefix="op_tariff", lang=lang)
+    else:
+        text = (
+            f"✅ Ulanish turi tanlandi: {esc(type_name)}\n\n" +
+            ("Tarif toifasini tanlang:" if lang == "uz" else "Выберите категорию тарифов:")
+        )
+        keyboard = get_staff_tariff_category_keyboard(prefix="op_tariff", lang=lang)
+
+    await callback.message.edit_text(text, reply_markup=keyboard)
 
 # ======================= STEP 4: tariff selection =======================
 @router.callback_query(F.data.startswith("op_tariff_"), StateFilter(ControllerConnectionOrderStates.selecting_tariff))
@@ -281,13 +277,61 @@ async def controller_select_tariff(callback: CallbackQuery, state: FSMContext):
     u = await get_user_by_telegram_id(callback.from_user.id)
     lang = normalize_lang(u.get("language") if u else "uz")
 
-    tariff_code = callback.data.replace("op_tariff_", "")
-    await state.update_data(selected_tariff=tariff_code)
+    data = callback.data
+
+    if data == "op_tariff_back_to_type":
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        await state.update_data(selected_tariff=None, connection_type=None)
+        await callback.message.answer(
+            "🔌 Ulanish turini tanlang:" if lang == "uz" else "🔌 Выберите тип подключения:",
+            reply_markup=controller_zayavka_type_keyboard(lang)
+        )
+        await state.set_state(ControllerConnectionOrderStates.selecting_connection_type)
+        return
+
+    if data == "op_tariff_back_to_categories":
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        await callback.message.answer(
+            "📋 Tarif toifasini tanlang:" if lang == "uz" else "📋 Выберите категорию тарифов:",
+            reply_markup=get_staff_tariff_category_keyboard(prefix="op_tariff", lang=lang)
+        )
+        return
+
+    if data in {"op_tariff_category_biznet", "op_tariff_category_tijorat"}:
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        if data.endswith("biznet"):
+            keyboard = get_staff_biznet_tariff_keyboard(prefix="op_tariff", lang=lang)
+            text = "📋 BizNET-Pro tariflari:" if lang == "uz" else "📋 Тарифы BizNET-Pro:"
+        else:
+            keyboard = get_staff_tijorat_tariff_keyboard(prefix="op_tariff", lang=lang)
+            text = "📋 Tijorat tariflari:" if lang == "uz" else "📋 Тарифы Tijorat:"
+        await callback.message.answer(text, reply_markup=keyboard)
+        return
+
+    normalized_code = resolve_tariff_code_from_callback(data)
+    if not normalized_code:
+        return
+
+    try:
+        await callback.message.edit_reply_markup()
+    except Exception:
+        pass
+
+    await state.update_data(selected_tariff=normalized_code)
     await state.set_state(ControllerConnectionOrderStates.entering_address)
 
-    tariff_name = TARIFF_DISPLAY.get(lang, {}).get(tariff_code, tariff_code)
-    await callback.message.edit_text(
-        f"✅ Tarif tanlandi: {esc(tariff_name)}\n\n" +
+    tariff_label = get_tariff_display_label(normalized_code, lang) or "-"
+    await callback.message.answer(
+        f"✅ Tarif tanlandi: {esc(tariff_label)}\n\n" +
         ("Manzilni kiriting:" if lang == "uz" else "Введите адрес:"),
     )
 
@@ -316,7 +360,8 @@ async def controller_show_summary(target, state: FSMContext):
     type_name = "Jismoniy shaxs" if connection_type == "b2c" else "Yuridik shaxs"
     if lang == "ru":
         type_name = "Физ. лицо" if connection_type == "b2c" else "Юр. лицо"
-    tariff_name = TARIFF_DISPLAY.get(lang, {}).get(tariff_code, tariff_code)
+    tariff_map = TARIFF_DISPLAY.get(lang, {})
+    tariff_label = tariff_map.get(tariff_code, None) or get_tariff_display_label(tariff_code, lang) or "-"
 
     summary_text = (
         f"📋 <b>Ulanish arizasi ma'lumotlari:</b>\n\n" if lang == "uz" else f"📋 <b>Данные заявки на подключение:</b>\n\n"
@@ -325,14 +370,14 @@ async def controller_show_summary(target, state: FSMContext):
         f"📱 <b>Telefon:</b> {esc(acting_client.get('phone', '-'))}\n"
         f"📍 <b>Hudud:</b> {esc(region_name)}\n"
         f"🏢 <b>Ulanish turi:</b> {esc(type_name)}\n"
-        f"📊 <b>Tarif:</b> {esc(tariff_name)}\n"
+        f"📊 <b>Tarif:</b> {esc(tariff_label)}\n"
         f"🏠 <b>Manzil:</b> {esc(address)}\n\n"
         f"Ma'lumotlar to'g'rimi?" if lang == "uz" else
         f"👤 <b>Клиент:</b> {esc(acting_client.get('full_name', '-'))}\n"
         f"📱 <b>Телефон:</b> {esc(acting_client.get('phone', '-'))}\n"
         f"📍 <b>Регион:</b> {esc(region_name)}\n"
         f"🏢 <b>Тип подключения:</b> {esc(type_name)}\n"
-        f"📊 <b>Тариф:</b> {esc(tariff_name)}\n"
+        f"📊 <b>Тариф:</b> {esc(tariff_label)}\n"
         f"🏠 <b>Адрес:</b> {esc(address)}\n\n"
         f"Все верно?"
     )
@@ -365,19 +410,18 @@ async def controller_confirm(callback: CallbackQuery, state: FSMContext):
 
         client_user_id = acting_client["id"]
 
-        region_code = (data.get("selected_region") or "toshkent_city").lower()
-        region_id = map_region_code_to_id(region_code)
-        if region_id is None:
-            raise ValueError(f"Unknown region code: {region_code}")
+        region_code = normalize_region_code((data.get("selected_region") or "toshkent_city")) or "toshkent_city"
 
         tariff_code = data.get("selected_tariff")  # tariff_* bo'lib keladi
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
+        tariff_map = TARIFF_DISPLAY.get(lang, {})
+        tariff_label = tariff_map.get(tariff_code or "", None) or get_tariff_display_label(tariff_code, lang) or "-"
 
         result = await staff_orders_create(
             user_id=controller_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
-            region=str(region_id),
+            region=region_code,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
             business_type=data.get("connection_type", "B2C").upper(),
@@ -388,7 +432,7 @@ async def controller_confirm(callback: CallbackQuery, state: FSMContext):
             from loader import bot
             from utils.notification_service import send_group_notification_for_staff_order
             
-            tariff_name = TARIFF_DISPLAY.get(lang, {}).get(tariff_code or '', tariff_code or None)
+            tariff_name = tariff_label if tariff_label != "-" else None
             region_name = region_display(lang, region_code)
             
             await send_group_notification_for_staff_order(
@@ -412,7 +456,7 @@ async def controller_confirm(callback: CallbackQuery, state: FSMContext):
                 f"{('✅ Ulanish arizasi yaratildi!' if lang == 'uz' else '✅ Заявка на подключение создана!')}\n\n"
                 f"{('🆔 Ariza raqami:' if lang == 'uz' else '🆔 Номер заявки:')} <code>{result['application_number']}</code>\n"
                 f"{('📍 Viloyat:' if lang == 'uz' else '📍 Регион:')} {region_display(lang, region_code)}\n"
-                f"{('📋 Tarif:' if lang == 'uz' else '📋 Тариф:')} {esc(TARIFF_DISPLAY.get(lang, {}).get(tariff_code or '', tariff_code or '-'))}\n"
+                f"{('📋 Tarif:' if lang == 'uz' else '📋 Тариф:')} {esc(tariff_label)}\n"
                 f"{('📱 Telefon:' if lang == 'uz' else '📱 Телефон:')} {esc(acting_client.get('phone','-'))}\n"
                 f"{('🏠 Manzil:' if lang == 'uz' else '🏠 Адрес:')} {esc(data.get('address','-'))}\n"
                 f"{('📤 Menejerga yuborildi!' if lang == 'uz' else '📤 Отправлено менеджеру!')}"

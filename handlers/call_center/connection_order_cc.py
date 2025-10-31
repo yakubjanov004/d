@@ -18,7 +18,12 @@ from keyboards.call_center_buttons import (
     zayavka_type_keyboard,
     get_client_regions_keyboard,
     confirmation_keyboard,
-    get_operator_tariff_selection_keyboard,
+)
+from keyboards.shared_staff_tariffs import (
+    get_staff_b2c_tariff_keyboard,
+    get_staff_tariff_category_keyboard,
+    get_staff_biznet_tariff_keyboard,
+    get_staff_tijorat_tariff_keyboard,
 )
 
 # === States ===
@@ -32,6 +37,12 @@ from database.call_center.orders import (
 )
 from database.basic.user import ensure_user
 from database.basic.language import get_user_language  # <<< TIL
+from database.basic.region import normalize_region_code
+
+from utils.tariff_helpers import (
+    resolve_tariff_code_from_callback,
+    get_tariff_display_label,
+)
 
 # === Role filter ===
 from filters.role_filter import RoleFilter
@@ -56,16 +67,7 @@ def normalize_phone(phone_raw: str) -> str | None:
     return phone_raw if phone_raw.startswith("+998") and len(digits) == 12 else None
 
 def strip_op_prefix_to_tariff(code: str | None) -> str | None:
-    return "tariff_" + code[len("op_tariff_"):] if code and code.startswith("op_tariff_") else code
-
-REGION_CODE_TO_ID: dict[str, int] = {
-    "toshkent_city": 1, "toshkent_region": 2, "andijon": 3, "fergana": 4, "namangan": 5,
-    "sirdaryo": 6, "jizzax": 7, "samarkand": 8, "bukhara": 9, "navoi": 10,
-    "kashkadarya": 11, "surkhandarya": 12, "khorezm": 13, "karakalpakstan": 14,
-}
-
-def map_region_code_to_id(region_code: str | None) -> int | None:
-    return REGION_CODE_TO_ID.get(region_code) if region_code else None
+    return resolve_tariff_code_from_callback(code)
 
 def back_to_phone_kb(lang: str) -> InlineKeyboardMarkup:
     """Tilga mos 'Orqaga/Назад' tugmasi — telefon bosqichiga qaytaradi."""
@@ -233,18 +235,75 @@ async def op_select_connection_type(callback: CallbackQuery, state: FSMContext):
     connection_type = callback.data.split("_")[-1]  # 'b2c' or 'b2b'
     await state.update_data(connection_type=connection_type)
 
-    text = "📋 Tariflardan birini tanlang:" if lang == "uz" else "📋 Выберите один из тарифов:"
-    await callback.message.answer(text, reply_markup=get_operator_tariff_selection_keyboard(), parse_mode="HTML")
+    if connection_type == "b2c":
+        text = "📋 Tariflardan birini tanlang:" if lang == "uz" else "📋 Выберите тариф:"
+        keyboard = get_staff_b2c_tariff_keyboard(lang=lang)
+    else:
+        text = "📋 Tarif toifasini tanlang:" if lang == "uz" else "📋 Выберите категорию тарифов:"
+        keyboard = get_staff_tariff_category_keyboard(lang=lang)
+
+    await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(staffConnectionOrderStates.selecting_tariff)
 
-# ======================= STEP 5: tariff -> address =======================
+# ======================= STEP 5: tariff -> address (with categories) =======================
 @router.callback_query(StateFilter(staffConnectionOrderStates.selecting_tariff), F.data.startswith("op_tariff_"))
-async def op_select_tariff(callback: CallbackQuery, state: FSMContext):
+async def op_tariff_flow(callback: CallbackQuery, state: FSMContext):
     lang = await get_user_language(callback.from_user.id) or "uz"
-    await callback.answer()
-    await callback.message.edit_reply_markup()
+    data = callback.data
 
-    normalized_code = strip_op_prefix_to_tariff(callback.data)
+    if data == "op_tariff_back_to_type":
+        await callback.answer()
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        await state.update_data(selected_tariff=None, connection_type=None)
+        text = "🔌 Ulanish turini tanlang:" if lang == "uz" else "🔌 Выберите тип подключения:"
+        await callback.message.answer(text, reply_markup=zayavka_type_keyboard(lang=lang))
+        await state.set_state(staffConnectionOrderStates.selecting_connection_type)
+        return
+
+    if data == "op_tariff_back_to_categories":
+        await callback.answer()
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        await callback.message.answer(
+            "📋 Tarif toifasini tanlang:" if lang == "uz" else "📋 Выберите категорию тарифов:",
+            reply_markup=get_staff_tariff_category_keyboard(lang=lang),
+            parse_mode="HTML",
+        )
+        return
+
+    if data in {"op_tariff_category_biznet", "op_tariff_category_tijorat"}:
+        await callback.answer()
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+
+        if data.endswith("biznet"):
+            text = "📋 BizNET-Pro tariflari:" if lang == "uz" else "📋 Тарифы BizNET-Pro:"
+            keyboard = get_staff_biznet_tariff_keyboard(lang=lang)
+        else:
+            text = "📋 Tijorat tariflari:" if lang == "uz" else "📋 Тарифы Tijorat:"
+            keyboard = get_staff_tijorat_tariff_keyboard(lang=lang)
+
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        return
+
+    normalized_code = strip_op_prefix_to_tariff(data)
+    if not normalized_code:
+        await callback.answer()
+        return
+
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup()
+    except Exception:
+        pass
+
     await state.update_data(selected_tariff=normalized_code)
 
     await callback.message.answer("🏠 Manzilni kiriting:" if lang == "uz" else "🏠 Введите адрес:")
@@ -269,19 +328,22 @@ async def op_show_summary(target, state: FSMContext):
     data = await state.get_data()
     region = (data.get("selected_region") or "-").replace("_", " ").title()
     ctype = (data.get("connection_type") or "b2c").upper()
-    tariff_code = data.get("selected_tariff") or "-"
+    tariff_code = data.get("selected_tariff")
+    tariff_display = get_tariff_display_label(tariff_code, lang) if tariff_code else None
     address = data.get("address", "-")
+
+    tariff_text = tariff_display or "-"
 
     text = (
         f"🗺️ <b>Hudud:</b> {region}\n"
         f"🔌 <b>Ulanish turi:</b> {ctype}\n"
-        f"💳 <b>Tarif:</b> {tariff_code}\n"
+        f"💳 <b>Tarif:</b> {tariff_text}\n"
         f"🏠 <b>Manzil:</b> {address}\n\n"
         "Ma'lumotlar to‘g‘rimi?"
         if lang == "uz" else
         f"🗺️ <b>Регион:</b> {region}\n"
         f"🔌 <b>Тип подключения:</b> {ctype}\n"
-        f"💳 <b>Тариф:</b> {tariff_code}\n"
+        f"💳 <b>Тариф:</b> {tariff_text}\n"
         f"🏠 <b>Адрес:</b> {address}\n\n"
         "Всё верно?"
     )
@@ -310,19 +372,17 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
         user_row = await ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
         user_id = user_row["id"]
 
-        region_code = (data.get("selected_region") or "toshkent_city").lower()
-        region_id = map_region_code_to_id(region_code)
-        if region_id is None:
-            raise ValueError(f"Unknown region code: {region_code}")
+        region_code = normalize_region_code((data.get("selected_region") or "toshkent_city")) or "toshkent_city"
 
         tariff_code = data.get("selected_tariff")
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
+        tariff_label = get_tariff_display_label(tariff_code, lang) if tariff_code else "-"
 
         request_id = await staff_orders_create(
             user_id=user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
-            region=region_id,
+            region=region_code,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указан"),
             tarif_id=tarif_id,
             business_type=data.get("business_type", "B2C"),
@@ -334,7 +394,7 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             from loader import bot
             from utils.notification_service import send_group_notification_for_staff_order
             
-            tariff_name = tariff_code or None
+            tariff_name = tariff_label or None
             region_name = region_code.replace('_', ' ').title()
             
             await send_group_notification_for_staff_order(
@@ -357,14 +417,14 @@ async def op_confirm(callback: CallbackQuery, state: FSMContext):
             "✅ <b>Ariza yaratildi</b>\n\n"
             f"🆔 Ariza: <code>{request_id}</code>\n"
             f"📍 Region: {region_code.replace('_', ' ').title()}\n"
-            f"💳 Tarif: {tariff_code or '-'}\n"
+            f"💳 Tarif: {tariff_label}\n"
             f"📞 Tel: {acting_client.get('phone','-')}\n"
             f"🏠 Manzil: {data.get('address','-')}\n"
             if lang == "uz" else
             "✅ <b>Заявка создана</b>\n\n"
             f"🆔 Номер: <code>{request_id}</code>\n"
             f"📍 Регион: {region_code.replace('_', ' ').title()}\n"
-            f"💳 Тариф: {tariff_code or '-'}\n"
+            f"💳 Тариф: {tariff_label}\n"
             f"📞 Тел: {acting_client.get('phone','-')}\n"
             f"🏠 Адрес: {data.get('address','-')}\n"
         )
@@ -394,5 +454,5 @@ async def op_resend(callback: CallbackQuery, state: FSMContext):
     await state.set_state(staffConnectionOrderStates.selecting_region)
     await callback.message.answer(
         "🌍 Regionni tanlang:" if lang == "uz" else "🌍 Выберите регион:",
-        reply_markup=get_client_regions_keyboard()
+        reply_markup=get_client_regions_keyboard(lang)
     )

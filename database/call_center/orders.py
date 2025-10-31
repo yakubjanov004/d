@@ -1,8 +1,10 @@
 # database/call_center/orders.py
 import re
 import asyncpg
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from config import settings
+from database.basic.region import normalize_region_code
+from database.basic.phone import normalize_phone
 
 # ---------- TELEFON NORMALIZATSIYA ----------
 
@@ -108,7 +110,7 @@ async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     tarif_id: Optional[int],
     business_type: str = "B2C",
@@ -126,6 +128,9 @@ async def staff_orders_create(
         )
         application_number = f"STAFF-CONN-{business_type}-{next_number:04d}"
 
+        normalized_region = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+        normalized_phone = normalize_phone(phone) if phone else None
+
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
@@ -136,7 +141,15 @@ async def staff_orders_create(
                     '', $8, 'connection', 'in_call_center_supervisor'::staff_order_status, TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
-            application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
+            application_number,
+            user_id,
+            normalized_phone,
+            abonent_id,
+            normalized_region,
+            address,
+            tarif_id,
+            business_type,
+            created_by_role,
         )
         return row["id"]
     finally:
@@ -146,7 +159,7 @@ async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
@@ -164,6 +177,9 @@ async def staff_orders_technician_create(
         )
         application_number = f"STAFF-TECH-{business_type}-{next_number:04d}"
 
+        normalized_region = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+        normalized_phone = normalize_phone(phone) if phone else None
+
         row = await conn.fetchrow(
             """
             INSERT INTO staff_orders (
@@ -174,7 +190,15 @@ async def staff_orders_technician_create(
                     $7, $8, 'technician', 'in_call_center_supervisor'::staff_order_status, TRUE, $9, NOW(), NOW())
             RETURNING id, application_number
             """,
-            application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
+            application_number,
+            user_id,
+            normalized_phone,
+            abonent_id,
+            normalized_region,
+            address,
+            description,
+            business_type,
+            created_by_role,
         )
         return row["id"]
     finally:

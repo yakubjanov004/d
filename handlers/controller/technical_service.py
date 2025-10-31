@@ -28,6 +28,7 @@ from database.controller.orders import (
     staff_orders_technician_create, # texnik xizmat arizasi yaratish
 )
 from database.basic.user import ensure_user   # controller userini ensure
+from database.basic.region import normalize_region_code
 
 # 🔑 tilni olish
 from database.basic.user import get_user_by_telegram_id
@@ -119,10 +120,6 @@ REGION_CODE_TO_ID = {
     "sirdaryo": 6, "jizzax": 7, "samarkand": 8, "bukhara": 9, "navoi": 10,
     "kashkadarya": 11, "surkhandarya": 12, "khorezm": 13, "karakalpakstan": 14,
 }
-
-def map_region_code_to_id(region_code: str | None) -> int | None:
-    if not region_code: return None
-    return REGION_CODE_TO_ID.get(region_code)
 
 async def _get_lang_from_db(user_tg_id: int) -> str:
     user = await get_user_by_telegram_id(user_tg_id)
@@ -301,10 +298,7 @@ async def ctrl_tservice_confirm(callback: CallbackQuery, state: FSMContext):
         controller_row = await ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
         controller_user_id = controller_row["id"]
 
-        region_code = (data.get("selected_region") or "toshkent_city").lower()
-        region_id = map_region_code_to_id(region_code)
-        if region_id is None:
-            raise ValueError(f"Unknown region code: {region_code}")
+        region_code = normalize_region_code((data.get("selected_region") or "toshkent_city")) or "toshkent_city"
 
         description = data.get("description", "") or ""
 
@@ -312,7 +306,7 @@ async def ctrl_tservice_confirm(callback: CallbackQuery, state: FSMContext):
             user_id=controller_user_id,
             phone=acting_client.get("phone"),
             abonent_id=str(client_user_id),
-            region=region_id,
+            region=region_code,
             address=data.get("address", "Kiritilmagan" if lang == "uz" else "Не указано"),
             description=description,
             # initial_status default: 'in_controller'

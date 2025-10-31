@@ -168,22 +168,10 @@ async def get_user_orders_with_materials(telegram_id: int, offset: int = 0, limi
                     -- Staff orders can have media too
                     CASE 
                         WHEN mf.file_path IS NOT NULL AND mf.file_path != '' THEN mf.file_path
-                        WHEN so.media IS NOT NULL AND so.media != '' THEN so.media
                         ELSE NULL
                     END as media_file_id,
                     CASE 
                         WHEN mf.file_type IS NOT NULL AND mf.file_type != '' THEN mf.file_type
-                        WHEN so.media IS NOT NULL AND so.media != '' THEN 
-                            CASE 
-                                WHEN so.media LIKE 'BAACAgI%' THEN 'video'
-                                WHEN so.media LIKE 'BAADBAAD%' THEN 'video'
-                                WHEN so.media LIKE 'BAAgAgI%' THEN 'video'
-                                WHEN so.media LIKE 'AgACAgI%' THEN 'photo'
-                                WHEN so.media LIKE 'CAAQAgI%' THEN 'photo'
-                                WHEN so.media LIKE '%.mp4' OR so.media LIKE '%.avi' OR so.media LIKE '%.mov' THEN 'video'
-                                WHEN so.media LIKE '%.jpg' OR so.media LIKE '%.jpeg' OR so.media LIKE '%.png' THEN 'photo'
-                                ELSE 'photo'  -- Default to photo if can't determine
-                            END
                         ELSE NULL
                     END as media_type,
                     CASE 

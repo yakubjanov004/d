@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 import asyncio
+from typing import Optional
 import asyncpg
 from aiogram import F, Router
 from aiogram.types import (
@@ -75,34 +76,58 @@ def normalize_region(region_code: str, lang: str) -> str:
         return REGION_CODE_TO_RU.get(region_code, region_code)
     return REGION_CODE_TO_UZ.get(region_code, region_code)
 
+
+def get_tariff_prompt(lang: str) -> str:
+    return (
+        "📋 <b>Tariflardan birini tanlang:</b>\n\n"
+        if lang == "uz"
+        else "📋 <b>Выберите тариф:</b>\n\n"
+    )
+
 # --- Tarif ko'rinish nomlari (UZ/RU)
-TARIFF_NAMES = {
+_TARIFF_DISPLAY = {
     # B2C tariffs
-    "tariff_b2c_plan_0": {"uz": "Oddiy-20", "ru": "Oddiy-20"},
-    "tariff_b2c_plan_1": {"uz": "Oddiy-50", "ru": "Oddiy-50"},
-    "tariff_b2c_plan_2": {"uz": "Oddiy-100", "ru": "Oddiy-100"},
-    "tariff_b2c_plan_3": {"uz": "XIT-200", "ru": "XIT-200"},
-    "tariff_b2c_plan_4": {"uz": "VIP-500", "ru": "VIP-500"},
-    "tariff_b2c_plan_5": {"uz": "PREMIUM", "ru": "PREMIUM"},
+    "b2c_plan_0": {"uz": "Oddiy-20", "ru": "Oddiy-20"},
+    "b2c_plan_1": {"uz": "Oddiy-50", "ru": "Oddiy-50"},
+    "b2c_plan_2": {"uz": "Oddiy-100", "ru": "Oddiy-100"},
+    "b2c_plan_3": {"uz": "XIT-200", "ru": "XIT-200"},
+    "b2c_plan_4": {"uz": "VIP-500", "ru": "VIP-500"},
+    "b2c_plan_5": {"uz": "PREMIUM", "ru": "PREMIUM"},
     # BizNET-Pro tariffs
-    "tariff_biznet_plan_0": {"uz": "BizNET-Pro-1", "ru": "BizNET-Pro-1"},
-    "tariff_biznet_plan_1": {"uz": "BizNET-Pro-2", "ru": "BizNET-Pro-2"},
-    "tariff_biznet_plan_2": {"uz": "BizNET-Pro-3", "ru": "BizNET-Pro-3"},
-    "tariff_biznet_plan_3": {"uz": "BizNET-Pro-4", "ru": "BizNET-Pro-4"},
-    "tariff_biznet_plan_4": {"uz": "BizNET-Pro-5", "ru": "BizNET-Pro-5"},
-    "tariff_biznet_plan_5": {"uz": "BizNET-Pro-6", "ru": "BizNET-Pro-6"},
-    "tariff_biznet_plan_6": {"uz": "BizNET-Pro-7+", "ru": "BizNET-Pro-7+"},
+    "biznet_plan_0": {"uz": "BizNET-Pro-1", "ru": "BizNET-Pro-1"},
+    "biznet_plan_1": {"uz": "BizNET-Pro-2", "ru": "BizNET-Pro-2"},
+    "biznet_plan_2": {"uz": "BizNET-Pro-3", "ru": "BizNET-Pro-3"},
+    "biznet_plan_3": {"uz": "BizNET-Pro-4", "ru": "BizNET-Pro-4"},
+    "biznet_plan_4": {"uz": "BizNET-Pro-5", "ru": "BizNET-Pro-5"},
+    "biznet_plan_5": {"uz": "BizNET-Pro-6", "ru": "BizNET-Pro-6"},
+    "biznet_plan_6": {"uz": "BizNET-Pro-7+", "ru": "BizNET-Pro-7+"},
     # Tijorat tariffs
-    "tariff_tijorat_plan_0": {"uz": "Tijorat-1", "ru": "Tijorat-1"},
-    "tariff_tijorat_plan_1": {"uz": "Tijorat-2", "ru": "Tijorat-2"},
-    "tariff_tijorat_plan_2": {"uz": "Tijorat-3", "ru": "Tijorat-3"},
-    "tariff_tijorat_plan_3": {"uz": "Tijorat-4", "ru": "Tijorat-4"},
-    "tariff_tijorat_plan_4": {"uz": "Tijorat-5", "ru": "Tijorat-5"},
-    "tariff_tijorat_plan_5": {"uz": "Tijorat-100", "ru": "Tijorat-100"},
-    "tariff_tijorat_plan_6": {"uz": "Tijorat-300", "ru": "Tijorat-300"},
-    "tariff_tijorat_plan_7": {"uz": "Tijorat-500", "ru": "Tijorat-500"},
-    "tariff_tijorat_plan_8": {"uz": "Tijorat-1000", "ru": "Tijorat-1000"},
+    "tijorat_plan_0": {"uz": "Tijorat-1", "ru": "Tijorat-1"},
+    "tijorat_plan_1": {"uz": "Tijorat-2", "ru": "Tijorat-2"},
+    "tijorat_plan_2": {"uz": "Tijorat-3", "ru": "Tijorat-3"},
+    "tijorat_plan_3": {"uz": "Tijorat-4", "ru": "Tijorat-4"},
+    "tijorat_plan_4": {"uz": "Tijorat-5", "ru": "Tijorat-5"},
+    "tijorat_plan_5": {"uz": "Tijorat-100", "ru": "Tijorat-100"},
+    "tijorat_plan_6": {"uz": "Tijorat-300", "ru": "Tijorat-300"},
+    "tijorat_plan_7": {"uz": "Tijorat-500", "ru": "Tijorat-500"},
+    "tijorat_plan_8": {"uz": "Tijorat-1000", "ru": "Tijorat-1000"},
 }
+
+
+def _normalize_tariff_code(code: Optional[str]) -> Optional[str]:
+    if not code:
+        return None
+    return code.replace("tariff_", "", 1) if code.startswith("tariff_") else code
+
+
+def get_tariff_display_name(code: Optional[str], lang: str) -> Optional[str]:
+    normalized = _normalize_tariff_code(code)
+    if not normalized:
+        return None
+    display = _TARIFF_DISPLAY.get(normalized)
+    if not display:
+        return code
+    return display.get(lang) or display.get("uz") or normalized
 
 # ================== FLOW ==================
 
@@ -163,7 +188,7 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
             try:
                 sent_message = await callback.message.answer_photo(
                     photo=photo,
-                    caption="📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                    caption=get_tariff_prompt(lang),
                     reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
                     parse_mode='HTML'
                 )
@@ -172,14 +197,14 @@ async def select_connection_type_client(callback: CallbackQuery, state: FSMConte
             except Exception as img_error:
                 logger.warning(f"Could not send tariff image: {img_error}")
                 await callback.message.answer(
-                    "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                    get_tariff_prompt(lang),
                     reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
                     parse_mode='HTML'
                 )
         else:
             # For B2B: just show the text without image
             await callback.message.answer(
-                "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+                get_tariff_prompt(lang),
                 reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
                 parse_mode='HTML'
             )
@@ -320,7 +345,7 @@ async def back_to_tariff_selection(callback: CallbackQuery, state: FSMContext):
         
         # Go back to B2B main selection
         await callback.message.answer(
-            "📋 <b>Tariflardan birini tanlang:</b>\n\n",
+            get_tariff_prompt(lang),
             reply_markup=get_client_tariff_selection_keyboard(connection_type, lang),
             parse_mode='HTML'
         )
@@ -472,7 +497,7 @@ async def finish_connection_order_client(message_or_callback, state: FSMContext,
         region = data.get('selected_region', data.get('region', 'toshkent shahri'))
         connection_type = data.get('connection_type', 'b2c')
         tariff_code = data.get('selected_tariff', 'tariff_b2c_plan_0')
-        tariff_display = TARIFF_NAMES.get(tariff_code, {}).get(lang, tariff_code)
+        tariff_display = get_tariff_display_name(tariff_code, lang) or tariff_code
         address = data.get('address', '-')
 
         text = (
@@ -523,7 +548,7 @@ async def confirm_connection_order_client(callback: CallbackQuery, state: FSMCon
 
         tariff_code = data.get('selected_tariff')
         tarif_id = await get_or_create_tarif_by_code(tariff_code) if tariff_code else None
-        tariff_name = TARIFF_NAMES.get(tariff_code, {}).get(lang, tariff_code) if tariff_code else None
+        tariff_name = get_tariff_display_name(tariff_code, lang)
 
         if tariff_code and not tarif_id:
             await callback.message.answer(

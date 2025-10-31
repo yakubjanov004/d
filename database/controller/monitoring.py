@@ -83,7 +83,7 @@ async def list_active_orders_detailed(limit: int = 50) -> List[Dict[str, Any]]:
                 u.full_name as client_name,
                 u.phone as client_phone,
                 t.name as tariff,
-                r.name as region_name,
+                INITCAP(REPLACE(so.region, '_', ' ')) AS region_name,
                 creator.full_name as staff_name,
                 creator.phone as staff_phone,
                 creator.role as staff_role,
@@ -99,7 +99,6 @@ async def list_active_orders_detailed(limit: int = 50) -> List[Dict[str, Any]]:
             JOIN last_assign la ON la.application_number = so.application_number
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
-            LEFT JOIN regions r ON r.id = so.region
             LEFT JOIN users creator ON creator.id = so.user_id
             WHERE la.recipient_status IN ('in_controller', 'between_controller_technician', 'in_technician')
               AND so.status IN ('in_controller', 'between_controller_technician', 'in_technician')
@@ -141,11 +140,10 @@ async def get_controller_workflow_history(order_id: int) -> Dict[str, Any]:
                 u.full_name as client_name,
                 u.phone as client_phone,
                 t.name as tariff,
-                r.name as region_name
+                INITCAP(REPLACE(so.region, '_', ' ')) AS region_name
             FROM staff_orders so
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
-            LEFT JOIN regions r ON r.id = so.region
             WHERE so.id = $1
             """,
             order_id

@@ -509,6 +509,7 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
     address = esc(row.get("address") or "-")
     description = esc(row.get("description") or "-")
     description_operator = esc(row.get("description_operator") or "-")
+    business_type = esc(row.get("business_type") or "-")
 
     texts = {
         "uz": {
@@ -521,7 +522,8 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
             "address": "🏠 <b>Manzil:</b>",
             "description": "📝 <b>Muammo:</b>",
             "operator_note": "📋 <b>Operator izohi:</b>",
-            "media": "📷 <b>Rasm:</b> Mavjud"
+            "media": "📷 <b>Rasm:</b> Mavjud",
+            "business_type": "🏢 <b>Yo'nalish:</b>"
         },
         "ru": {
             "title": "🔧 <b>Техническая заявка (от Controller)</b>",
@@ -533,7 +535,8 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
             "address": "🏠 <b>Адрес:</b>",
             "description": "📝 <b>Проблема:</b>",
             "operator_note": "📋 <b>Примечание оператора:</b>",
-            "media": "📷 <b>Фото:</b> Есть"
+            "media": "📷 <b>Фото:</b> Есть",
+            "business_type": "🏢 <b>Направление:</b>"
         }
     }
     t = texts[lang]
@@ -549,7 +552,8 @@ def _format_technician_card(row: dict, idx: int, total: int, lang: str = "uz") -
         f"{t['abonent']} {abonent_id}\n"
         f"{t['region']} {region_text}\n"
         f"{t['address']} {address}\n"
-        f"{t['description']} {description}{media_text}{operator_note_text}\n\n"
+        f"{t['description']} {description}{media_text}{operator_note_text}\n"
+        f"{t['business_type']} {business_type}\n\n"
         f"📅 <b>Sana:</b> {fmt_dt(row.get('created_at'))}"
     )
 
@@ -569,9 +573,9 @@ async def ccs_tech_next(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("ccs_tech_send_operator:"))
 async def ccs_tech_send_operator(cb: CallbackQuery):
     """Texnik arizani operator'ga yuborish - operator tanlash"""
-    _, order_id, cur = cb.data.split(":")
-    order_id = int(order_id)
-    cur = int(cur)
+    _, order_id_raw, cur_raw = cb.data.split(":")
+    order_id = int(order_id_raw)
+    cur = int(cur_raw)
     
     lang = await get_user_language(cb.from_user.id) or "uz"
     
@@ -647,7 +651,7 @@ async def ccs_tech_select_operator(cb: CallbackQuery):
     
     try:
         # Ariza ma'lumotlarini olish
-        row = await ccs_fetch_technician_orders(offset=cur, limit=1)
+        row = await ccs_fetch_technician_orders(order_id=order_id)
         if not row:
             await cb.answer(
                 ("❌ Ariza topilmadi!" if lang == "uz" else "❌ Заявка не найдена!"), 
@@ -716,7 +720,7 @@ async def ccs_tech_select_operator(cb: CallbackQuery):
                 await send_role_notification(
                     bot=bot,
                     recipient_telegram_id=operator['telegram_id'],
-                    order_id=f"#{order_id}",
+                    order_id=row.get('application_number', f"#{order_id}"),
                     order_type="technician",
                     current_load=1,
                     lang=operator.get('language', 'uz')
@@ -726,46 +730,13 @@ async def ccs_tech_select_operator(cb: CallbackQuery):
         finally:
             await conn.close()
         
-        # Tasdiqlash xabari
-        operator_name = (operator.get('full_name') or '').strip() or f"ID: {operator_id}"
-        
-        texts = {
-            "uz": {
-                "success": "✅ <b>Muvaffaqiyatli yuborildi!</b>",
-                "operator": "👨‍💼 <b>Operator:</b>",
-                "order": "🆔 <b>Ariza ID:</b>",
-                "message": "Texnik ariza operatorga muvaffaqiyatli yuborildi!"
-            },
-            "ru": {
-                "success": "✅ <b>Успешно отправлено!</b>",
-                "operator": "👨‍💼 <b>Оператор:</b>",
-                "order": "🆔 <b>ID заявки:</b>",
-                "message": "Техническая заявка успешно отправлена оператору!"
-            }
-        }
-        t = texts[lang]
-        
-        success_text = (
-            f"{t['success']}\n\n"
-            f"{t['operator']} {operator_name}\n"
-            f"{t['order']} #{order_id}\n\n"
-            f"{t['message']}"
-        )
-        
-        # Xabarni o'chirib, yangi xabarni yuborish
-        await cb.message.delete()
-        await cb.message.answer(success_text, parse_mode="HTML")
-        
-        # Asosiy menyuga qaytish - to'g'ridan-to'g'ri tech orders ko'rsatish
-        await cb.message.answer(
-            ("🏠 Asosiy menyu:" if lang == "uz" else "🏠 Главное меню:"),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=("📥 Inbox" if lang == "uz" else "📥 Входящие"),
-                    callback_data="ccs_tech_orders"
-                )]
-            ])
-        )
+        toast_text = {
+            "uz": "✅ Ariza operatorga yuborildi",
+            "ru": "✅ Заявка отправлена оператору"
+        }.get(lang, "✅ Sent")
+
+        await cb.answer(toast_text)
+        await _show_technician_item_with_media(cb, idx=cur, user_id=cb.from_user.id)
         
     except Exception as e:
         logger.error(f"Failed to send technician order to operator: {e}")

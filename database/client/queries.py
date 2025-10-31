@@ -2,6 +2,8 @@ import asyncpg
 from config import settings
 from typing import Optional
 
+from database.basic.phone import normalize_phone
+
 async def find_user_by_telegram_id(telegram_id: int) -> Optional[asyncpg.Record]:
     conn = await asyncpg.connect(settings.DB_URL)
     try:
@@ -60,13 +62,21 @@ async def get_user_phone_by_telegram_id(telegram_id: int) -> Optional[str]:
     finally:
         await conn.close()
 
-async def update_user_phone_by_telegram_id(telegram_id: int, phone: str) -> bool:
+async def update_user_phone_by_telegram_id(telegram_id: int, phone: Optional[str]) -> bool:
     """Update user's phone by telegram_id; return True if updated."""
     conn = await asyncpg.connect(settings.DB_URL)
     try:
+        sanitized = (phone or "").strip()
+        if sanitized:
+            normalized = normalize_phone(sanitized)
+            if not normalized:
+                return False
+        else:
+            normalized = None
+
         result = await conn.execute(
             "UPDATE users SET phone = $1 WHERE telegram_id = $2",
-            phone, telegram_id
+            normalized, telegram_id
         )
         return result != 'UPDATE 0'
     finally:

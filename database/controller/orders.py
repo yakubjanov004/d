@@ -1,9 +1,11 @@
 # database/controller/orders.py
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import asyncpg
 import logging
 from config import settings
+from database.basic.region import normalize_region_code
+from database.basic.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ async def staff_orders_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     tarif_id: Optional[int],
     business_type: str = "B2C",
@@ -43,6 +45,9 @@ async def staff_orders_create(
             )
             application_number = f"STAFF-CONN-{business_type}-{next_number:04d}"
             
+            normalized_region = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+            normalized_phone = normalize_phone(phone) if phone else None
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO staff_orders (
@@ -53,7 +58,15 @@ async def staff_orders_create(
                         '', $8, 'connection', 'in_manager'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, tarif_id, business_type, created_by_role
+                application_number,
+                user_id,
+                normalized_phone,
+                abonent_id,
+                normalized_region,
+                address,
+                tarif_id,
+                business_type,
+                created_by_role,
             )
             
             staff_order_id = row["id"]
@@ -84,7 +97,7 @@ async def staff_orders_technician_create(
     user_id: int,
     phone: Optional[str],
     abonent_id: Optional[str],
-    region: int,
+    region: Optional[Union[int, str]],
     address: str,
     description: Optional[str],
     business_type: str = "B2C",
@@ -105,6 +118,9 @@ async def staff_orders_technician_create(
             )
             application_number = f"STAFF-TECH-{business_type}-{next_number:04d}"
             
+            normalized_region = normalize_region_code(region) or (str(region).strip() if region is not None else None)
+            normalized_phone = normalize_phone(phone) if phone else None
+
             row = await conn.fetchrow(
                 """
                 INSERT INTO staff_orders (
@@ -115,7 +131,15 @@ async def staff_orders_technician_create(
                         $7, $8, 'technician', 'in_controller'::staff_order_status, TRUE, $9, NOW(), NOW())
                 RETURNING id, application_number
                 """,
-                application_number, user_id, phone, abonent_id, region, address, description, business_type, created_by_role
+                application_number,
+                user_id,
+                normalized_phone,
+                abonent_id,
+                normalized_region,
+                address,
+                description,
+                business_type,
+                created_by_role,
             )
             
             staff_order_id = row["id"]
@@ -173,11 +197,10 @@ async def list_my_created_orders_by_type(user_id: int, order_type: str, limit: i
                 u.full_name as client_name,
                 u.phone as client_phone,
                 t.name as tariff,
-                r.name as region_name
+                INITCAP(REPLACE(so.region, '_', ' ')) AS region_name
             FROM staff_orders so
             LEFT JOIN users u ON u.id = so.user_id
             LEFT JOIN tarif t ON t.id = so.tarif_id
-            LEFT JOIN regions r ON r.id = so.region
             WHERE so.user_id = $1
               AND so.type_of_zayavka = $2
               AND COALESCE(so.is_active, TRUE) = TRUE
